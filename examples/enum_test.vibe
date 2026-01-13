@@ -1,0 +1,22 @@
+// Test all enum variants
+
+enum Color {
+    Red,
+    Green,
+    Blue,
+}
+
+fn color_value(c: Color) -> i32 {
+    match c {
+        Color.Red => 10,
+        Color.Green => 20,
+        Color.Blue => 30,
+    }
+}
+
+fn main() -> i32 {
+    let r = color_value(Color.Red)
+    let g = color_value(Color.Green)
+    let b = color_value(Color.Blue)
+    return r + g + b
+}

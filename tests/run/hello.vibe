@@ -1,0 +1,6 @@
+// Conformance test: basic hello world
+// Expected output: Hello, World!
+
+fn main() {
+    print("Hello, World!")
+}

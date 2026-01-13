@@ -1,0 +1,6 @@
+// Hello World in Vibelang
+
+fn main() {
+    let message = "Hello, Vibelang!"
+    print(message)
+}

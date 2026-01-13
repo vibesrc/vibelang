@@ -1,0 +1,12 @@
+// Simple enum test - no match
+
+enum Color {
+    Red,
+    Green,
+    Blue,
+}
+
+fn main() -> i32 {
+    let c = Color.Green
+    return 0
+}

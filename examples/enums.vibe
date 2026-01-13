@@ -1,0 +1,20 @@
+// Enums and match test
+
+enum Color {
+    Red,
+    Green,
+    Blue,
+}
+
+fn color_value(c: Color) -> i32 {
+    match c {
+        Color.Red => 1,
+        Color.Green => 2,
+        Color.Blue => 3,
+    }
+}
+
+fn main() -> i32 {
+    let c = Color.Green
+    return color_value(c)
+}

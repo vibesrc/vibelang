@@ -1,0 +1,16 @@
+// ERROR: Should not compile - mutating through read-only borrow
+
+struct Point {
+    x: i32,
+    y: i32,
+}
+
+fn bad_set_x(p: &Point, val: i32) {
+    p.x = val  // ERROR: cannot mutate through &T
+}
+
+fn main() -> i32 {
+    let p = Point { x: 0, y: 20 }
+    bad_set_x(&p, 10)
+    return p.x
+}

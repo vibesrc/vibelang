@@ -1,0 +1,16 @@
+// Mutable borrow (vibing) test
+
+struct Point {
+    x: i32,
+    y: i32,
+}
+
+fn set_x(p: ~Point, val: i32) {
+    p.x = val
+}
+
+fn main() -> i32 {
+    let p = Point { x: 0, y: 20 }
+    set_x(~p, 10)
+    return p.x       // should be 10
+}

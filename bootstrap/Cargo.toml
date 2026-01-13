@@ -1,0 +1,10 @@
+[package]
+name = "vibec"
+version = "0.1.0"
+edition = "2024"
+description = "Bootstrap compiler for Vibelang"
+
+[dependencies]
+inkwell = { version = "0.8.0", features = ["llvm21-1"] }
+
+[dev-dependencies]

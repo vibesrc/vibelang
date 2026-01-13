@@ -1,0 +1,18 @@
+// Vibelang Prelude
+// These types are automatically available in all modules
+
+// Option type for nullable values
+pub enum Option<T> {
+    Some(T)
+    None
+}
+
+// Result type for error handling
+pub enum Result<T, E> {
+    Ok(T)
+    Err(E)
+}
+
+// TODO: These will be compiler intrinsics initially
+// pub fn print(s: &Slice<u8>)
+// pub fn panic(msg: &Slice<u8>) -> !

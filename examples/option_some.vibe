@@ -1,0 +1,9 @@
+enum Option {
+    Some(i32),
+    None,
+}
+
+fn main() -> i32 {
+    let x = Option.Some(42)
+    return 0
+}

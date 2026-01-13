@@ -1,0 +1,22 @@
+// More comprehensive struct test
+
+struct Point {
+    x: i32
+    y: i32
+}
+
+struct Rectangle {
+    width: i32
+    height: i32
+}
+
+fn area(r: Rectangle) -> i32 {
+    return r.width * r.height
+}
+
+fn main() {
+    let rect = Rectangle { width: 5, height: 8 }
+    let a = area(rect)
+    print("Area:")
+    print_int(a)
+}

@@ -1,0 +1,18 @@
+// Generic function test - with call
+
+struct Pair<T> {
+    first: T,
+    second: T
+}
+
+fn swap<T>(p: ~Pair<T>) {
+    let tmp = p.first
+    p.first = p.second
+    p.second = tmp
+}
+
+fn main() -> i32 {
+    let p = Pair<i32> { first: 10, second: 20 }
+    swap<i32>(~p)
+    return p.first    // should be 20
+}

@@ -1,0 +1,12 @@
+// Conformance test: use after move should error
+// Expected error: use of moved value `name`
+
+fn consume(s: String) {
+    print(&s)
+}
+
+fn main() {
+    let name = String.from("hello")
+    consume(name)           // name moved here
+    print(&name)            // ERROR: name was moved
+}
