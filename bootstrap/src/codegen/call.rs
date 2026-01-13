@@ -35,8 +35,14 @@ impl<'ctx> Codegen<'ctx> {
         if name == "print" {
             return self.compile_print_call(args);
         }
+        if name == "println" {
+            return self.compile_println_call(args);
+        }
         if name == "print_int" {
             return self.compile_print_int_call(args);
+        }
+        if name == "println_int" {
+            return self.compile_println_int_call(args);
         }
         if name == "malloc" {
             return self.compile_malloc_call(args);
@@ -81,6 +87,18 @@ impl<'ctx> Codegen<'ctx> {
             .iter()
             .map(|a| self.compile_expr(a))
             .collect::<Result<_, _>>()?;
+
+        // Track moves: if an argument is a struct variable passed by value, mark it as moved
+        for arg in args {
+            if let Expr::Ident(arg_name, _) = arg {
+                if let Some(var_info) = self.variables.get(arg_name) {
+                    // If the variable is a struct (not a reference), it's being moved
+                    if var_info.struct_name.is_some() && !var_info.is_ref && !var_info.is_mut_ref {
+                        self.moved_vars.insert(arg_name.clone());
+                    }
+                }
+            }
+        }
 
         let args_meta: Vec<_> = compiled_args.iter().map(|a| (*a).into()).collect();
 

@@ -488,13 +488,27 @@ let data = file.read_all()?
 /// Format with arguments
 fn format(fmt: Slice<u8>, args: ...) -> String
 
-/// Print to stdout
+/// Print string to stdout (no newline)
 fn print(s: Slice<u8>)
+
+/// Print string to stdout (with newline)
 fn println(s: Slice<u8>)
+
+/// Print integer to stdout (no newline)
+fn print_int(n: i64)
+
+/// Print integer to stdout (with newline)
+fn println_int(n: i64)
 
 /// Print formatted
 fn printf(fmt: Slice<u8>, args: ...)
 ```
+
+**Type Safety:** The print functions enforce strict type checking at compile time:
+- `print` and `println` only accept string types (`Slice<u8>`). Passing an integer will produce a compile error.
+- `print_int` and `println_int` only accept integer types. Passing a string will produce a compile error.
+
+This prevents common runtime errors like segfaults from format string mismatches.
 
 #### Format Usage
 
@@ -513,20 +527,23 @@ printf("Result: {}\n", 42)
 ### Allocation
 
 ```vibelang
-/// Allocate bytes
+/// Allocate bytes (wrapper around C malloc)
+fn malloc(size: i64) -> *u8
+
+/// Allocate bytes (alias for malloc)
 fn alloc(size: u64) -> *u8
 
 /// Allocate and zero
 fn alloc_zeroed(size: u64) -> *u8
 
 /// Reallocate
-fn realloc(ptr: *u8, new_size: u64) -> *u8
+fn realloc(ptr: *u8, new_size: i64) -> *u8
 
 /// Free memory
 fn free(ptr: *u8)
 
 /// Copy memory
-fn memcpy(dst: *u8, src: *u8, len: u64)
+fn memcpy(dst: *u8, src: *u8, len: i64) -> *u8
 
 /// Set memory
 fn memset(ptr: *u8, value: u8, len: u64)
@@ -534,6 +551,29 @@ fn memset(ptr: *u8, value: u8, len: u64)
 /// Compare memory
 fn memcmp(a: *u8, b: *u8, len: u64) -> i32
 ```
+
+**Type Safety:** Memory functions enforce strict type checking:
+- `malloc` requires an integer size argument
+- `realloc` requires a pointer and integer size
+- `free` requires a pointer argument
+- `memcpy` requires two pointers and an integer size
+
+### Low-Level Pointer Intrinsics
+
+For implementing data structures, these intrinsics provide direct memory access:
+
+```vibelang
+/// Write i64 value at ptr + (index * 8)
+fn ptr_write_i64(ptr: *u8, index: i64, value: i64)
+
+/// Read i64 value from ptr + (index * 8)
+fn ptr_read_i64(ptr: *u8, index: i64) -> i64
+```
+
+**Type Safety:** Pointer intrinsics enforce strict type checking:
+- First argument must be a pointer (or integer for int-to-ptr conversion)
+- Index must be an integer
+- Value (for write) must be an integer
 
 ## 14.5 Math Functions
 

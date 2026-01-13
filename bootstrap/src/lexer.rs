@@ -18,6 +18,11 @@ pub enum TokenKind {
     Star,
     Slash,
     Percent,
+    PlusEq,     // +=
+    MinusEq,    // -=
+    StarEq,     // *=
+    SlashEq,    // /=
+    PercentEq,  // %=
     Amp,        // & (borrow or bitwise AND)
     Tilde,      // ~ (vibing - mutable borrow)
     Pipe,
@@ -139,19 +144,50 @@ impl<'a> Lexer<'a> {
         let kind = match self.advance() {
             None => TokenKind::Eof,
             Some((_, c)) => match c {
-                // Single-char tokens
-                '+' => TokenKind::Plus,
+                // Operators with optional = suffix
+                '+' => {
+                    if self.peek_char() == Some('=') {
+                        self.advance();
+                        TokenKind::PlusEq
+                    } else {
+                        TokenKind::Plus
+                    }
+                }
                 '-' => {
                     if self.peek_char() == Some('>') {
                         self.advance();
                         TokenKind::Arrow
+                    } else if self.peek_char() == Some('=') {
+                        self.advance();
+                        TokenKind::MinusEq
                     } else {
                         TokenKind::Minus
                     }
                 }
-                '*' => TokenKind::Star,
-                '/' => TokenKind::Slash,
-                '%' => TokenKind::Percent,
+                '*' => {
+                    if self.peek_char() == Some('=') {
+                        self.advance();
+                        TokenKind::StarEq
+                    } else {
+                        TokenKind::Star
+                    }
+                }
+                '/' => {
+                    if self.peek_char() == Some('=') {
+                        self.advance();
+                        TokenKind::SlashEq
+                    } else {
+                        TokenKind::Slash
+                    }
+                }
+                '%' => {
+                    if self.peek_char() == Some('=') {
+                        self.advance();
+                        TokenKind::PercentEq
+                    } else {
+                        TokenKind::Percent
+                    }
+                }
                 '&' => TokenKind::Amp,
                 '~' => TokenKind::Tilde,
                 '|' => TokenKind::Pipe,

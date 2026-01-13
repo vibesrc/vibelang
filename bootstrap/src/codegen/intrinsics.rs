@@ -6,73 +6,122 @@ use inkwell::values::BasicValueEnum;
 use inkwell::AddressSpace;
 
 impl<'ctx> Codegen<'ctx> {
+    /// Helper to extract string pointer from Slice<u8> or raw pointer
+    fn extract_string_ptr(&mut self, arg: BasicValueEnum<'ctx>) -> BasicValueEnum<'ctx> {
+        if arg.is_struct_value() {
+            let struct_val = arg.into_struct_value();
+            self.builder.build_extract_value(struct_val, 0, "str_ptr").unwrap()
+        } else {
+            arg
+        }
+    }
+
+    /// print(s) - print string without newline
     pub(crate) fn compile_print_call(&mut self, args: &[Expr]) -> Result<BasicValueEnum<'ctx>, CodegenError> {
         if args.is_empty() {
             return Err(CodegenError::InvalidArguments("print requires an argument".to_string()));
         }
 
-        let puts = self.module.get_function("puts").unwrap();
-
-        // Compile the argument
+        let printf = self.module.get_function("printf").unwrap();
+        let fmt_str = self.builder.build_global_string_ptr("%s", "str_fmt").unwrap();
         let arg = self.compile_expr(&args[0])?;
 
-        // String literals are compiled as Slice<u8> which is a { ptr, i64 } struct
-        // We need to extract the pointer field for puts
-        let ptr_val = if arg.is_struct_value() {
-            let struct_val = arg.into_struct_value();
-            // Extract the first field (the pointer)
-            self.builder.build_extract_value(struct_val, 0, "str_ptr")
-                .unwrap()
-        } else {
-            // Already a pointer
-            arg
-        };
+        // Type check: print only accepts strings (Slice<u8> struct or pointer)
+        if arg.is_int_value() {
+            return Err(CodegenError::InvalidArguments(
+                "print requires a string argument, got an integer. Use print_int for integers.".to_string()
+            ));
+        }
 
-        // Call puts with the string pointer
-        let call_site = self
-            .builder
+        let ptr_val = self.extract_string_ptr(arg);
+
+        let call_site = self.builder
+            .build_call(printf, &[fmt_str.as_pointer_value().into(), ptr_val.into()], "printf_call")
+            .unwrap();
+
+        match call_site.try_as_basic_value() {
+            inkwell::values::ValueKind::Basic(val) => Ok(val),
+            inkwell::values::ValueKind::Instruction(_) => Ok(self.context.i32_type().const_zero().into()),
+        }
+    }
+
+    /// println(s) - print string with newline
+    pub(crate) fn compile_println_call(&mut self, args: &[Expr]) -> Result<BasicValueEnum<'ctx>, CodegenError> {
+        if args.is_empty() {
+            return Err(CodegenError::InvalidArguments("println requires an argument".to_string()));
+        }
+
+        let puts = self.module.get_function("puts").unwrap();
+        let arg = self.compile_expr(&args[0])?;
+
+        // Type check: println only accepts strings (Slice<u8> struct or pointer)
+        if arg.is_int_value() {
+            return Err(CodegenError::InvalidArguments(
+                "println requires a string argument, got an integer. Use println_int for integers.".to_string()
+            ));
+        }
+
+        let ptr_val = self.extract_string_ptr(arg);
+
+        let call_site = self.builder
             .build_call(puts, &[ptr_val.into()], "puts_call")
             .unwrap();
 
         match call_site.try_as_basic_value() {
             inkwell::values::ValueKind::Basic(val) => Ok(val),
-            inkwell::values::ValueKind::Instruction(_) => {
-                Ok(self.context.i32_type().const_zero().into())
-            }
+            inkwell::values::ValueKind::Instruction(_) => Ok(self.context.i32_type().const_zero().into()),
         }
     }
 
+    /// print_int(n) - print integer without newline
     pub(crate) fn compile_print_int_call(&mut self, args: &[Expr]) -> Result<BasicValueEnum<'ctx>, CodegenError> {
         if args.is_empty() {
             return Err(CodegenError::InvalidArguments("print_int requires an argument".to_string()));
         }
 
         let printf = self.module.get_function("printf").unwrap();
-
-        // Create format string "%d\n"
-        let fmt_str = self.builder.build_global_string_ptr("%d\n", "int_fmt").unwrap();
-
-        // Compile the argument
+        let fmt_str = self.builder.build_global_string_ptr("%d", "int_fmt").unwrap();
         let arg = self.compile_expr(&args[0])?;
 
-        // Type check: print_int only accepts integer types
         if !arg.is_int_value() {
             return Err(CodegenError::InvalidArguments(
                 "print_int requires an integer argument, got a non-integer type".to_string()
             ));
         }
 
-        // Call printf with format and value
-        let call_site = self
-            .builder
+        let call_site = self.builder
             .build_call(printf, &[fmt_str.as_pointer_value().into(), arg.into()], "printf_call")
             .unwrap();
 
         match call_site.try_as_basic_value() {
             inkwell::values::ValueKind::Basic(val) => Ok(val),
-            inkwell::values::ValueKind::Instruction(_) => {
-                Ok(self.context.i32_type().const_zero().into())
-            }
+            inkwell::values::ValueKind::Instruction(_) => Ok(self.context.i32_type().const_zero().into()),
+        }
+    }
+
+    /// println_int(n) - print integer with newline
+    pub(crate) fn compile_println_int_call(&mut self, args: &[Expr]) -> Result<BasicValueEnum<'ctx>, CodegenError> {
+        if args.is_empty() {
+            return Err(CodegenError::InvalidArguments("println_int requires an argument".to_string()));
+        }
+
+        let printf = self.module.get_function("printf").unwrap();
+        let fmt_str = self.builder.build_global_string_ptr("%d\n", "int_fmt_ln").unwrap();
+        let arg = self.compile_expr(&args[0])?;
+
+        if !arg.is_int_value() {
+            return Err(CodegenError::InvalidArguments(
+                "println_int requires an integer argument, got a non-integer type".to_string()
+            ));
+        }
+
+        let call_site = self.builder
+            .build_call(printf, &[fmt_str.as_pointer_value().into(), arg.into()], "printf_call")
+            .unwrap();
+
+        match call_site.try_as_basic_value() {
+            inkwell::values::ValueKind::Basic(val) => Ok(val),
+            inkwell::values::ValueKind::Instruction(_) => Ok(self.context.i32_type().const_zero().into()),
         }
     }
 
@@ -83,6 +132,13 @@ impl<'ctx> Codegen<'ctx> {
 
         let malloc_fn = self.module.get_function("malloc").unwrap();
         let size = self.compile_expr(&args[0])?;
+
+        // Type check: size must be an integer
+        if !size.is_int_value() {
+            return Err(CodegenError::InvalidArguments(
+                "malloc requires an integer size argument".to_string()
+            ));
+        }
 
         let call_site = self.builder
             .build_call(malloc_fn, &[size.into()], "malloc_call")
@@ -105,6 +161,20 @@ impl<'ctx> Codegen<'ctx> {
         let ptr = self.compile_expr(&args[0])?;
         let size = self.compile_expr(&args[1])?;
 
+        // Type check: ptr must be a pointer
+        if !ptr.is_pointer_value() {
+            return Err(CodegenError::InvalidArguments(
+                "realloc requires a pointer as first argument".to_string()
+            ));
+        }
+
+        // Type check: size must be an integer
+        if !size.is_int_value() {
+            return Err(CodegenError::InvalidArguments(
+                "realloc requires an integer size as second argument".to_string()
+            ));
+        }
+
         let call_site = self.builder
             .build_call(realloc_fn, &[ptr.into(), size.into()], "realloc_call")
             .unwrap();
@@ -125,6 +195,13 @@ impl<'ctx> Codegen<'ctx> {
         let free_fn = self.module.get_function("free").unwrap();
         let ptr = self.compile_expr(&args[0])?;
 
+        // Type check: ptr must be a pointer
+        if !ptr.is_pointer_value() {
+            return Err(CodegenError::InvalidArguments(
+                "free requires a pointer argument".to_string()
+            ));
+        }
+
         self.builder.build_call(free_fn, &[ptr.into()], "").unwrap();
 
         // Return a dummy value since free returns void
@@ -140,6 +217,27 @@ impl<'ctx> Codegen<'ctx> {
         let dest = self.compile_expr(&args[0])?;
         let src = self.compile_expr(&args[1])?;
         let size = self.compile_expr(&args[2])?;
+
+        // Type check: dest must be a pointer
+        if !dest.is_pointer_value() {
+            return Err(CodegenError::InvalidArguments(
+                "memcpy requires a pointer as dest (first argument)".to_string()
+            ));
+        }
+
+        // Type check: src must be a pointer
+        if !src.is_pointer_value() {
+            return Err(CodegenError::InvalidArguments(
+                "memcpy requires a pointer as src (second argument)".to_string()
+            ));
+        }
+
+        // Type check: size must be an integer
+        if !size.is_int_value() {
+            return Err(CodegenError::InvalidArguments(
+                "memcpy requires an integer size (third argument)".to_string()
+            ));
+        }
 
         let call_site = self.builder
             .build_call(memcpy_fn, &[dest.into(), src.into(), size.into()], "memcpy_call")
@@ -248,8 +346,32 @@ impl<'ctx> Codegen<'ctx> {
         }
 
         let ptr_val = self.compile_expr(&args[0])?;
-        let index = self.compile_expr(&args[1])?.into_int_value();
-        let value = self.compile_expr(&args[2])?.into_int_value();
+        let index_val = self.compile_expr(&args[1])?;
+        let value_val = self.compile_expr(&args[2])?;
+
+        // Type check: ptr must be a pointer or integer (for int-to-ptr conversion)
+        if !ptr_val.is_pointer_value() && !ptr_val.is_int_value() {
+            return Err(CodegenError::InvalidArguments(
+                "ptr_write_i64 requires a pointer or integer as first argument".to_string()
+            ));
+        }
+
+        // Type check: index must be an integer
+        if !index_val.is_int_value() {
+            return Err(CodegenError::InvalidArguments(
+                "ptr_write_i64 requires an integer index as second argument".to_string()
+            ));
+        }
+
+        // Type check: value must be an integer
+        if !value_val.is_int_value() {
+            return Err(CodegenError::InvalidArguments(
+                "ptr_write_i64 requires an integer value as third argument".to_string()
+            ));
+        }
+
+        let index = index_val.into_int_value();
+        let value = value_val.into_int_value();
 
         // Get pointer - could be a PointerValue or an IntValue to convert
         let ptr = if ptr_val.is_pointer_value() {
@@ -286,7 +408,23 @@ impl<'ctx> Codegen<'ctx> {
         }
 
         let ptr_val = self.compile_expr(&args[0])?;
-        let index = self.compile_expr(&args[1])?.into_int_value();
+        let index_val = self.compile_expr(&args[1])?;
+
+        // Type check: ptr must be a pointer or integer (for int-to-ptr conversion)
+        if !ptr_val.is_pointer_value() && !ptr_val.is_int_value() {
+            return Err(CodegenError::InvalidArguments(
+                "ptr_read_i64 requires a pointer or integer as first argument".to_string()
+            ));
+        }
+
+        // Type check: index must be an integer
+        if !index_val.is_int_value() {
+            return Err(CodegenError::InvalidArguments(
+                "ptr_read_i64 requires an integer index as second argument".to_string()
+            ));
+        }
+
+        let index = index_val.into_int_value();
 
         // Get pointer - could be a PointerValue or an IntValue to convert
         let ptr = if ptr_val.is_pointer_value() {

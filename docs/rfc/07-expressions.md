@@ -231,17 +231,23 @@ x = 10                  // assigns 10 to x
 
 ### Compound Assignment
 
+Compound assignment operators desugar to `x = x op y`:
+
 ```vibelang
 x += 1                  // x = x + 1
 x -= 1                  // x = x - 1
 x *= 2                  // x = x * 2
 x /= 2                  // x = x / 2
 x %= 3                  // x = x % 3
-x &= mask               // x = x & mask
-x |= flag               // x = x | flag
-x ^= bits               // x = x ^ bits
-x <<= n                 // x = x << n
-x >>= n                 // x = x >> n
+```
+
+Future: Bitwise compound assignment operators:
+```vibelang
+x &= mask               // x = x & mask (planned)
+x |= flag               // x = x | flag (planned)
+x ^= bits               // x = x ^ bits (planned)
+x <<= n                 // x = x << n (planned)
+x >>= n                 // x = x >> n (planned)
 ```
 
 ### Assignment is Not an Expression

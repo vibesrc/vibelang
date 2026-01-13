@@ -683,13 +683,26 @@ impl Parser {
     fn parse_assignment(&mut self) -> Result<Expr, ParseError> {
         let expr = self.parse_or()?;
 
-        if let Some(op) = self.match_assign_op() {
+        if let Some(compound_op) = self.match_assign_op() {
             let right = self.parse_assignment()?;
             let span = self.span_from(expr.span());
+
+            // If compound assignment, desugar: x += y -> x = x + y
+            let final_right = if let Some(op) = compound_op {
+                Box::new(Expr::Binary {
+                    op,
+                    left: Box::new(expr.clone()),
+                    right: Box::new(right),
+                    span,
+                })
+            } else {
+                Box::new(right)
+            };
+
             return Ok(Expr::Binary {
-                op,
+                op: BinOp::Assign,
                 left: Box::new(expr),
-                right: Box::new(right),
+                right: final_right,
                 span,
             });
         }
@@ -1339,14 +1352,19 @@ impl Parser {
         }
     }
 
-    fn match_assign_op(&mut self) -> Option<BinOp> {
-        let op = match self.peek_kind() {
-            Some(TokenKind::Eq) => BinOp::Assign,
-            // TODO: compound assignment operators
+    /// Returns Some(None) for simple assignment (=), Some(Some(op)) for compound assignment (+=, etc.)
+    fn match_assign_op(&mut self) -> Option<Option<BinOp>> {
+        let result = match self.peek_kind() {
+            Some(TokenKind::Eq) => Some(None),  // simple assignment
+            Some(TokenKind::PlusEq) => Some(Some(BinOp::Add)),
+            Some(TokenKind::MinusEq) => Some(Some(BinOp::Sub)),
+            Some(TokenKind::StarEq) => Some(Some(BinOp::Mul)),
+            Some(TokenKind::SlashEq) => Some(Some(BinOp::Div)),
+            Some(TokenKind::PercentEq) => Some(Some(BinOp::Mod)),
             _ => return None,
         };
         self.advance();
-        Some(op)
+        result
     }
 
     fn is_at_end(&self) -> bool {
