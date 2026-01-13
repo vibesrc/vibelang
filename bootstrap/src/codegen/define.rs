@@ -10,11 +10,15 @@ impl<'ctx> Codegen<'ctx> {
     pub(crate) fn define_struct(&mut self, s: &Struct) -> Result<(), CodegenError> {
         let mut field_types = Vec::new();
         let mut field_indices = HashMap::new();
+        let mut field_names = Vec::new();
+        let mut ast_field_types = Vec::new();
 
         for (i, field) in s.fields.iter().enumerate() {
             let field_type = self.llvm_type(&field.ty)?;
             field_types.push(field_type);
             field_indices.insert(field.name.clone(), i as u32);
+            field_names.push(field.name.clone());
+            ast_field_types.push(field.ty.clone());
         }
 
         let llvm_field_types: Vec<_> = field_types.iter().map(|t| *t).collect();
@@ -26,6 +30,9 @@ impl<'ctx> Codegen<'ctx> {
                 llvm_type: struct_type,
                 field_indices,
                 field_types,
+                field_names,
+                ast_field_types,
+                name: s.name.clone(),
             },
         );
 
@@ -36,9 +43,11 @@ impl<'ctx> Codegen<'ctx> {
         let mut variant_tags = HashMap::new();
         let mut variant_payloads: HashMap<String, Vec<inkwell::types::BasicTypeEnum<'ctx>>> = HashMap::new();
         let mut max_payload_fields: Vec<inkwell::types::BasicTypeEnum<'ctx>> = Vec::new();
+        let mut variant_names = Vec::new();
 
         for (i, variant) in e.variants.iter().enumerate() {
             variant_tags.insert(variant.name.clone(), i as u32);
+            variant_names.push(variant.name.clone());
 
             // Get payload types for this variant
             let payload_types: Vec<inkwell::types::BasicTypeEnum<'ctx>> = match &variant.fields {
@@ -81,6 +90,8 @@ impl<'ctx> Codegen<'ctx> {
                 variant_tags,
                 variant_payloads,
                 payload_size: max_payload_fields.len() as u32,
+                variant_names,
+                name: e.name.clone(),
             },
         );
 

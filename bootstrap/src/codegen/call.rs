@@ -38,12 +38,8 @@ impl<'ctx> Codegen<'ctx> {
         if name == "println" {
             return self.compile_println_call(args);
         }
-        if name == "print_int" {
-            return self.compile_print_int_call(args);
-        }
-        if name == "println_int" {
-            return self.compile_println_int_call(args);
-        }
+        // print_int and println_int are deprecated - use string interpolation instead
+        // e.g., println("${x}") instead of println_int(x)
         if name == "malloc" {
             return self.compile_malloc_call(args);
         }

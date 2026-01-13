@@ -29,7 +29,7 @@ impl<'ctx> Codegen<'ctx> {
         // Type check: print only accepts strings (Slice<u8> struct or pointer)
         if arg.is_int_value() {
             return Err(CodegenError::InvalidArguments(
-                "print requires a string argument, got an integer. Use print_int for integers.".to_string()
+                "print requires a string argument, got an integer. Use string interpolation: print(\"${x}\")".to_string()
             ));
         }
 
@@ -57,7 +57,7 @@ impl<'ctx> Codegen<'ctx> {
         // Type check: println only accepts strings (Slice<u8> struct or pointer)
         if arg.is_int_value() {
             return Err(CodegenError::InvalidArguments(
-                "println requires a string argument, got an integer. Use println_int for integers.".to_string()
+                "println requires a string argument, got an integer. Use string interpolation: println(\"${x}\")".to_string()
             ));
         }
 
@@ -73,57 +73,8 @@ impl<'ctx> Codegen<'ctx> {
         }
     }
 
-    /// print_int(n) - print integer without newline
-    pub(crate) fn compile_print_int_call(&mut self, args: &[Expr]) -> Result<BasicValueEnum<'ctx>, CodegenError> {
-        if args.is_empty() {
-            return Err(CodegenError::InvalidArguments("print_int requires an argument".to_string()));
-        }
-
-        let printf = self.module.get_function("printf").unwrap();
-        let fmt_str = self.builder.build_global_string_ptr("%d", "int_fmt").unwrap();
-        let arg = self.compile_expr(&args[0])?;
-
-        if !arg.is_int_value() {
-            return Err(CodegenError::InvalidArguments(
-                "print_int requires an integer argument, got a non-integer type".to_string()
-            ));
-        }
-
-        let call_site = self.builder
-            .build_call(printf, &[fmt_str.as_pointer_value().into(), arg.into()], "printf_call")
-            .unwrap();
-
-        match call_site.try_as_basic_value() {
-            inkwell::values::ValueKind::Basic(val) => Ok(val),
-            inkwell::values::ValueKind::Instruction(_) => Ok(self.context.i32_type().const_zero().into()),
-        }
-    }
-
-    /// println_int(n) - print integer with newline
-    pub(crate) fn compile_println_int_call(&mut self, args: &[Expr]) -> Result<BasicValueEnum<'ctx>, CodegenError> {
-        if args.is_empty() {
-            return Err(CodegenError::InvalidArguments("println_int requires an argument".to_string()));
-        }
-
-        let printf = self.module.get_function("printf").unwrap();
-        let fmt_str = self.builder.build_global_string_ptr("%d\n", "int_fmt_ln").unwrap();
-        let arg = self.compile_expr(&args[0])?;
-
-        if !arg.is_int_value() {
-            return Err(CodegenError::InvalidArguments(
-                "println_int requires an integer argument, got a non-integer type".to_string()
-            ));
-        }
-
-        let call_site = self.builder
-            .build_call(printf, &[fmt_str.as_pointer_value().into(), arg.into()], "printf_call")
-            .unwrap();
-
-        match call_site.try_as_basic_value() {
-            inkwell::values::ValueKind::Basic(val) => Ok(val),
-            inkwell::values::ValueKind::Instruction(_) => Ok(self.context.i32_type().const_zero().into()),
-        }
-    }
+    // Note: print_int and println_int have been removed.
+    // Use string interpolation instead: println("${x}")
 
     pub(crate) fn compile_malloc_call(&mut self, args: &[Expr]) -> Result<BasicValueEnum<'ctx>, CodegenError> {
         if args.len() != 1 {

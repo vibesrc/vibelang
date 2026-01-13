@@ -1040,6 +1040,9 @@ impl Parser {
                 self.advance();
                 Ok(Expr::Literal(Literal::String(s), span))
             }
+            Some(TokenKind::InterpolatedStringStart(s)) => {
+                self.parse_interpolated_string(s.clone(), span)
+            }
             Some(TokenKind::Bool(b)) => {
                 let b = *b;
                 self.advance();
@@ -1182,6 +1185,62 @@ impl Parser {
         }
 
         Ok(args)
+    }
+
+    /// Parse an interpolated string: "prefix${expr}middle${expr}suffix"
+    /// Called when we encounter InterpolatedStringStart
+    fn parse_interpolated_string(&mut self, first_literal: String, start: Span) -> Result<Expr, ParseError> {
+        self.advance(); // consume InterpolatedStringStart
+
+        let mut parts = Vec::new();
+
+        // Add the first literal part (may be empty)
+        if !first_literal.is_empty() {
+            parts.push(StringPart::Literal(first_literal));
+        }
+
+        // Parse the first expression
+        let expr = self.parse_expr()?;
+        parts.push(StringPart::Expr(Box::new(expr)));
+
+        // Now we should see either InterpolatedStringMiddle or InterpolatedStringEnd
+        loop {
+            match self.peek_kind() {
+                Some(TokenKind::InterpolatedStringMiddle(s)) => {
+                    let s = s.clone();
+                    self.advance();
+
+                    // Add the middle literal (may be empty)
+                    if !s.is_empty() {
+                        parts.push(StringPart::Literal(s));
+                    }
+
+                    // Parse the next expression
+                    let expr = self.parse_expr()?;
+                    parts.push(StringPart::Expr(Box::new(expr)));
+                }
+                Some(TokenKind::InterpolatedStringEnd(s)) => {
+                    let s = s.clone();
+                    self.advance();
+
+                    // Add the final literal (may be empty)
+                    if !s.is_empty() {
+                        parts.push(StringPart::Literal(s));
+                    }
+
+                    // Done!
+                    break;
+                }
+                _ => {
+                    return Err(self.error("expected continuation of interpolated string"));
+                }
+            }
+        }
+
+        Ok(Expr::InterpolatedString {
+            parts,
+            span: self.span_from(start),
+        })
     }
 
     fn parse_struct_init(&mut self, name: String, start: Span) -> Result<Expr, ParseError> {
@@ -1429,6 +1488,7 @@ impl Expr {
             Expr::Try { span, .. } => *span,
             Expr::Cast { span, .. } => *span,
             Expr::Range { span, .. } => *span,
+            Expr::InterpolatedString { span, .. } => *span,
         }
     }
 }
@@ -1472,5 +1532,44 @@ mod tests {
         let source = "fn main() { let x = 42 }";
         let program = Parser::parse(source).unwrap();
         assert_eq!(program.items.len(), 1);
+    }
+
+    #[test]
+    fn test_parse_interpolated_string() {
+        let source = r#"fn main() { let s = "hello ${name}" }"#;
+        let program = Parser::parse(source).unwrap();
+        assert_eq!(program.items.len(), 1);
+
+        // Verify it parsed as an interpolated string
+        if let Item::Function(f) = &program.items[0] {
+            if let Stmt::Let { value, .. } = &f.body.stmts[0] {
+                assert!(matches!(value, Expr::InterpolatedString { .. }));
+            } else {
+                panic!("Expected Let statement");
+            }
+        } else {
+            panic!("Expected Function");
+        }
+    }
+
+    #[test]
+    fn test_parse_interpolated_string_multiple() {
+        let source = r#"fn main() { let s = "x=${x}, y=${y}" }"#;
+        let program = Parser::parse(source).unwrap();
+
+        if let Item::Function(f) = &program.items[0] {
+            if let Stmt::Let { value, .. } = &f.body.stmts[0] {
+                if let Expr::InterpolatedString { parts, .. } = value {
+                    // Should have: "x=", x, ", y=", y
+                    assert_eq!(parts.len(), 4);
+                } else {
+                    panic!("Expected InterpolatedString");
+                }
+            } else {
+                panic!("Expected Let statement");
+            }
+        } else {
+            panic!("Expected Function");
+        }
     }
 }

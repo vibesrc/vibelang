@@ -8,6 +8,16 @@ pub enum TokenKind {
     String(String),
     Bool(bool),
 
+    /// Interpolated string start: "text before ${
+    /// Contains the literal text before the first interpolation
+    InterpolatedStringStart(String),
+    /// Interpolated string middle: }text${
+    /// Contains the literal text between interpolations
+    InterpolatedStringMiddle(String),
+    /// Interpolated string end: }text"
+    /// Contains the literal text after the last interpolation
+    InterpolatedStringEnd(String),
+
     // Identifiers and keywords
     Ident(String),
     Keyword(Keyword),
@@ -107,6 +117,12 @@ pub struct Lexer<'a> {
     chars: std::iter::Peekable<std::str::CharIndices<'a>>,
     line: u32,
     column: u32,
+    /// Stack of brace depths for nested interpolations
+    /// When inside `"...${` we push the current brace depth onto this stack
+    /// When we encounter `}` and depth matches, we're ending an interpolation
+    interpolation_brace_depth: Vec<u32>,
+    /// Current brace nesting level (for tracking `{` and `}` inside interpolations)
+    brace_depth: u32,
 }
 
 impl<'a> Lexer<'a> {
@@ -116,7 +132,14 @@ impl<'a> Lexer<'a> {
             chars: source.char_indices().peekable(),
             line: 1,
             column: 1,
+            interpolation_brace_depth: Vec::new(),
+            brace_depth: 0,
         }
+    }
+
+    /// Returns true if we're currently inside an interpolated string expression
+    fn in_interpolation(&self) -> bool {
+        !self.interpolation_brace_depth.is_empty()
     }
 
     pub fn tokenize(&mut self) -> Result<Vec<Token>, LexError> {
@@ -238,8 +261,24 @@ impl<'a> Lexer<'a> {
                 }
                 '(' => TokenKind::LParen,
                 ')' => TokenKind::RParen,
-                '{' => TokenKind::LBrace,
-                '}' => TokenKind::RBrace,
+                '{' => {
+                    self.brace_depth += 1;
+                    TokenKind::LBrace
+                }
+                '}' => {
+                    // Check if this closes an interpolation
+                    if let Some(&interp_depth) = self.interpolation_brace_depth.last() {
+                        if self.brace_depth == interp_depth {
+                            // This closes an interpolation - continue reading the string
+                            self.interpolation_brace_depth.pop();
+                            return self.lex_interpolation_continuation();
+                        }
+                    }
+                    if self.brace_depth > 0 {
+                        self.brace_depth -= 1;
+                    }
+                    TokenKind::RBrace
+                }
                 '[' => TokenKind::LBracket,
                 ']' => TokenKind::RBracket,
                 ',' => TokenKind::Comma,
@@ -359,11 +398,99 @@ impl<'a> Lexer<'a> {
                     };
                     value.push(escaped);
                 }
+                Some((_, '$')) => {
+                    // Check for interpolation or escaped $
+                    match self.peek_char() {
+                        Some('{') => {
+                            // Start interpolation: push current brace depth and consume '{'
+                            self.advance(); // consume '{'
+                            self.interpolation_brace_depth.push(self.brace_depth);
+                            return Ok(TokenKind::InterpolatedStringStart(value));
+                        }
+                        Some('$') => {
+                            // Escaped $$ -> literal $
+                            self.advance();
+                            value.push('$');
+                        }
+                        _ => {
+                            // Just a regular $ character
+                            value.push('$');
+                        }
+                    }
+                }
                 Some((_, c)) => value.push(c),
             }
         }
 
         Ok(TokenKind::String(value))
+    }
+
+    /// Continue lexing after an interpolation expression ends (after the closing `}`)
+    fn lex_interpolation_continuation(&mut self) -> Result<Token, LexError> {
+        let start = self.current_pos();
+        let start_line = self.line;
+        let start_column = self.column;
+
+        let mut value = String::new();
+
+        loop {
+            match self.advance() {
+                None => return Err(LexError::UnterminatedString(self.line)),
+                Some((_, '"')) => {
+                    // End of interpolated string
+                    return Ok(Token {
+                        kind: TokenKind::InterpolatedStringEnd(value),
+                        span: Span {
+                            start,
+                            end: self.current_pos(),
+                            line: start_line,
+                            column: start_column,
+                        },
+                    });
+                }
+                Some((_, '\\')) => {
+                    let escaped = match self.advance() {
+                        Some((_, 'n')) => '\n',
+                        Some((_, 'r')) => '\r',
+                        Some((_, 't')) => '\t',
+                        Some((_, '\\')) => '\\',
+                        Some((_, '"')) => '"',
+                        Some((_, '0')) => '\0',
+                        Some((_, c)) => return Err(LexError::InvalidEscape(c, self.line)),
+                        None => return Err(LexError::UnterminatedString(self.line)),
+                    };
+                    value.push(escaped);
+                }
+                Some((_, '$')) => {
+                    match self.peek_char() {
+                        Some('{') => {
+                            // Another interpolation
+                            self.advance(); // consume '{'
+                            self.interpolation_brace_depth.push(self.brace_depth);
+                            return Ok(Token {
+                                kind: TokenKind::InterpolatedStringMiddle(value),
+                                span: Span {
+                                    start,
+                                    end: self.current_pos(),
+                                    line: start_line,
+                                    column: start_column,
+                                },
+                            });
+                        }
+                        Some('$') => {
+                            // Escaped $$ -> literal $
+                            self.advance();
+                            value.push('$');
+                        }
+                        _ => {
+                            // Just a regular $ character
+                            value.push('$');
+                        }
+                    }
+                }
+                Some((_, c)) => value.push(c),
+            }
+        }
     }
 
     fn lex_number(&mut self, first: char) -> Result<TokenKind, LexError> {
@@ -572,5 +699,69 @@ mod tests {
         assert_eq!(tokens[2].kind, TokenKind::Keyword(Keyword::And));
         assert_eq!(tokens[3].kind, TokenKind::Keyword(Keyword::Or));
         assert_eq!(tokens[4].kind, TokenKind::Keyword(Keyword::Not));
+    }
+
+    #[test]
+    fn test_plain_string() {
+        let mut lexer = Lexer::new(r#""hello world""#);
+        let tokens = lexer.tokenize().unwrap();
+        assert_eq!(tokens[0].kind, TokenKind::String("hello world".to_string()));
+    }
+
+    #[test]
+    fn test_interpolated_string_simple() {
+        // "hello ${name}"
+        let mut lexer = Lexer::new(r#""hello ${name}""#);
+        let tokens = lexer.tokenize().unwrap();
+        assert_eq!(tokens[0].kind, TokenKind::InterpolatedStringStart("hello ".to_string()));
+        assert_eq!(tokens[1].kind, TokenKind::Ident("name".to_string()));
+        assert_eq!(tokens[2].kind, TokenKind::InterpolatedStringEnd("".to_string()));
+    }
+
+    #[test]
+    fn test_interpolated_string_multiple() {
+        // "x=${x}, y=${y}"
+        let mut lexer = Lexer::new(r#""x=${x}, y=${y}""#);
+        let tokens = lexer.tokenize().unwrap();
+        assert_eq!(tokens[0].kind, TokenKind::InterpolatedStringStart("x=".to_string()));
+        assert_eq!(tokens[1].kind, TokenKind::Ident("x".to_string()));
+        assert_eq!(tokens[2].kind, TokenKind::InterpolatedStringMiddle(", y=".to_string()));
+        assert_eq!(tokens[3].kind, TokenKind::Ident("y".to_string()));
+        assert_eq!(tokens[4].kind, TokenKind::InterpolatedStringEnd("".to_string()));
+    }
+
+    #[test]
+    fn test_interpolated_string_with_expr() {
+        // "result: ${x + 1}"
+        let mut lexer = Lexer::new(r#""result: ${x + 1}""#);
+        let tokens = lexer.tokenize().unwrap();
+        assert_eq!(tokens[0].kind, TokenKind::InterpolatedStringStart("result: ".to_string()));
+        assert_eq!(tokens[1].kind, TokenKind::Ident("x".to_string()));
+        assert_eq!(tokens[2].kind, TokenKind::Plus);
+        assert_eq!(tokens[3].kind, TokenKind::Int(1));
+        assert_eq!(tokens[4].kind, TokenKind::InterpolatedStringEnd("".to_string()));
+    }
+
+    #[test]
+    fn test_escaped_dollar() {
+        // "cost: $$50"
+        let mut lexer = Lexer::new(r#""cost: $$50""#);
+        let tokens = lexer.tokenize().unwrap();
+        assert_eq!(tokens[0].kind, TokenKind::String("cost: $50".to_string()));
+    }
+
+    #[test]
+    fn test_interpolation_with_braces() {
+        // "obj: ${SomeStruct { x: 1 }}"
+        let mut lexer = Lexer::new(r#""obj: ${SomeStruct { x: 1 }}""#);
+        let tokens = lexer.tokenize().unwrap();
+        assert_eq!(tokens[0].kind, TokenKind::InterpolatedStringStart("obj: ".to_string()));
+        assert_eq!(tokens[1].kind, TokenKind::Ident("SomeStruct".to_string()));
+        assert_eq!(tokens[2].kind, TokenKind::LBrace);
+        assert_eq!(tokens[3].kind, TokenKind::Ident("x".to_string()));
+        assert_eq!(tokens[4].kind, TokenKind::Colon);
+        assert_eq!(tokens[5].kind, TokenKind::Int(1));
+        assert_eq!(tokens[6].kind, TokenKind::RBrace);
+        assert_eq!(tokens[7].kind, TokenKind::InterpolatedStringEnd("".to_string()));
     }
 }

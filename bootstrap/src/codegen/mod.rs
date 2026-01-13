@@ -76,6 +76,9 @@ pub(crate) struct StructTypeInfo<'ctx> {
     pub(crate) llvm_type: inkwell::types::StructType<'ctx>,
     pub(crate) field_indices: HashMap<String, u32>,
     pub(crate) field_types: Vec<BasicTypeEnum<'ctx>>,
+    pub(crate) field_names: Vec<String>, // Field names in order (for ToString)
+    pub(crate) ast_field_types: Vec<Type>, // AST types for recursive ToString
+    pub(crate) name: String, // Struct name (for ToString)
 }
 
 #[derive(Clone)]
@@ -84,6 +87,8 @@ pub(crate) struct EnumTypeInfo<'ctx> {
     pub(crate) variant_tags: HashMap<String, u32>,           // variant name -> tag value
     pub(crate) variant_payloads: HashMap<String, Vec<BasicTypeEnum<'ctx>>>, // variant name -> payload types
     pub(crate) payload_size: u32, // size of largest payload in bytes
+    pub(crate) variant_names: Vec<String>, // Variant names in tag order (for ToString)
+    pub(crate) name: String, // Enum name (for ToString)
 }
 
 impl<'ctx> Codegen<'ctx> {
@@ -153,6 +158,15 @@ impl<'ctx> Codegen<'ctx> {
         // Declare exit for panic
         let exit_type = self.context.void_type().fn_type(&[i32_type.into()], false);
         self.module.add_function("exit", exit_type, None);
+
+        // Declare snprintf for number-to-string conversion
+        // int snprintf(char *str, size_t size, const char *format, ...);
+        let snprintf_type = i32_type.fn_type(&[ptr_type.into(), i64_type.into(), ptr_type.into()], true);
+        self.module.add_function("snprintf", snprintf_type, None);
+
+        // Declare strlen for string length
+        let strlen_type = i64_type.fn_type(&[ptr_type.into()], false);
+        self.module.add_function("strlen", strlen_type, None);
     }
 
     /// Set the source directory for module resolution

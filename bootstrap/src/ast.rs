@@ -299,6 +299,10 @@ pub enum Expr {
         end: Box<Expr>,
         span: Span,
     },
+    InterpolatedString {
+        parts: Vec<StringPart>,
+        span: Span,
+    },
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -356,4 +360,19 @@ pub enum Literal {
     Float(f64),
     String(String),
     Bool(bool),
+}
+
+/// A part of an interpolated string
+#[derive(Debug, Clone)]
+pub enum StringPart {
+    /// A literal string segment
+    Literal(String),
+    /// An expression to be converted to string: ${expr}
+    Expr(Box<Expr>),
+}
+
+/// An interpolated string like "hello ${name}, you are ${age} years old"
+#[derive(Debug, Clone)]
+pub struct InterpolatedString {
+    pub parts: Vec<StringPart>,
 }

@@ -43,11 +43,11 @@ impl<'ctx> Codegen<'ctx> {
                             (None, None)
                         }
                     }
-                    // Handle static method calls like IntArray.new() - receiver is the type name
+                    // Handle static method calls like IntArray.new() or enum constructors like Color.Red
                     Expr::MethodCall { receiver, .. } => {
                         if let Expr::Ident(type_name, _) = receiver.as_ref() {
-                            // Check if receiver is a struct type (static method call)
-                            if self.struct_types.contains_key(type_name) {
+                            // Check if receiver is a struct type (static method call) or enum type (variant constructor)
+                            if self.struct_types.contains_key(type_name) || self.enum_types.contains_key(type_name) {
                                 (Some(type_name.clone()), None)
                             } else {
                                 (ty.as_ref().and_then(|t| self.get_struct_name_for_type(t)), None)
@@ -69,6 +69,19 @@ impl<'ctx> Codegen<'ctx> {
                                     .and_then(|ret_ty| ret_ty.as_ref())
                                     .and_then(|ret_ty| self.get_struct_name_for_type(ret_ty));
                                 (struct_name, None)
+                            }
+                        } else {
+                            (ty.as_ref().and_then(|t| self.get_struct_name_for_type(t)), None)
+                        }
+                    }
+                    // Handle field access for unit enum variants like Color.Red
+                    Expr::Field { object, .. } => {
+                        if let Expr::Ident(type_name, _) = object.as_ref() {
+                            // Check if object is an enum type (unit variant constructor)
+                            if self.enum_types.contains_key(type_name) {
+                                (Some(type_name.clone()), None)
+                            } else {
+                                (ty.as_ref().and_then(|t| self.get_struct_name_for_type(t)), None)
                             }
                         } else {
                             (ty.as_ref().and_then(|t| self.get_struct_name_for_type(t)), None)
