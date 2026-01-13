@@ -63,12 +63,11 @@
             },
             {
               "comment": "Unit enum variant (followed by comma, newline, or })",
-              "match": "^\\s*([A-Z][a-zA-Z0-9_]*)\\s*(?=[,}\\n]|$)",
+              "match": "\\b([A-Z][a-zA-Z0-9_]*)\\b",
               "captures": {
                 "1": { "name": "support.class.vibe" }
               }
             },
-            { "include": "#types" },
             { "include": "#punctuation" }
           ]
         }
@@ -108,7 +107,7 @@
                 "1": { "name": "keyword.declaration.vibe" }
               },
               "patterns": [
-                { "include": "$self" }
+                { "include": "#interpolation-contents" }
               ]
             },
             {
