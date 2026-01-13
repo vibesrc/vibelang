@@ -1,0 +1,14 @@
+// Test array literal type coercion
+
+fn main() -> i32 {
+    // Array with explicit i32 element type
+    let arr: i32[4] = [5, 10, 15, 20]
+
+    // Sum the elements
+    let total = 0
+    for x in arr {
+        total = total + x
+    }
+
+    return total   // Should return 50
+}

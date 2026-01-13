@@ -31,6 +31,11 @@ pub struct Codegen<'ctx> {
     generic_structs: HashMap<String, Struct>,
     generic_enums: HashMap<String, Enum>,
     generic_functions: HashMap<String, Function>,
+    // Loop control flow targets (for break/continue)
+    loop_break_block: Option<inkwell::basic_block::BasicBlock<'ctx>>,
+    loop_continue_block: Option<inkwell::basic_block::BasicBlock<'ctx>>,
+    // Deferred expressions (LIFO order)
+    deferred_exprs: Vec<Expr>,
 }
 
 #[derive(Clone)]
@@ -77,6 +82,9 @@ impl<'ctx> Codegen<'ctx> {
             generic_structs: HashMap::new(),
             generic_enums: HashMap::new(),
             generic_functions: HashMap::new(),
+            loop_break_block: None,
+            loop_continue_block: None,
+            deferred_exprs: Vec::new(),
         };
 
         // Declare intrinsics
@@ -661,7 +669,8 @@ impl<'ctx> Codegen<'ctx> {
                     _ => None,
                 };
 
-                let init_value = self.compile_expr(value)?;
+                // Compile expression with expected type for literal coercion
+                let init_value = self.compile_expr_with_type(value, ty.as_ref())?;
                 let alloca_type = match ty {
                     Some(t) => self.llvm_type(t)?,
                     None => init_value.get_type(),
@@ -686,6 +695,9 @@ impl<'ctx> Codegen<'ctx> {
                 Ok(None)
             }
             Stmt::Return { value, .. } => {
+                // Execute deferred expressions in reverse order before return
+                self.emit_deferred_exprs()?;
+
                 match value {
                     Some(expr) => {
                         let ret_val = self.compile_expr(expr)?;
@@ -713,11 +725,42 @@ impl<'ctx> Codegen<'ctx> {
             Stmt::For { name, iter, body, .. } => {
                 self.compile_for(name, iter, body)
             }
+            Stmt::Break { .. } => {
+                if let Some(break_bb) = self.loop_break_block {
+                    self.builder.build_unconditional_branch(break_bb).unwrap();
+                } else {
+                    return Err(CodegenError::NotImplemented("break outside of loop".to_string()));
+                }
+                Ok(None)
+            }
+            Stmt::Continue { .. } => {
+                if let Some(continue_bb) = self.loop_continue_block {
+                    self.builder.build_unconditional_branch(continue_bb).unwrap();
+                } else {
+                    return Err(CodegenError::NotImplemented("continue outside of loop".to_string()));
+                }
+                Ok(None)
+            }
+            Stmt::Defer { expr, .. } => {
+                // Add expression to deferred list (will be executed at function exit)
+                self.deferred_exprs.push(expr.as_ref().clone());
+                Ok(None)
+            }
             _ => {
                 // TODO: implement other statements
                 Ok(None)
             }
         }
+    }
+
+    /// Emit deferred expressions in reverse order (LIFO semantics)
+    fn emit_deferred_exprs(&mut self) -> Result<(), CodegenError> {
+        // Clone and reverse to get LIFO order
+        let deferred: Vec<Expr> = self.deferred_exprs.iter().rev().cloned().collect();
+        for expr in deferred {
+            self.compile_expr(&expr)?;
+        }
+        Ok(())
     }
 
     fn compile_if(
@@ -770,6 +813,12 @@ impl<'ctx> Codegen<'ctx> {
         let body_bb = self.context.append_basic_block(fn_value, "while.body");
         let end_bb = self.context.append_basic_block(fn_value, "while.end");
 
+        // Save outer loop targets and set new ones for break/continue
+        let outer_break = self.loop_break_block;
+        let outer_continue = self.loop_continue_block;
+        self.loop_break_block = Some(end_bb);
+        self.loop_continue_block = Some(cond_bb);
+
         self.builder.build_unconditional_branch(cond_bb).unwrap();
 
         // Condition block
@@ -789,6 +838,10 @@ impl<'ctx> Codegen<'ctx> {
 
         // End block
         self.builder.position_at_end(end_bb);
+
+        // Restore outer loop targets
+        self.loop_break_block = outer_break;
+        self.loop_continue_block = outer_continue;
 
         Ok(None)
     }
@@ -828,6 +881,12 @@ impl<'ctx> Codegen<'ctx> {
                 let inc_bb = self.context.append_basic_block(fn_value, "for.inc");
                 let end_bb = self.context.append_basic_block(fn_value, "for.end");
 
+                // Save outer loop targets and set new ones for break/continue
+                let outer_break = self.loop_break_block;
+                let outer_continue = self.loop_continue_block;
+                self.loop_break_block = Some(end_bb);
+                self.loop_continue_block = Some(inc_bb);
+
                 self.builder.build_unconditional_branch(cond_bb).unwrap();
 
                 // Condition: i < end
@@ -853,6 +912,10 @@ impl<'ctx> Codegen<'ctx> {
                 self.builder.build_unconditional_branch(cond_bb).unwrap();
 
                 self.builder.position_at_end(end_bb);
+
+                // Restore outer loop targets
+                self.loop_break_block = outer_break;
+                self.loop_continue_block = outer_continue;
             }
 
             // Array/Slice iteration: for x in arr or for x in slice
@@ -900,6 +963,12 @@ impl<'ctx> Codegen<'ctx> {
                 let inc_bb = self.context.append_basic_block(fn_value, "for.inc");
                 let end_bb = self.context.append_basic_block(fn_value, "for.end");
 
+                // Save outer loop targets and set new ones for break/continue
+                let outer_break = self.loop_break_block;
+                let outer_continue = self.loop_continue_block;
+                self.loop_break_block = Some(end_bb);
+                self.loop_continue_block = Some(inc_bb);
+
                 self.builder.build_unconditional_branch(cond_bb).unwrap();
 
                 // Condition: idx < len
@@ -938,6 +1007,10 @@ impl<'ctx> Codegen<'ctx> {
                 self.builder.build_unconditional_branch(cond_bb).unwrap();
 
                 self.builder.position_at_end(end_bb);
+
+                // Restore outer loop targets
+                self.loop_break_block = outer_break;
+                self.loop_continue_block = outer_continue;
             }
 
             _ => return Err(CodegenError::NotImplemented("for loop over this iterator type".to_string())),
@@ -997,6 +1070,12 @@ impl<'ctx> Codegen<'ctx> {
         let inc_bb = self.context.append_basic_block(fn_value, "for.inc");
         let end_bb = self.context.append_basic_block(fn_value, "for.end");
 
+        // Save outer loop targets and set new ones for break/continue
+        let outer_break = self.loop_break_block;
+        let outer_continue = self.loop_continue_block;
+        self.loop_break_block = Some(end_bb);
+        self.loop_continue_block = Some(inc_bb);
+
         self.builder.build_unconditional_branch(cond_bb).unwrap();
 
         // Condition: idx < len
@@ -1034,6 +1113,11 @@ impl<'ctx> Codegen<'ctx> {
         self.builder.build_unconditional_branch(cond_bb).unwrap();
 
         self.builder.position_at_end(end_bb);
+
+        // Restore outer loop targets
+        self.loop_break_block = outer_break;
+        self.loop_continue_block = outer_continue;
+
         Ok(None)
     }
 
@@ -1195,8 +1279,13 @@ impl<'ctx> Codegen<'ctx> {
     }
 
     fn compile_expr(&mut self, expr: &Expr) -> Result<BasicValueEnum<'ctx>, CodegenError> {
+        self.compile_expr_with_type(expr, None)
+    }
+
+    /// Compile an expression with an optional expected type for literal coercion
+    fn compile_expr_with_type(&mut self, expr: &Expr, expected_type: Option<&Type>) -> Result<BasicValueEnum<'ctx>, CodegenError> {
         match expr {
-            Expr::Literal(lit, _) => self.compile_literal(lit),
+            Expr::Literal(lit, _) => self.compile_literal_with_type(lit, expected_type),
             Expr::Ident(name, _) => {
                 // Check for use-after-move
                 if self.moved_vars.contains(name) {
@@ -1273,7 +1362,12 @@ impl<'ctx> Codegen<'ctx> {
                 self.compile_deref(operand)
             }
             Expr::ArrayInit { elements, .. } => {
-                self.compile_array_init(elements)
+                // Extract element type from expected array type if available
+                let elem_type = match expected_type {
+                    Some(Type::Array(inner, _)) => Some(inner.as_ref()),
+                    _ => None,
+                };
+                self.compile_array_init_with_type(elements, elem_type)
             }
             Expr::Index { array, index, .. } => {
                 self.compile_index(array, index)
@@ -1286,22 +1380,52 @@ impl<'ctx> Codegen<'ctx> {
     }
 
     fn compile_literal(&mut self, lit: &Literal) -> Result<BasicValueEnum<'ctx>, CodegenError> {
+        self.compile_literal_with_type(lit, None)
+    }
+
+    /// Compile a literal with an optional expected type for coercion
+    fn compile_literal_with_type(&mut self, lit: &Literal, expected_type: Option<&Type>) -> Result<BasicValueEnum<'ctx>, CodegenError> {
         match lit {
             Literal::Int(n) => {
-                let val = self.context.i64_type().const_int(*n as u64, true);
+                // Coerce integer literal to expected type if specified
+                let int_type = match expected_type {
+                    Some(Type::I8) => self.context.i8_type(),
+                    Some(Type::I16) => self.context.i16_type(),
+                    Some(Type::I32) => self.context.i32_type(),
+                    Some(Type::U8) => self.context.i8_type(),
+                    Some(Type::U16) => self.context.i16_type(),
+                    Some(Type::U32) => self.context.i32_type(),
+                    Some(Type::U64) => self.context.i64_type(),
+                    _ => self.context.i64_type(), // Default to i64
+                };
+                let val = int_type.const_int(*n as u64, true);
                 Ok(val.into())
             }
             Literal::Float(n) => {
-                let val = self.context.f64_type().const_float(*n);
-                Ok(val.into())
+                let val: BasicValueEnum<'ctx> = match expected_type {
+                    Some(Type::F32) => self.context.f32_type().const_float(*n).into(),
+                    _ => self.context.f64_type().const_float(*n).into(), // Default to f64
+                };
+                Ok(val)
             }
             Literal::Bool(b) => {
                 let val = self.context.bool_type().const_int(*b as u64, false);
                 Ok(val.into())
             }
             Literal::String(s) => {
+                // Create string as &[u8] slice (fat pointer: {ptr, len})
                 let global = self.builder.build_global_string_ptr(s, "str").unwrap();
-                Ok(global.as_pointer_value().into())
+                let ptr = global.as_pointer_value();
+                let len = self.context.i64_type().const_int(s.len() as u64, false);
+
+                // Build slice struct type { ptr, len }
+                let ptr_type = self.context.ptr_type(AddressSpace::default());
+                let len_type = self.context.i64_type();
+                let slice_type = self.context.struct_type(&[ptr_type.into(), len_type.into()], false);
+
+                // Build the slice value
+                let slice_val = slice_type.const_named_struct(&[ptr.into(), len.into()]);
+                Ok(slice_val.into())
             }
         }
     }
@@ -1873,15 +1997,15 @@ impl<'ctx> Codegen<'ctx> {
         Ok(val)
     }
 
-    fn compile_array_init(&mut self, elements: &[Expr]) -> Result<BasicValueEnum<'ctx>, CodegenError> {
+    fn compile_array_init_with_type(&mut self, elements: &[Expr], elem_type: Option<&Type>) -> Result<BasicValueEnum<'ctx>, CodegenError> {
         if elements.is_empty() {
             return Err(CodegenError::InvalidArguments("empty array literal".to_string()));
         }
 
-        // Compile all elements
+        // Compile all elements with expected element type for coercion
         let compiled: Vec<BasicValueEnum<'ctx>> = elements
             .iter()
-            .map(|e| self.compile_expr(e))
+            .map(|e| self.compile_expr_with_type(e, elem_type))
             .collect::<Result<_, _>>()?;
 
         // Determine element type from first element

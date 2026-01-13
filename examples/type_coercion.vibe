@@ -1,0 +1,9 @@
+// Test integer literal type coercion
+
+fn main() -> i32 {
+    // These should work with type coercion
+    let a: i32 = 42
+    let b: i32 = 10
+
+    return a + b   // Should return 52
+}

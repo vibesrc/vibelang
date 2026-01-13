@@ -1,0 +1,9 @@
+// Test string operations
+
+fn main() -> i32 {
+    let s1 = "hello"
+    let s2 = "world!!"
+
+    // s1.len() = 5, s2.len() = 7
+    return s1.len() + s2.len()   // Should return 12
+}

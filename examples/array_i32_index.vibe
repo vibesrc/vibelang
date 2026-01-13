@@ -1,0 +1,6 @@
+// Test array with explicit i32 type - indexing
+
+fn main() -> i32 {
+    let arr: i32[4] = [5, 10, 15, 20]
+    return arr[0] + arr[1]   // Should return 15
+}

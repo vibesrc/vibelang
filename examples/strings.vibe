@@ -1,0 +1,6 @@
+// Test string literals as &[u8] slices
+
+fn main() -> i32 {
+    let s = "hello"
+    return s.len()   // Should return 5
+}
