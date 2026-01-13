@@ -110,6 +110,10 @@ impl<'ctx> Codegen<'ctx> {
         };
 
         let fn_value = self.module.add_function(&func.name, fn_type, None);
+
+        // Store return type for later inference
+        self.function_return_types.insert(func.name.clone(), func.return_type.clone());
+
         Ok(fn_value)
     }
 
@@ -182,12 +186,24 @@ impl<'ctx> Codegen<'ctx> {
             // Create mangled function name: TypeName_methodName
             let mangled_name = format!("{}_{}", type_name, method.name);
 
+            // Substitute Self type with the actual type in params and return type
+            let resolved_params: Vec<Param> = method.params.iter().map(|p| {
+                Param {
+                    name: p.name.clone(),
+                    ty: self.substitute_self_type(&p.ty, &type_name),
+                    span: p.span,
+                }
+            }).collect();
+
+            let resolved_return_type = method.return_type.as_ref()
+                .map(|rt| self.substitute_self_type(rt, &type_name));
+
             // Create a modified function with the mangled name
             let mangled_func = Function {
                 name: mangled_name.clone(),
                 generics: method.generics.clone(),
-                params: method.params.clone(),
-                return_type: method.return_type.clone(),
+                params: resolved_params,
+                return_type: resolved_return_type,
                 body: method.body.clone(),
                 is_pub: method.is_pub,
                 span: method.span,
@@ -219,12 +235,24 @@ impl<'ctx> Codegen<'ctx> {
             if method.generics.is_empty() {
                 let mangled_name = format!("{}_{}", type_name, method.name);
 
+                // Substitute Self type with the actual type in params and return type
+                let resolved_params: Vec<Param> = method.params.iter().map(|p| {
+                    Param {
+                        name: p.name.clone(),
+                        ty: self.substitute_self_type(&p.ty, &type_name),
+                        span: p.span,
+                    }
+                }).collect();
+
+                let resolved_return_type = method.return_type.as_ref()
+                    .map(|rt| self.substitute_self_type(rt, &type_name));
+
                 // Create a modified function with the mangled name
                 let mangled_func = Function {
                     name: mangled_name,
                     generics: method.generics.clone(),
-                    params: method.params.clone(),
-                    return_type: method.return_type.clone(),
+                    params: resolved_params,
+                    return_type: resolved_return_type,
                     body: method.body.clone(),
                     is_pub: method.is_pub,
                     span: method.span,
@@ -235,5 +263,26 @@ impl<'ctx> Codegen<'ctx> {
         }
 
         Ok(())
+    }
+
+    /// Substitute Type::SelfType with the actual named type
+    fn substitute_self_type(&self, ty: &Type, type_name: &str) -> Type {
+        match ty {
+            Type::SelfType => Type::Named {
+                name: type_name.to_string(),
+                generics: vec![],
+            },
+            Type::Ref(inner) => Type::Ref(Box::new(self.substitute_self_type(inner, type_name))),
+            Type::RefMut(inner) => Type::RefMut(Box::new(self.substitute_self_type(inner, type_name))),
+            Type::Pointer(inner) => Type::Pointer(Box::new(self.substitute_self_type(inner, type_name))),
+            Type::Array(inner, size) => Type::Array(Box::new(self.substitute_self_type(inner, type_name)), *size),
+            Type::Slice(inner) => Type::Slice(Box::new(self.substitute_self_type(inner, type_name))),
+            Type::Named { name, generics } => Type::Named {
+                name: name.clone(),
+                generics: generics.iter().map(|g| self.substitute_self_type(g, type_name)).collect(),
+            },
+            // Primitives and other types don't need substitution
+            _ => ty.clone(),
+        }
     }
 }

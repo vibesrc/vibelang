@@ -56,6 +56,8 @@ pub struct Codegen<'ctx> {
     pub(crate) loaded_modules: HashSet<String>,             // Modules already loaded (prevent duplicates)
     pub(crate) imports: HashMap<String, String>,            // Name aliases from 'use' (short_name -> qualified_name)
     pub(crate) module_items: HashMap<String, Vec<String>>,  // Items exported by each module (module_path -> item_names)
+    // Function return types (for inferring struct types from function calls)
+    pub(crate) function_return_types: HashMap<String, Option<Type>>,
 }
 
 #[derive(Clone)]
@@ -111,6 +113,7 @@ impl<'ctx> Codegen<'ctx> {
             loaded_modules: HashSet::new(),
             imports: HashMap::new(),
             module_items: HashMap::new(),
+            function_return_types: HashMap::new(),
         };
 
         // Declare intrinsics

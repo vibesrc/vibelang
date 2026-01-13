@@ -137,6 +137,9 @@ pub enum Type {
         name: String,
         generics: Vec<Type>,
     },
+
+    // Self type (used in impl blocks)
+    SelfType,
 }
 
 // Expressions

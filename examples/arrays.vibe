@@ -8,5 +8,6 @@ fn main() -> i32 {
         total = total + nums[i]
         i = i + 1
     }
+    print_int(total)
     return total    // should be 15
 }

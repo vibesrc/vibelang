@@ -58,10 +58,18 @@ impl<'ctx> Codegen<'ctx> {
                     }
                     // Handle regular Call expressions that might return structs
                     Expr::Call { func, .. } => {
-                        if let Expr::Ident(_fn_name, _) = func.as_ref() {
-                            // Check if it's a constructor call (TypeName_methodName pattern)
-                            // or just use explicit type annotation
-                            (ty.as_ref().and_then(|t| self.get_struct_name_for_type(t)), None)
+                        if let Expr::Ident(fn_name, _) = func.as_ref() {
+                            // First check explicit type annotation
+                            if let Some(t) = ty.as_ref() {
+                                (self.get_struct_name_for_type(t), None)
+                            } else {
+                                // Infer from function return type
+                                let struct_name = self.function_return_types
+                                    .get(fn_name)
+                                    .and_then(|ret_ty| ret_ty.as_ref())
+                                    .and_then(|ret_ty| self.get_struct_name_for_type(ret_ty));
+                                (struct_name, None)
+                            }
                         } else {
                             (ty.as_ref().and_then(|t| self.get_struct_name_for_type(t)), None)
                         }

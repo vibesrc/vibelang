@@ -16,10 +16,22 @@ impl<'ctx> Codegen<'ctx> {
         // Compile the argument
         let arg = self.compile_expr(&args[0])?;
 
+        // String literals are compiled as Slice<u8> which is a { ptr, i64 } struct
+        // We need to extract the pointer field for puts
+        let ptr_val = if arg.is_struct_value() {
+            let struct_val = arg.into_struct_value();
+            // Extract the first field (the pointer)
+            self.builder.build_extract_value(struct_val, 0, "str_ptr")
+                .unwrap()
+        } else {
+            // Already a pointer
+            arg
+        };
+
         // Call puts with the string pointer
         let call_site = self
             .builder
-            .build_call(puts, &[arg.into()], "puts_call")
+            .build_call(puts, &[ptr_val.into()], "puts_call")
             .unwrap();
 
         match call_site.try_as_basic_value() {
@@ -42,6 +54,13 @@ impl<'ctx> Codegen<'ctx> {
 
         // Compile the argument
         let arg = self.compile_expr(&args[0])?;
+
+        // Type check: print_int only accepts integer types
+        if !arg.is_int_value() {
+            return Err(CodegenError::InvalidArguments(
+                "print_int requires an integer argument, got a non-integer type".to_string()
+            ));
+        }
 
         // Call printf with format and value
         let call_site = self

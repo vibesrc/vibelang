@@ -20,7 +20,7 @@ impl Parser {
         parser.parse_program()
     }
 
-    fn parse_program(&mut self) -> Result<Program, ParseError> {
+    pub fn parse_program(&mut self) -> Result<Program, ParseError> {
         let mut items = Vec::new();
 
         while !self.is_at_end() {
@@ -93,6 +93,57 @@ impl Parser {
 
         while !self.check(TokenKind::RParen) {
             let start = self.current_span();
+
+            // Handle self parameters: &self, ~self, or self
+            if self.check(TokenKind::Amp) {
+                // &self - immutable reference
+                self.advance();
+                if self.peek_kind() == Some(&TokenKind::Keyword(Keyword::SelfValue)) {
+                    self.advance();
+                    params.push(Param {
+                        name: "self".to_string(),
+                        ty: Type::Ref(Box::new(Type::SelfType)),
+                        span: self.span_from(start),
+                    });
+                    if !self.match_token(TokenKind::Comma) {
+                        break;
+                    }
+                    continue;
+                } else {
+                    return Err(self.error("expected 'self' after '&'"));
+                }
+            } else if self.check(TokenKind::Tilde) {
+                // ~self - mutable reference
+                self.advance();
+                if self.peek_kind() == Some(&TokenKind::Keyword(Keyword::SelfValue)) {
+                    self.advance();
+                    params.push(Param {
+                        name: "self".to_string(),
+                        ty: Type::RefMut(Box::new(Type::SelfType)),
+                        span: self.span_from(start),
+                    });
+                    if !self.match_token(TokenKind::Comma) {
+                        break;
+                    }
+                    continue;
+                } else {
+                    return Err(self.error("expected 'self' after '~'"));
+                }
+            } else if self.peek_kind() == Some(&TokenKind::Keyword(Keyword::SelfValue)) {
+                // self - consuming self
+                self.advance();
+                params.push(Param {
+                    name: "self".to_string(),
+                    ty: Type::SelfType,
+                    span: self.span_from(start),
+                });
+                if !self.match_token(TokenKind::Comma) {
+                    break;
+                }
+                continue;
+            }
+
+            // Regular parameter: name: type
             let name = self.expect_ident()?;
             self.expect(TokenKind::Colon)?;
             let ty = self.parse_type()?;

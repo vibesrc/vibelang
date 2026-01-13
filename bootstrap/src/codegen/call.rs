@@ -74,6 +74,9 @@ impl<'ctx> Codegen<'ctx> {
             .get_function(&mono_name)
             .ok_or_else(|| CodegenError::UndefinedFunction(mono_name.clone()))?;
 
+        // Save borrow state - temporary borrows in function arguments should be released after the call
+        let borrows_before = self.borrowed_vars.clone();
+
         let compiled_args: Vec<BasicValueEnum> = args
             .iter()
             .map(|a| self.compile_expr(a))
@@ -85,6 +88,9 @@ impl<'ctx> Codegen<'ctx> {
             .builder
             .build_call(fn_value, &args_meta, "call")
             .unwrap();
+
+        // Restore borrow state - borrows for function arguments end when function returns
+        self.borrowed_vars = borrows_before;
 
         match call_site.try_as_basic_value() {
             inkwell::values::ValueKind::Basic(val) => Ok(val),
@@ -109,6 +115,9 @@ impl<'ctx> Codegen<'ctx> {
                 format!("function '{}' not found in module '{}'", func_name, module_name)
             ))?;
 
+        // Save borrow state - temporary borrows in function arguments should be released after the call
+        let borrows_before = self.borrowed_vars.clone();
+
         // Compile the arguments
         let compiled_args: Vec<BasicValueEnum> = args
             .iter()
@@ -120,6 +129,9 @@ impl<'ctx> Codegen<'ctx> {
         let call_site = self.builder
             .build_call(fn_value, &args_meta, "module_call")
             .unwrap();
+
+        // Restore borrow state
+        self.borrowed_vars = borrows_before;
 
         match call_site.try_as_basic_value() {
             inkwell::values::ValueKind::Basic(val) => Ok(val),
@@ -150,6 +162,9 @@ impl<'ctx> Codegen<'ctx> {
             .get_function(&mangled_name)
             .ok_or_else(|| CodegenError::UndefinedFunction(mangled_name.clone()))?;
 
+        // Save borrow state
+        let borrows_before = self.borrowed_vars.clone();
+
         // Compile the arguments (no receiver for static methods)
         let compiled_args: Vec<BasicValueEnum> = args
             .iter()
@@ -161,6 +176,9 @@ impl<'ctx> Codegen<'ctx> {
         let call_site = self.builder
             .build_call(fn_value, &args_meta, "static_method_call")
             .unwrap();
+
+        // Restore borrow state
+        self.borrowed_vars = borrows_before;
 
         match call_site.try_as_basic_value() {
             inkwell::values::ValueKind::Basic(val) => Ok(val),
@@ -213,6 +231,9 @@ impl<'ctx> Codegen<'ctx> {
             .get_function(&mangled_name)
             .ok_or_else(|| CodegenError::UndefinedFunction(mangled_name.clone()))?;
 
+        // Save borrow state
+        let borrows_before = self.borrowed_vars.clone();
+
         // Compile receiver as first argument (pass as pointer/reference)
         let receiver_val = if let Expr::Ident(name, _) = receiver {
             let var_info = self.variables.get(name).unwrap();
@@ -233,6 +254,9 @@ impl<'ctx> Codegen<'ctx> {
         let call_site = self.builder
             .build_call(fn_value, &args_meta, "method_call")
             .unwrap();
+
+        // Restore borrow state
+        self.borrowed_vars = borrows_before;
 
         match call_site.try_as_basic_value() {
             inkwell::values::ValueKind::Basic(val) => Ok(val),

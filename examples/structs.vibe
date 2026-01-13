@@ -1,11 +1,37 @@
 // Structs test
 
+enum Coordinate {
+    X
+    Y
+}
+
 struct Point {
     x: i32
     y: i32
 }
 
+fn move_point(p: &Point, dx: i32, dy: i32) -> Point {
+    return Point { x: p.x + dx, y: p.y + dy }
+}
+
+fn modify_point(p: ~Point, dx: i32, dy: i32) {
+    p.x = p.x + dx
+    p.y = p.y + dy
+}
+
+// show the error case of transferring ownership
+fn kill_point(p: Point) -> i32 {
+    return 5
+}
+
 fn main() -> i32 {
-    let p = Point { x: 10, y: 20 }
+    let p = Point { x: 10, y: 20, }
+    let p2 = move_point(&p, 5, 5)
+    modify_point(~p, 5, -5)
+    
+    print("Point p2:")
+    print_int(p2.x)
+    print_int(p2.y)
+        
     return p.x + p.y
 }

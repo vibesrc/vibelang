@@ -1,10 +1,5 @@
-mod ast;
-mod codegen;
-mod lexer;
-mod parser;
-
-use codegen::Codegen;
-use parser::Parser;
+use vibec::codegen::Codegen;
+use vibec::parser::Parser;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -26,12 +21,14 @@ fn main() {
     let mut emit_llvm = false;
     let mut emit_obj = false;
     let mut output_name: Option<String> = None;
+    let mut quiet = false;
 
     let mut i = 2;
     while i < args.len() {
         match args[i].as_str() {
             "--emit=llvm" => emit_llvm = true,
             "--emit=obj" => emit_obj = true,
+            "-q" | "--quiet" => quiet = true,
             "-o" => {
                 i += 1;
                 if i < args.len() {
@@ -52,7 +49,9 @@ fn main() {
         std::process::exit(1);
     });
 
-    println!("Compiling: {}", filename);
+    if !quiet {
+        println!("Compiling: {}", filename);
+    }
 
     // Parse
     let program = match Parser::parse(&source) {
@@ -63,7 +62,9 @@ fn main() {
         }
     };
 
-    println!("Parsed {} items", program.items.len());
+    if !quiet {
+        println!("Parsed {} items", program.items.len());
+    }
 
     // Generate code
     let context = inkwell::context::Context::create();
@@ -107,7 +108,9 @@ fn main() {
             eprintln!("Error writing LLVM IR: {}", e);
             std::process::exit(1);
         }
-        println!("Wrote LLVM IR to {}", ll_path);
+        if !quiet {
+            println!("Wrote LLVM IR to {}", ll_path);
+        }
     }
 
     if emit_obj {
@@ -116,7 +119,9 @@ fn main() {
             eprintln!("Error writing object file: {}", e);
             std::process::exit(1);
         }
-        println!("Wrote object file to {}", obj_path);
+        if !quiet {
+            println!("Wrote object file to {}", obj_path);
+        }
     }
 
     // Default: compile to native binary
@@ -137,7 +142,9 @@ fn main() {
 
         match status {
             Ok(s) if s.success() => {
-                println!("Compiled to {}", bin_path);
+                if !quiet {
+                    println!("Compiled to {}", bin_path);
+                }
                 // Clean up object file
                 std::fs::remove_file(&obj_path).ok();
             }
