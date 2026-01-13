@@ -1,0 +1,13 @@
+// Test slice iteration with inferred types
+
+fn main() -> i32 {
+    let arr = [5, 10, 15, 20]
+    let slice = &arr
+    let total = 0
+
+    for x in slice {
+        total = total + x
+    }
+
+    return total   // 50
+}

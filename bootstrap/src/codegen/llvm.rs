@@ -41,6 +41,7 @@ struct VarInfo<'ctx> {
     is_ref: bool,                  // Is this a reference (&T or ~T)?
     is_mut_ref: bool,              // Is this a mutable reference (~T)?
     ref_struct_name: Option<String>, // If it's a ref to a struct, the struct name
+    slice_elem_type: Option<Type>, // If it's a slice, the element type (e.g., I32 for &[i32])
 }
 
 #[derive(Clone)]
@@ -570,6 +571,7 @@ impl<'ctx> Codegen<'ctx> {
                 is_ref,
                 is_mut_ref,
                 ref_struct_name,
+                slice_elem_type: None,
             });
         }
 
@@ -635,6 +637,30 @@ impl<'ctx> Codegen<'ctx> {
                     _ => (ty.as_ref().and_then(|t| self.get_struct_name_for_type(t)), None),
                 };
 
+                // Track slice element type: if we're taking a reference to an array, extract element type
+                let slice_elem_type = match value {
+                    Expr::Ref { operand, .. } | Expr::RefMut { operand, .. } => {
+                        if let Expr::Ident(arr_name, _) = operand.as_ref() {
+                            if let Some(var_info) = self.variables.get(arr_name) {
+                                if var_info.ty.is_array_type() {
+                                    // Get element type from array
+                                    let array_ty = var_info.ty.into_array_type();
+                                    let elem_llvm_ty = array_ty.get_element_type();
+                                    // Map LLVM type back to AST type
+                                    self.llvm_type_to_ast_type(elem_llvm_ty)
+                                } else {
+                                    None
+                                }
+                            } else {
+                                None
+                            }
+                        } else {
+                            None
+                        }
+                    }
+                    _ => None,
+                };
+
                 let init_value = self.compile_expr(value)?;
                 let alloca_type = match ty {
                     Some(t) => self.llvm_type(t)?,
@@ -655,6 +681,7 @@ impl<'ctx> Codegen<'ctx> {
                     is_ref: false,
                     is_mut_ref: false,
                     ref_struct_name: None,
+                    slice_elem_type,
                 });
                 Ok(None)
             }
@@ -793,6 +820,7 @@ impl<'ctx> Codegen<'ctx> {
                     is_ref: false,
                     is_mut_ref: false,
                     ref_struct_name: None,
+                    slice_elem_type: None,
                 });
 
                 let cond_bb = self.context.append_basic_block(fn_value, "for.cond");
@@ -864,6 +892,7 @@ impl<'ctx> Codegen<'ctx> {
                     is_ref: false,
                     is_mut_ref: false,
                     ref_struct_name: None,
+                    slice_elem_type: None,
                 });
 
                 let cond_bb = self.context.append_basic_block(fn_value, "for.cond");
@@ -940,8 +969,12 @@ impl<'ctx> Codegen<'ctx> {
             .unwrap()
             .into_int_value();
 
-        // For now, assume element type is i64 (need better type tracking)
-        let elem_type = i64_type.as_basic_type_enum();
+        // Get element type from tracked slice_elem_type, fallback to i64
+        let elem_type: BasicTypeEnum = if let Some(ref ast_ty) = var_info.slice_elem_type {
+            self.llvm_type(ast_ty)?
+        } else {
+            i64_type.into()
+        };
 
         // Create index variable
         let idx_var = self.create_entry_block_alloca("__idx", i64_type.into());
@@ -956,6 +989,7 @@ impl<'ctx> Codegen<'ctx> {
             is_ref: false,
             is_mut_ref: false,
             ref_struct_name: None,
+            slice_elem_type: None,
         });
 
         let cond_bb = self.context.append_basic_block(fn_value, "for.cond");
@@ -978,7 +1012,7 @@ impl<'ctx> Codegen<'ctx> {
         let current_idx = self.builder.build_load(i64_type, idx_var, "idx").unwrap().into_int_value();
         let elem_ptr = unsafe {
             self.builder.build_gep(
-                i64_type,
+                elem_type,
                 data_ptr,
                 &[current_idx],
                 "slice_elem_ptr"
@@ -1121,6 +1155,7 @@ impl<'ctx> Codegen<'ctx> {
                                             is_ref: false,
                                             is_mut_ref: false,
                                             ref_struct_name: None,
+                                            slice_elem_type: None,
                                         });
                                     }
                                 }
@@ -1901,8 +1936,12 @@ impl<'ctx> Codegen<'ctx> {
                         .unwrap()
                         .into_pointer_value();
 
-                    // Get element type - assume i64 for now (need better type tracking)
-                    let elem_type = self.context.i64_type();
+                    // Get element type from tracked slice_elem_type, fallback to i64
+                    let elem_type: BasicTypeEnum = if let Some(ref ast_ty) = var_info.slice_elem_type {
+                        self.llvm_type(ast_ty)?
+                    } else {
+                        self.context.i64_type().into()
+                    };
 
                     // GEP to get element at index
                     let elem_ptr = unsafe {
@@ -1914,7 +1953,7 @@ impl<'ctx> Codegen<'ctx> {
                         ).unwrap()
                     };
 
-                    let val = self.builder.build_load(elem_type.as_basic_type_enum(), elem_ptr, "slice_elem").unwrap();
+                    let val = self.builder.build_load(elem_type, elem_ptr, "slice_elem").unwrap();
                     return Ok(val);
                 }
             }
@@ -2137,6 +2176,34 @@ impl<'ctx> Codegen<'ctx> {
             }
             Type::Slice(inner) => format!("slice_{}", self.type_name(inner)),
             _ => "unknown".to_string(),
+        }
+    }
+
+    /// Convert an LLVM type back to an AST type (for primitive types only)
+    fn llvm_type_to_ast_type(&self, ty: BasicTypeEnum<'ctx>) -> Option<Type> {
+        if ty.is_int_type() {
+            let int_ty = ty.into_int_type();
+            let bit_width = int_ty.get_bit_width();
+            match bit_width {
+                1 => Some(Type::Bool),
+                8 => Some(Type::I8),   // Could be U8, but we default to signed
+                16 => Some(Type::I16),
+                32 => Some(Type::I32),
+                64 => Some(Type::I64),
+                _ => None,
+            }
+        } else if ty.is_float_type() {
+            let float_ty = ty.into_float_type();
+            // Check if it's f32 or f64 based on type
+            if float_ty == self.context.f32_type() {
+                Some(Type::F32)
+            } else if float_ty == self.context.f64_type() {
+                Some(Type::F64)
+            } else {
+                None
+            }
+        } else {
+            None
         }
     }
 

@@ -1,0 +1,12 @@
+// Test slice with i32 elements
+
+fn main() -> i32 {
+    let arr: i32[3] = [10, 20, 30]
+    let slice = &arr
+
+    // Test indexing - should get i32 values
+    let first = slice[0]   // 10
+    let second = slice[1]  // 20
+
+    return first + second  // 30
+}

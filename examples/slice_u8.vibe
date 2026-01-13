@@ -1,0 +1,13 @@
+// Test slice with u8 elements (for string-like usage)
+
+fn main() -> i32 {
+    let arr: u8[4] = [65, 66, 67, 68]  // ASCII: A, B, C, D
+    let slice = &arr
+
+    // Test indexing and sum
+    let a = slice[0]  // 65
+    let b = slice[1]  // 66
+
+    // Cast to i32 for return
+    return a + b      // 131 (65 + 66)
+}
