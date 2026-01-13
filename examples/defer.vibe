@@ -1,0 +1,7 @@
+// Test defer statement
+// Success criteria: defer print("cleanup")
+
+fn main() -> i32 {
+    defer print("cleanup")
+    return 0
+}
