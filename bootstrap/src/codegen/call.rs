@@ -64,11 +64,19 @@ impl<'ctx> Codegen<'ctx> {
         }
 
         // Generate monomorphized function if type args are present
-        let mono_name = if type_args.is_empty() {
-            name.clone()
-        } else {
-            // Ensure monomorphized function exists
+        let mono_name = if !type_args.is_empty() {
+            // Explicit type arguments provided
             self.ensure_monomorphized_function(name, type_args)?
+        } else if self.module.get_function(name).is_some() {
+            // Non-generic function exists directly
+            name.clone()
+        } else if let Some(generic_func) = self.generic_functions.get(name).cloned() {
+            // Generic function - infer type arguments from actual arguments
+            let inferred_types = self.infer_function_type_args(&generic_func, args)?;
+            self.ensure_monomorphized_function(name, &inferred_types)?
+        } else {
+            // Function not found
+            return Err(CodegenError::UndefinedFunction(name.clone()));
         };
 
         let fn_value = self

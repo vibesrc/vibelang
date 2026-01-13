@@ -159,6 +159,7 @@ impl<'ctx> Codegen<'ctx> {
                 ptr: alloca,
                 ty: param_type,
                 struct_name,
+                ast_type: Some(param.ty.clone()),
                 is_ref,
                 is_mut_ref,
                 ref_struct_name,

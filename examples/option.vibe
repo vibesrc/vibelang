@@ -1,5 +1,10 @@
 // Option enum with data variant
 
+struct Point {
+    x: i32,
+    y: i32,
+}
+
 enum Option<T> {
     Some(T),
     None,
@@ -8,11 +13,13 @@ enum Option<T> {
 fn unwrap<T>(o: Option<T>) -> T {
     match o {
         Option.Some(val) => val,
-        Option.None => 0,
+        Option.None => panic("Called unwrap on a None value"),
     }
 }
 
 fn main() -> i32 {
-    let x = Option<i32>.Some(42)
-    return unwrap<i32>(x)
+    let p = Point { x: 10, y: 20 }
+    let opt_point = Option.Some(p)
+    let unwrapped_point = unwrap(opt_point)
+    return unwrapped_point.x + unwrapped_point.y
 }

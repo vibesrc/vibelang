@@ -43,6 +43,8 @@ impl Backend {
                             token_type: semantic_token_types::ENUM_MEMBER,
                             modifiers: 1,
                         });
+                        // Highlight types in variant fields
+                        self.collect_tokens_from_variant_fields(&variant.fields, text, variant.span.line, &mut tokens, &e.generics);
                     }
                 }
                 Item::Struct(s) => {
@@ -174,7 +176,7 @@ impl Backend {
             Stmt::Match { value, arms, .. } => {
                 self.collect_tokens_from_expr(value, text, tokens, type_params);
                 for arm in arms {
-                    self.collect_tokens_from_pattern(&arm.pattern, text, tokens);
+                    self.collect_tokens_from_pattern(&arm.pattern, text, tokens, arm.span.line);
                     self.collect_tokens_from_expr(&arm.body, text, tokens, type_params);
                 }
             }
@@ -239,8 +241,34 @@ impl Backend {
             Expr::Ref { operand, .. } | Expr::RefMut { operand, .. } | Expr::Deref { operand, .. } => {
                 self.collect_tokens_from_expr(operand, text, tokens, type_params);
             }
-            Expr::MethodCall { receiver, args, .. } => {
-                self.collect_tokens_from_expr(receiver, text, tokens, type_params);
+            Expr::MethodCall { receiver, method, args, span } => {
+                // Check if this is an enum variant constructor (e.g., Option.Some(42))
+                if let Expr::Ident(name, ident_span) = receiver.as_ref() {
+                    // If name starts with uppercase, it's likely a type (enum/struct)
+                    if name.chars().next().map(|c| c.is_uppercase()).unwrap_or(false) {
+                        // Mark the receiver as an enum type
+                        tokens.push(RawSemanticToken {
+                            line: ident_span.line.saturating_sub(1) as u32,
+                            start: self.find_name_column(text, ident_span.line, name),
+                            length: name.len() as u32,
+                            token_type: semantic_token_types::ENUM,
+                            modifiers: 0,
+                        });
+                        // Mark the method as an enum member
+                        tokens.push(RawSemanticToken {
+                            line: span.line.saturating_sub(1) as u32,
+                            start: self.find_field_column(text, span.line, method),
+                            length: method.len() as u32,
+                            token_type: semantic_token_types::ENUM_MEMBER,
+                            modifiers: 0,
+                        });
+                    } else {
+                        // Regular method call on a variable
+                        self.collect_tokens_from_expr(receiver, text, tokens, type_params);
+                    }
+                } else {
+                    self.collect_tokens_from_expr(receiver, text, tokens, type_params);
+                }
                 for arg in args {
                     self.collect_tokens_from_expr(arg, text, tokens, type_params);
                 }
@@ -256,15 +284,187 @@ impl Backend {
         }
     }
 
-    pub fn collect_tokens_from_pattern(&self, pattern: &AstPattern, text: &str, tokens: &mut Vec<RawSemanticToken>) {
+    pub fn collect_tokens_from_pattern(&self, pattern: &AstPattern, text: &str, tokens: &mut Vec<RawSemanticToken>, line: u32) {
         match pattern {
-            AstPattern::Enum { path: _, fields, .. } => {
+            AstPattern::Enum { path, fields, .. } => {
+                // Emit token for enum type name (e.g., "Option" in "Option.Some")
+                if let Some(enum_name) = path.first() {
+                    if let Some(col) = self.find_pattern_name_column(text, line, enum_name) {
+                        tokens.push(RawSemanticToken {
+                            line: line.saturating_sub(1) as u32,
+                            start: col,
+                            length: enum_name.len() as u32,
+                            token_type: semantic_token_types::ENUM,
+                            modifiers: 0,
+                        });
+                    }
+                }
+                // Emit token for variant name (e.g., "Some" in "Option.Some")
+                if let Some(variant_name) = path.get(1) {
+                    if let Some(col) = self.find_pattern_field_column(text, line, variant_name) {
+                        tokens.push(RawSemanticToken {
+                            line: line.saturating_sub(1) as u32,
+                            start: col,
+                            length: variant_name.len() as u32,
+                            token_type: semantic_token_types::ENUM_MEMBER,
+                            modifiers: 0,
+                        });
+                    }
+                }
+                // Recursively process nested patterns
                 for field in fields {
-                    self.collect_tokens_from_pattern(field, text, tokens);
+                    self.collect_tokens_from_pattern(field, text, tokens, line);
                 }
             }
             _ => {}
         }
+    }
+
+    fn collect_tokens_from_variant_fields(
+        &self,
+        fields: &crate::ast::VariantFields,
+        text: &str,
+        line: u32,
+        tokens: &mut Vec<RawSemanticToken>,
+        type_params: &[String],
+    ) {
+        use crate::ast::VariantFields;
+
+        match fields {
+            VariantFields::Tuple(types) => {
+                for ty in types {
+                    self.collect_tokens_from_type(ty, text, line, tokens, type_params);
+                }
+            }
+            VariantFields::Struct(fields) => {
+                for field in fields {
+                    self.collect_tokens_from_type(&field.ty, text, field.span.line, tokens, type_params);
+                }
+            }
+            VariantFields::Unit => {}
+        }
+    }
+
+    fn collect_tokens_from_type(
+        &self,
+        ty: &crate::ast::Type,
+        text: &str,
+        line: u32,
+        tokens: &mut Vec<RawSemanticToken>,
+        type_params: &[String],
+    ) {
+        use crate::ast::Type;
+
+        match ty {
+            Type::Named { name, generics } => {
+                // Determine token type based on what kind of type this is
+                let token_type = if type_params.contains(name) {
+                    // Generic type parameter like T
+                    semantic_token_types::TYPE_PARAMETER
+                } else if crate::lsp::utils::is_builtin_type(name) {
+                    // Built-in type like Slice
+                    semantic_token_types::TYPE
+                } else {
+                    // User-defined struct or enum type
+                    semantic_token_types::STRUCT
+                };
+
+                if let Some(col) = self.find_type_in_line(text, line, name) {
+                    tokens.push(RawSemanticToken {
+                        line: line.saturating_sub(1) as u32,
+                        start: col,
+                        length: name.len() as u32,
+                        token_type,
+                        modifiers: 0,
+                    });
+                }
+
+                // Recurse into generic arguments
+                for generic_ty in generics {
+                    self.collect_tokens_from_type(generic_ty, text, line, tokens, type_params);
+                }
+            }
+            Type::I8 | Type::I16 | Type::I32 | Type::I64 |
+            Type::U8 | Type::U16 | Type::U32 | Type::U64 |
+            Type::F32 | Type::F64 | Type::Bool | Type::Void => {
+                let type_name = self.primitive_type_name(ty);
+                if let Some(col) = self.find_type_in_line(text, line, type_name) {
+                    tokens.push(RawSemanticToken {
+                        line: line.saturating_sub(1) as u32,
+                        start: col,
+                        length: type_name.len() as u32,
+                        token_type: semantic_token_types::TYPE,
+                        modifiers: 0,
+                    });
+                }
+            }
+            Type::Ref(inner) | Type::RefMut(inner) | Type::Pointer(inner) => {
+                self.collect_tokens_from_type(inner, text, line, tokens, type_params);
+            }
+            Type::Array(inner, _) => {
+                self.collect_tokens_from_type(inner, text, line, tokens, type_params);
+            }
+            Type::Slice(inner) => {
+                self.collect_tokens_from_type(inner, text, line, tokens, type_params);
+            }
+            _ => {}
+        }
+    }
+
+    fn primitive_type_name(&self, ty: &crate::ast::Type) -> &'static str {
+        use crate::ast::Type;
+        match ty {
+            Type::I8 => "i8",
+            Type::I16 => "i16",
+            Type::I32 => "i32",
+            Type::I64 => "i64",
+            Type::U8 => "u8",
+            Type::U16 => "u16",
+            Type::U32 => "u32",
+            Type::U64 => "u64",
+            Type::F32 => "f32",
+            Type::F64 => "f64",
+            Type::Bool => "bool",
+            Type::Void => "void",
+            _ => "",
+        }
+    }
+
+    fn find_type_in_line(&self, text: &str, line: u32, type_name: &str) -> Option<u32> {
+        if let Some(line_text) = text.lines().nth(line.saturating_sub(1) as usize) {
+            // Find the type name, but be careful about partial matches
+            // Look for the type name that's not part of a larger identifier
+            let mut search_start = 0;
+            while let Some(pos) = line_text[search_start..].find(type_name) {
+                let abs_pos = search_start + pos;
+                let before_ok = abs_pos == 0 || !line_text.chars().nth(abs_pos - 1).map(|c| c.is_alphanumeric() || c == '_').unwrap_or(false);
+                let after_ok = abs_pos + type_name.len() >= line_text.len() || !line_text.chars().nth(abs_pos + type_name.len()).map(|c| c.is_alphanumeric() || c == '_').unwrap_or(false);
+                if before_ok && after_ok {
+                    return Some(abs_pos as u32);
+                }
+                search_start = abs_pos + 1;
+            }
+        }
+        None
+    }
+
+    fn find_pattern_name_column(&self, text: &str, line: u32, name: &str) -> Option<u32> {
+        if let Some(line_text) = text.lines().nth(line.saturating_sub(1) as usize) {
+            if let Some(pos) = line_text.find(name) {
+                return Some(pos as u32);
+            }
+        }
+        None
+    }
+
+    fn find_pattern_field_column(&self, text: &str, line: u32, field: &str) -> Option<u32> {
+        if let Some(line_text) = text.lines().nth(line.saturating_sub(1) as usize) {
+            // Look for .field pattern
+            if let Some(pos) = line_text.find(&format!(".{}", field)) {
+                return Some((pos + 1) as u32);
+            }
+        }
+        None
     }
 
     pub fn find_name_column(&self, text: &str, line: u32, name: &str) -> u32 {

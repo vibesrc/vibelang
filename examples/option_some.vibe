@@ -4,6 +4,6 @@ enum Option<T> {
 }
 
 fn main() -> i32 {
-    let x = Option<i32>.Some(42)
+    let x = Option.Some(42)
     return 0
 }

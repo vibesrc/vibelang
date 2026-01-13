@@ -12,6 +12,7 @@ pub mod semantic_token_types {
     pub const PARAMETER: u32 = 5;
     pub const VARIABLE: u32 = 6;
     pub const PROPERTY: u32 = 7;
+    pub const TYPE: u32 = 8;  // Built-in types like i32, bool, etc.
 }
 
 /// Returns the semantic token legend for this server
@@ -26,6 +27,7 @@ pub fn semantic_token_legend() -> SemanticTokensLegend {
             SemanticTokenType::PARAMETER,      // 5
             SemanticTokenType::VARIABLE,       // 6
             SemanticTokenType::PROPERTY,       // 7
+            SemanticTokenType::TYPE,           // 8 - Built-in types
         ],
         token_modifiers: vec![
             SemanticTokenModifier::DEFINITION,

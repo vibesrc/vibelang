@@ -46,8 +46,24 @@ impl<'ctx> Codegen<'ctx> {
             Expr::MethodCall { receiver, method, args, .. } => {
                 // Check if this is an enum variant constructor (e.g., Option.Some(42))
                 if let Expr::Ident(name, _) = receiver.as_ref() {
+                    // Check concrete enum first
                     if let Some(enum_info) = self.enum_types.get(name).cloned() {
                         return self.compile_enum_variant_constructor(&enum_info, name, method, args);
+                    }
+
+                    // Check if this is a generic enum - infer type from arguments
+                    if let Some(generic_enum) = self.generic_enums.get(name).cloned() {
+                        // Find the variant being constructed
+                        if let Some(variant) = generic_enum.variants.iter().find(|v| v.name == *method) {
+                            // Infer type arguments from constructor arguments
+                            if let Some(inferred_types) = self.infer_enum_type_args(&generic_enum, variant, args)? {
+                                // Monomorphize with inferred types
+                                let mono_name = self.ensure_monomorphized_enum(name, &inferred_types)?;
+                                let enum_info = self.enum_types.get(&mono_name).cloned()
+                                    .ok_or_else(|| CodegenError::UndefinedType(mono_name.clone()))?;
+                                return self.compile_enum_variant_constructor(&enum_info, &mono_name, method, args);
+                            }
+                        }
                     }
 
                     // Check if this is a module function call (e.g., math.add())

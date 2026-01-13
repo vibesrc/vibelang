@@ -64,7 +64,8 @@ pub struct Codegen<'ctx> {
 pub(crate) struct VarInfo<'ctx> {
     pub(crate) ptr: PointerValue<'ctx>,       // Pointer to the variable storage
     pub(crate) ty: BasicTypeEnum<'ctx>,       // LLVM type
-    pub(crate) struct_name: Option<String>,   // If it's a struct, the struct name
+    pub(crate) struct_name: Option<String>,   // If it's a struct, the struct name (may be mangled)
+    pub(crate) ast_type: Option<Type>,        // Full AST type with generics (for type inference)
     pub(crate) is_ref: bool,                  // Is this a reference (&T or ~T)?
     pub(crate) is_mut_ref: bool,              // Is this a mutable reference (~T)?
     pub(crate) ref_struct_name: Option<String>, // If it's a ref to a struct, the struct name

@@ -120,6 +120,7 @@ impl<'ctx> Codegen<'ctx> {
                                             ptr: var_alloca,
                                             ty: payload_type,
                                             struct_name: None,
+                                            ast_type: self.llvm_type_to_ast_type(payload_type),
                                             is_ref: false,
                                             is_mut_ref: false,
                                             ref_struct_name: None,

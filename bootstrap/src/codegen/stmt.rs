@@ -44,11 +44,23 @@ impl<'ctx> Codegen<'ctx> {
                         }
                     }
                     // Handle static method calls like IntArray.new() or enum constructors like Color.Red
-                    Expr::MethodCall { receiver, .. } => {
+                    Expr::MethodCall { receiver, method, args, .. } => {
                         if let Expr::Ident(type_name, _) = receiver.as_ref() {
                             // Check if receiver is a struct type (static method call) or enum type (variant constructor)
                             if self.struct_types.contains_key(type_name) || self.enum_types.contains_key(type_name) {
                                 (Some(type_name.clone()), None)
+                            } else if let Some(generic_enum) = self.generic_enums.get(type_name).cloned() {
+                                // Generic enum variant constructor - infer type args to get mangled name
+                                if let Some(variant) = generic_enum.variants.iter().find(|v| v.name == *method) {
+                                    if let Ok(Some(inferred_types)) = self.infer_enum_type_args(&generic_enum, variant, args) {
+                                        let mangled = self.mangle_name(type_name, &inferred_types);
+                                        (Some(mangled), None)
+                                    } else {
+                                        (ty.as_ref().and_then(|t| self.get_struct_name_for_type(t)), None)
+                                    }
+                                } else {
+                                    (ty.as_ref().and_then(|t| self.get_struct_name_for_type(t)), None)
+                                }
                             } else {
                                 (ty.as_ref().and_then(|t| self.get_struct_name_for_type(t)), None)
                             }
@@ -57,11 +69,32 @@ impl<'ctx> Codegen<'ctx> {
                         }
                     }
                     // Handle regular Call expressions that might return structs
-                    Expr::Call { func, .. } => {
+                    Expr::Call { func, args, type_args, .. } => {
                         if let Expr::Ident(fn_name, _) = func.as_ref() {
                             // First check explicit type annotation
                             if let Some(t) = ty.as_ref() {
                                 (self.get_struct_name_for_type(t), None)
+                            } else if let Some(generic_func) = self.generic_functions.get(fn_name).cloned() {
+                                // Generic function - infer return type with substituted type params
+                                let inferred_types = if !type_args.is_empty() {
+                                    type_args.clone()
+                                } else if let Ok(types) = self.infer_function_type_args(&generic_func, args) {
+                                    types
+                                } else {
+                                    vec![]
+                                };
+
+                                if !inferred_types.is_empty() {
+                                    // Substitute type params in return type
+                                    if let Some(ref ret_ty) = generic_func.return_type {
+                                        let substituted = self.substitute_type_params(ret_ty, &generic_func.generics, &inferred_types);
+                                        (self.get_struct_name_for_type(&substituted), None)
+                                    } else {
+                                        (None, None)
+                                    }
+                                } else {
+                                    (None, None)
+                                }
                             } else {
                                 // Infer from function return type
                                 let struct_name = self.function_return_types
@@ -132,6 +165,7 @@ impl<'ctx> Codegen<'ctx> {
                     ptr: alloca,
                     ty: alloca_type,
                     struct_name,
+                    ast_type: ty.clone(),
                     is_ref: false,
                     is_mut_ref: false,
                     ref_struct_name: None,
@@ -315,6 +349,7 @@ impl<'ctx> Codegen<'ctx> {
                     ptr: loop_var,
                     ty: i64_type.into(),
                     struct_name: None,
+                    ast_type: Some(Type::I64),
                     is_ref: false,
                     is_mut_ref: false,
                     ref_struct_name: None,
@@ -397,6 +432,7 @@ impl<'ctx> Codegen<'ctx> {
                     ptr: elem_var,
                     ty: elem_type,
                     struct_name: None,
+                    ast_type: self.llvm_type_to_ast_type(elem_type),
                     is_ref: false,
                     is_mut_ref: false,
                     ref_struct_name: None,
@@ -504,6 +540,7 @@ impl<'ctx> Codegen<'ctx> {
             ptr: elem_var,
             ty: elem_type,
             struct_name: None,
+            ast_type: var_info.slice_elem_type.clone(),
             is_ref: false,
             is_mut_ref: false,
             ref_struct_name: None,

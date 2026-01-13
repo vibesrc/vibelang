@@ -1,0 +1,97 @@
+//! Type parsing
+
+use super::{ParseError, Parser};
+use crate::ast::Type;
+use crate::lexer::TokenKind;
+
+impl Parser {
+    pub(crate) fn parse_type(&mut self) -> Result<Type, ParseError> {
+        // Pointer type
+        if self.match_token(TokenKind::Star) {
+            let inner = self.parse_type()?;
+            return Ok(Type::Pointer(Box::new(inner)));
+        }
+
+        // Read-only borrow
+        if self.match_token(TokenKind::Amp) {
+            let inner = self.parse_type()?;
+            return Ok(Type::Ref(Box::new(inner)));
+        }
+
+        // Mutable borrow (vibing)
+        if self.match_token(TokenKind::Tilde) {
+            let inner = self.parse_type()?;
+            return Ok(Type::RefMut(Box::new(inner)));
+        }
+
+        // Named type (possibly with generics)
+        let name = self.expect_ident()?;
+
+        // Check for primitive types
+        let ty = match name.as_str() {
+            "i8" => Type::I8,
+            "i16" => Type::I16,
+            "i32" => Type::I32,
+            "i64" => Type::I64,
+            "u8" => Type::U8,
+            "u16" => Type::U16,
+            "u32" => Type::U32,
+            "u64" => Type::U64,
+            "f32" => Type::F32,
+            "f64" => Type::F64,
+            "bool" => Type::Bool,
+            "void" => Type::Void,
+            _ => {
+                // Generic type?
+                let generics = if self.match_token(TokenKind::Lt) {
+                    let mut types = Vec::new();
+                    loop {
+                        types.push(self.parse_type()?);
+                        if !self.match_token(TokenKind::Comma) {
+                            break;
+                        }
+                    }
+                    self.expect(TokenKind::Gt)?;
+                    types
+                } else {
+                    Vec::new()
+                };
+
+                Type::Named { name, generics }
+            }
+        };
+
+        // Check for array type T[N]
+        if self.match_token(TokenKind::LBracket) {
+            if let Some(TokenKind::Int(n)) = self.peek_kind() {
+                let size = *n as usize;
+                self.advance();
+                self.expect(TokenKind::RBracket)?;
+                return Ok(Type::Array(Box::new(ty), size));
+            } else {
+                return Err(self.error("expected array size"));
+            }
+        }
+
+        Ok(ty)
+    }
+
+    /// Parse type arguments: <Type, Type, ...>
+    pub(crate) fn parse_type_args(&mut self) -> Result<Vec<Type>, ParseError> {
+        self.expect(TokenKind::Lt)?;
+
+        let mut types = Vec::new();
+
+        loop {
+            types.push(self.parse_type()?);
+
+            if self.match_token(TokenKind::Gt) {
+                break;
+            }
+
+            self.expect(TokenKind::Comma)?;
+        }
+
+        Ok(types)
+    }
+}
