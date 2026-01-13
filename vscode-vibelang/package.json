@@ -38,6 +38,11 @@
         "path": "./syntaxes/vibelang.tmLanguage.json"
       }
     ],
+"configurationDefaults": {
+      "[vibelang]": {
+        "editor.bracketPairColorization.enabled": false
+      }
+    },
     "configuration": {
       "type": "object",
       "title": "Vibelang",

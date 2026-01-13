@@ -77,15 +77,98 @@
     "strings": {
       "patterns": [
         {
-          "name": "string.quoted.double.vibe",
+          "comment": "String with interpolation",
           "begin": "\"",
           "end": "\"",
+          "beginCaptures": {
+            "0": { "name": "punctuation.definition.string.begin.vibe" }
+          },
+          "endCaptures": {
+            "0": { "name": "punctuation.definition.string.end.vibe" }
+          },
           "patterns": [
             {
               "name": "constant.character.escape.vibe",
               "match": "\\\\[nrt\\\\\"0]"
+            },
+            {
+              "comment": "Escaped dollar sign: $$",
+              "name": "constant.character.escape.vibe",
+              "match": "\\$\\$"
+            },
+            {
+              "comment": "String interpolation",
+              "begin": "(\\$)(\\{)",
+              "end": "(\\})",
+              "beginCaptures": {
+                "1": { "name": "keyword.declaration.vibe" },
+                "2": { "name": "keyword.declaration.vibe" }
+              },
+              "endCaptures": {
+                "1": { "name": "keyword.declaration.vibe" }
+              },
+              "patterns": [
+                { "include": "$self" }
+              ]
+            },
+            {
+              "name": "string.quoted.double.vibe",
+              "match": "[^\"\\\\$]+"
+            },
+            {
+              "name": "string.quoted.double.vibe",
+              "match": "\\$(?!\\{)"
             }
           ]
+        }
+      ]
+    },
+    "interpolation-contents": {
+      "patterns": [
+        {
+          "name": "constant.numeric.float.vibe",
+          "match": "\\b[0-9][0-9_]*\\.[0-9][0-9_]*([eE][+-]?[0-9_]+)?\\b"
+        },
+        {
+          "name": "constant.numeric.integer.vibe",
+          "match": "\\b[0-9][0-9_]*\\b"
+        },
+        {
+          "name": "constant.language.boolean.vibe",
+          "match": "\\b(true|false)\\b"
+        },
+        {
+          "name": "keyword.operator.logical.vibe",
+          "match": "\\b(and|or|not)\\b"
+        },
+        {
+          "comment": "Function calls in interpolation",
+          "match": "\\b([a-z_][a-zA-Z0-9_]*)\\s*(?=\\()",
+          "captures": {
+            "1": { "name": "entity.name.function.vibe" }
+          }
+        },
+        {
+          "comment": "Method calls in interpolation",
+          "match": "\\.([a-z_][a-zA-Z0-9_]*)\\s*(?=\\()",
+          "captures": {
+            "1": { "name": "entity.name.function.vibe" }
+          }
+        },
+        {
+          "comment": "Field access in interpolation",
+          "match": "\\.([a-z_][a-zA-Z0-9_]*)",
+          "captures": {
+            "1": { "name": "variable.other.property.vibe" }
+          }
+        },
+        {
+          "name": "variable.other.vibe",
+          "match": "\\b[a-z_][a-zA-Z0-9_]*\\b"
+        },
+        {
+          "name": "entity.name.type.vibe",
+          "match": "\\b[A-Z][a-zA-Z0-9_]*\\b"
         }
       ]
     },
