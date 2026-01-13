@@ -291,6 +291,11 @@ pub enum Expr {
         ty: Type,
         span: Span,
     },
+    Range {
+        start: Box<Expr>,
+        end: Box<Expr>,
+        span: Span,
+    },
 }
 
 #[derive(Debug, Clone, Copy)]

@@ -372,6 +372,12 @@ impl<'ctx> Codegen<'ctx> {
                 }).collect(),
                 span: *span,
             },
+            Stmt::For { name, iter, body, span } => Stmt::For {
+                name: name.clone(),
+                iter: Box::new(self.substitute_expr(iter, type_map)),
+                body: self.substitute_block(body, type_map),
+                span: *span,
+            },
             _ => stmt.clone(),
         }
     }
@@ -408,6 +414,11 @@ impl<'ctx> Codegen<'ctx> {
             },
             Expr::RefMut { operand, span } => Expr::RefMut {
                 operand: Box::new(self.substitute_expr(operand, type_map)),
+                span: *span,
+            },
+            Expr::Range { start, end, span } => Expr::Range {
+                start: Box::new(self.substitute_expr(start, type_map)),
+                end: Box::new(self.substitute_expr(end, type_map)),
                 span: *span,
             },
             _ => expr.clone(),
@@ -672,6 +683,9 @@ impl<'ctx> Codegen<'ctx> {
             Stmt::Match { value, arms, .. } => {
                 self.compile_match(value, arms)
             }
+            Stmt::For { name, iter, body, .. } => {
+                self.compile_for(name, iter, body)
+            }
             _ => {
                 // TODO: implement other statements
                 Ok(None)
@@ -748,6 +762,148 @@ impl<'ctx> Codegen<'ctx> {
 
         // End block
         self.builder.position_at_end(end_bb);
+
+        Ok(None)
+    }
+
+    fn compile_for(
+        &mut self,
+        name: &str,
+        iter: &Expr,
+        body: &Block,
+    ) -> Result<Option<BasicValueEnum<'ctx>>, CodegenError> {
+        let fn_value = self.current_function.unwrap();
+
+        // Handle different iterator types
+        match iter {
+            // Range iteration: for i in 0..5
+            Expr::Range { start, end, .. } => {
+                let start_val = self.compile_expr(start)?.into_int_value();
+                let end_val = self.compile_expr(end)?.into_int_value();
+
+                // Create loop variable
+                let i64_type = self.context.i64_type();
+                let loop_var = self.create_entry_block_alloca(name, i64_type.into());
+                self.builder.build_store(loop_var, start_val).unwrap();
+
+                self.variables.insert(name.to_string(), VarInfo {
+                    ptr: loop_var,
+                    ty: i64_type.into(),
+                    struct_name: None,
+                    is_ref: false,
+                    is_mut_ref: false,
+                    ref_struct_name: None,
+                });
+
+                let cond_bb = self.context.append_basic_block(fn_value, "for.cond");
+                let body_bb = self.context.append_basic_block(fn_value, "for.body");
+                let inc_bb = self.context.append_basic_block(fn_value, "for.inc");
+                let end_bb = self.context.append_basic_block(fn_value, "for.end");
+
+                self.builder.build_unconditional_branch(cond_bb).unwrap();
+
+                // Condition: i < end
+                self.builder.position_at_end(cond_bb);
+                let current = self.builder.build_load(i64_type, loop_var, "i").unwrap().into_int_value();
+                let cond = self.builder.build_int_compare(
+                    inkwell::IntPredicate::SLT, current, end_val, "cmp"
+                ).unwrap();
+                self.builder.build_conditional_branch(cond, body_bb, end_bb).unwrap();
+
+                // Body
+                self.builder.position_at_end(body_bb);
+                self.compile_block(body)?;
+                if self.builder.get_insert_block().unwrap().get_terminator().is_none() {
+                    self.builder.build_unconditional_branch(inc_bb).unwrap();
+                }
+
+                // Increment: i = i + 1
+                self.builder.position_at_end(inc_bb);
+                let current = self.builder.build_load(i64_type, loop_var, "i").unwrap().into_int_value();
+                let next = self.builder.build_int_add(current, i64_type.const_int(1, false), "inc").unwrap();
+                self.builder.build_store(loop_var, next).unwrap();
+                self.builder.build_unconditional_branch(cond_bb).unwrap();
+
+                self.builder.position_at_end(end_bb);
+            }
+
+            // Array iteration: for x in arr
+            Expr::Ident(arr_name, _) => {
+                let var_info = self.variables.get(arr_name)
+                    .ok_or_else(|| CodegenError::UndefinedVariable(arr_name.clone()))?
+                    .clone();
+
+                if !var_info.ty.is_array_type() {
+                    return Err(CodegenError::NotImplemented("for loop over non-array".to_string()));
+                }
+
+                let array_ty = var_info.ty.into_array_type();
+                let len = array_ty.len();
+                let elem_type = array_ty.get_element_type();
+
+                // Create index variable
+                let i64_type = self.context.i64_type();
+                let idx_var = self.create_entry_block_alloca("__idx", i64_type.into());
+                self.builder.build_store(idx_var, i64_type.const_zero()).unwrap();
+
+                // Create element variable
+                let elem_var = self.create_entry_block_alloca(name, elem_type);
+                self.variables.insert(name.to_string(), VarInfo {
+                    ptr: elem_var,
+                    ty: elem_type,
+                    struct_name: None,
+                    is_ref: false,
+                    is_mut_ref: false,
+                    ref_struct_name: None,
+                });
+
+                let cond_bb = self.context.append_basic_block(fn_value, "for.cond");
+                let body_bb = self.context.append_basic_block(fn_value, "for.body");
+                let inc_bb = self.context.append_basic_block(fn_value, "for.inc");
+                let end_bb = self.context.append_basic_block(fn_value, "for.end");
+
+                self.builder.build_unconditional_branch(cond_bb).unwrap();
+
+                // Condition: idx < len
+                self.builder.position_at_end(cond_bb);
+                let current_idx = self.builder.build_load(i64_type, idx_var, "idx").unwrap().into_int_value();
+                let len_val = i64_type.const_int(len as u64, false);
+                let cond = self.builder.build_int_compare(
+                    inkwell::IntPredicate::ULT, current_idx, len_val, "cmp"
+                ).unwrap();
+                self.builder.build_conditional_branch(cond, body_bb, end_bb).unwrap();
+
+                // Body - load current element
+                self.builder.position_at_end(body_bb);
+                let current_idx = self.builder.build_load(i64_type, idx_var, "idx").unwrap().into_int_value();
+                let elem_ptr = unsafe {
+                    self.builder.build_gep(
+                        var_info.ty,
+                        var_info.ptr,
+                        &[self.context.i32_type().const_zero(), current_idx],
+                        "elem_ptr"
+                    ).unwrap()
+                };
+                let elem_val = self.builder.build_load(elem_type, elem_ptr, "elem").unwrap();
+                self.builder.build_store(elem_var, elem_val).unwrap();
+
+                self.compile_block(body)?;
+                if self.builder.get_insert_block().unwrap().get_terminator().is_none() {
+                    self.builder.build_unconditional_branch(inc_bb).unwrap();
+                }
+
+                // Increment index
+                self.builder.position_at_end(inc_bb);
+                let current_idx = self.builder.build_load(i64_type, idx_var, "idx").unwrap().into_int_value();
+                let next_idx = self.builder.build_int_add(current_idx, i64_type.const_int(1, false), "inc").unwrap();
+                self.builder.build_store(idx_var, next_idx).unwrap();
+                self.builder.build_unconditional_branch(cond_bb).unwrap();
+
+                self.builder.position_at_end(end_bb);
+            }
+
+            _ => return Err(CodegenError::NotImplemented("for loop over this iterator type".to_string())),
+        }
 
         Ok(None)
     }

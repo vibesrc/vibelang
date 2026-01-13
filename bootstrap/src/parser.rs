@@ -664,10 +664,10 @@ impl Parser {
     }
 
     fn parse_and(&mut self) -> Result<Expr, ParseError> {
-        let mut left = self.parse_comparison()?;
+        let mut left = self.parse_range()?;
 
         while self.match_keyword(Keyword::And) {
-            let right = self.parse_comparison()?;
+            let right = self.parse_range()?;
             let span = self.span_from(left.span());
             left = Expr::Binary {
                 op: BinOp::And,
@@ -675,6 +675,23 @@ impl Parser {
                 right: Box::new(right),
                 span,
             };
+        }
+
+        Ok(left)
+    }
+
+    fn parse_range(&mut self) -> Result<Expr, ParseError> {
+        let left = self.parse_comparison()?;
+
+        // Check for range operator ..
+        if self.match_token(TokenKind::DotDot) {
+            let right = self.parse_comparison()?;
+            let span = self.span_from(left.span());
+            return Ok(Expr::Range {
+                start: Box::new(left),
+                end: Box::new(right),
+                span,
+            });
         }
 
         Ok(left)
@@ -1327,6 +1344,7 @@ impl Expr {
             Expr::Block(block) => block.span,
             Expr::Try { span, .. } => *span,
             Expr::Cast { span, .. } => *span,
+            Expr::Range { span, .. } => *span,
         }
     }
 }
