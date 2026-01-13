@@ -15,23 +15,23 @@ impl Point {
         return Point { x: x, y: y }  // field shorthand
     }
 
-    fn to_string(&self) {
+    fn to_string(&self) -> Slice<u8> {
         return "(${self.x}, ${self.y})"
     }
 
     fn move_by(~self, dx: i32, dy: i32) {  // ~ = mutable borrow (vibing)
-        self.x += dx
-        self.y += dy
+        self.x = self.x + dx
+        self.y = self.y + dy
     }
 }
 
-fn find_positive(arr: &i32[1024]) -> Option<i32> {
+fn find_positive(arr: &i32[5]) -> Option<i32> {
     for x in arr {
         if x > 0 {
             return Option.Some(x)
         }
     }
-    return Option.None
+    return Option<i32>.None
 }
 
 fn main() -> i32 {
@@ -68,7 +68,7 @@ fn main() -> i32 {
     let total = 0
     for i in 0..5 {
         if i == 3 { continue }
-        total += i
+        total = total + i
     }
 
     defer println("Cleanup runs last!")

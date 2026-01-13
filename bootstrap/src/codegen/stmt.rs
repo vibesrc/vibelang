@@ -131,28 +131,53 @@ impl<'ctx> Codegen<'ctx> {
                     _ => (ty.as_ref().and_then(|t| self.get_struct_name_for_type(t)), None),
                 };
 
-                // Track slice element type: if we're taking a reference to an array, extract element type
-                let slice_elem_type = match value {
-                    Expr::Ref { operand, .. } | Expr::RefMut { operand, .. } => {
-                        if let Expr::Ident(arr_name, _) = operand.as_ref() {
-                            if let Some(var_info) = self.variables.get(arr_name) {
+                // Track reference info: detect if this is a reference to a struct
+                let (is_ref, is_mut_ref, ref_struct_name, slice_elem_type) = match value {
+                    Expr::Ref { operand, .. } => {
+                        if let Expr::Ident(ref_name, _) = operand.as_ref() {
+                            if let Some(var_info) = self.variables.get(ref_name) {
                                 if var_info.ty.is_array_type() {
-                                    // Get element type from array
+                                    // Reference to array - extract element type
                                     let array_ty = var_info.ty.into_array_type();
                                     let elem_llvm_ty = array_ty.get_element_type();
-                                    // Map LLVM type back to AST type
-                                    self.llvm_type_to_ast_type(elem_llvm_ty)
+                                    let elem_ty = self.llvm_type_to_ast_type(elem_llvm_ty);
+                                    (true, false, None, elem_ty)
+                                } else if let Some(ref sn) = var_info.struct_name {
+                                    // Reference to struct - track the struct name
+                                    (true, false, Some(sn.clone()), None)
                                 } else {
-                                    None
+                                    (true, false, None, None)
                                 }
                             } else {
-                                None
+                                (true, false, None, None)
                             }
                         } else {
-                            None
+                            (true, false, None, None)
                         }
                     }
-                    _ => None,
+                    Expr::RefMut { operand, .. } => {
+                        if let Expr::Ident(ref_name, _) = operand.as_ref() {
+                            if let Some(var_info) = self.variables.get(ref_name) {
+                                if var_info.ty.is_array_type() {
+                                    // Mutable reference to array
+                                    let array_ty = var_info.ty.into_array_type();
+                                    let elem_llvm_ty = array_ty.get_element_type();
+                                    let elem_ty = self.llvm_type_to_ast_type(elem_llvm_ty);
+                                    (false, true, None, elem_ty)
+                                } else if let Some(ref sn) = var_info.struct_name {
+                                    // Mutable reference to struct
+                                    (false, true, Some(sn.clone()), None)
+                                } else {
+                                    (false, true, None, None)
+                                }
+                            } else {
+                                (false, true, None, None)
+                            }
+                        } else {
+                            (false, true, None, None)
+                        }
+                    }
+                    _ => (false, false, None, None),
                 };
 
                 // Compile expression with expected type for literal coercion
@@ -174,9 +199,9 @@ impl<'ctx> Codegen<'ctx> {
                     ty: alloca_type,
                     struct_name,
                     ast_type: ty.clone(),
-                    is_ref: false,
-                    is_mut_ref: false,
-                    ref_struct_name: None,
+                    is_ref,
+                    is_mut_ref,
+                    ref_struct_name,
                     slice_elem_type,
                 });
                 Ok(None)

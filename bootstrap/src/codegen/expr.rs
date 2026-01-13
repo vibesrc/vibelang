@@ -450,8 +450,16 @@ impl<'ctx> Codegen<'ctx> {
         };
         self.builder.build_store(null_ptr, self.context.i8_type().const_zero()).unwrap();
 
-        // Build the slice struct { ptr, len }
-        let slice_val = slice_type.const_named_struct(&[buffer.into(), total_len.into()]);
+        // Build the slice struct { ptr, len } using runtime values
+        let undef_slice = slice_type.get_undef();
+        let slice_with_ptr = self.builder
+            .build_insert_value(undef_slice, buffer, 0, "slice_ptr")
+            .unwrap()
+            .into_struct_value();
+        let slice_val = self.builder
+            .build_insert_value(slice_with_ptr, total_len, 1, "slice_len")
+            .unwrap()
+            .into_struct_value();
         Ok(slice_val.into())
     }
 
@@ -491,6 +499,38 @@ impl<'ctx> Codegen<'ctx> {
 
         // Handle user-defined types (structs and enums)
         if let Some(ref name) = type_name {
+            // If the value is a pointer (reference to a struct), dereference it
+            let actual_val = if val.is_pointer_value() {
+                // Check if this is a reference variable that we need to dereference
+                if let Expr::Ident(var_name, _) = expr {
+                    if let Some(var_info) = self.variables.get(var_name) {
+                        if var_info.is_ref || var_info.is_mut_ref {
+                            // val is already the pointer to the struct (from compile_expr)
+                            // Load the struct value through this pointer
+                            if let Some(struct_info) = self.struct_types.get(name) {
+                                let ptr = val.into_pointer_value();
+                                let struct_val = self.builder.build_load(
+                                    struct_info.llvm_type,
+                                    ptr,
+                                    "deref_struct"
+                                ).unwrap();
+                                struct_val
+                            } else {
+                                val
+                            }
+                        } else {
+                            val
+                        }
+                    } else {
+                        val
+                    }
+                } else {
+                    val
+                }
+            } else {
+                val
+            };
+
             // Check if this type has a to_string method
             let to_string_method = self.type_methods
                 .get(name)
@@ -499,17 +539,17 @@ impl<'ctx> Codegen<'ctx> {
 
             if let Some(mangled_name) = to_string_method {
                 // Call the to_string method
-                return self.call_to_string_method(val, &mangled_name);
+                return self.call_to_string_method(actual_val, &mangled_name);
             }
 
             // Check if it's a struct - generate default representation
             if let Some(struct_info) = self.struct_types.get(name).cloned() {
-                return self.struct_to_string(val, &struct_info);
+                return self.struct_to_string(actual_val, &struct_info);
             }
 
             // Check if it's an enum - generate default representation
             if let Some(enum_info) = self.enum_types.get(name).cloned() {
-                return self.enum_to_string(val, &enum_info);
+                return self.enum_to_string(actual_val, &enum_info);
             }
         }
 
@@ -548,8 +588,10 @@ impl<'ctx> Codegen<'ctx> {
     fn infer_expr_type_name(&self, expr: &Expr) -> Option<String> {
         match expr {
             Expr::Ident(name, _) => {
-                // Look up variable info to get struct name
-                self.variables.get(name).and_then(|info| info.struct_name.clone())
+                // Look up variable info to get struct name (or ref_struct_name for references)
+                self.variables.get(name).and_then(|info| {
+                    info.struct_name.clone().or_else(|| info.ref_struct_name.clone())
+                })
             }
             Expr::StructInit { name, .. } => Some(name.clone()),
             Expr::MethodCall { receiver, method: _, .. } => {
@@ -563,9 +605,15 @@ impl<'ctx> Codegen<'ctx> {
                 // This is a limitation - for now, return None
                 None
             }
-            Expr::Field { object, .. } => {
-                // For field access, recurse to get the struct type
-                self.infer_expr_type_name(object)
+            Expr::Field { object, field, .. } => {
+                // For field access, we need the type of the field, not the object
+                // Look up the struct info to get the field type
+                let object_type = self.infer_expr_type_name(object)?;
+                let struct_info = self.struct_types.get(&object_type)?;
+                let field_idx = *struct_info.field_indices.get(field)?;
+                let field_type = struct_info.ast_field_types.get(field_idx as usize)?;
+                // Return struct name only if the field is itself a struct
+                self.get_struct_name_for_type(field_type)
             }
             _ => None,
         }

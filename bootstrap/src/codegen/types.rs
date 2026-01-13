@@ -27,6 +27,16 @@ impl<'ctx> Codegen<'ctx> {
                 Ok(inner_ty.array_type(*size as u32).into())
             }
             Type::Named { name, generics } => {
+                // Handle Slice<T> as a built-in slice type
+                if name == "Slice" && generics.len() == 1 {
+                    let ptr_type = self.context.ptr_type(AddressSpace::default());
+                    let len_type = self.context.i64_type();
+                    return Ok(self
+                        .context
+                        .struct_type(&[ptr_type.into(), len_type.into()], false)
+                        .into());
+                }
+
                 // Generate mangled name if generics present
                 let lookup_name = if generics.is_empty() {
                     name.clone()
