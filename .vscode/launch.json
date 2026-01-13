@@ -1,0 +1,21 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Launch Vibelang Extension",
+      "type": "extensionHost",
+      "request": "launch",
+      "args": [
+        "--extensionDevelopmentPath=${workspaceFolder}/vscode-vibelang",
+        "${workspaceFolder}/examples"
+      ],
+      "env": {
+        "VIBELANG_LSP_PATH": "${workspaceFolder}/bootstrap/target/release/vibelang-lsp"
+      },
+      "outFiles": [
+        "${workspaceFolder}/vscode-vibelang/out/**/*.js"
+      ],
+      "preLaunchTask": "npm: compile - vscode-vibelang"
+    }
+  ]
+}

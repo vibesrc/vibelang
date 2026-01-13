@@ -1,0 +1,13 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "type": "npm",
+      "script": "compile",
+      "path": "vscode-vibelang",
+      "group": "build",
+      "label": "npm: compile - vscode-vibelang",
+      "problemMatcher": ["$tsc"]
+    }
+  ]
+}

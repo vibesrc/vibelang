@@ -1,0 +1,3 @@
+{
+  "vibelang.lsp.path": "${workspaceFolder}/bootstrap/target/release/vibelang-lsp"
+}

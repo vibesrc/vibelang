@@ -3,7 +3,6 @@ bin/
 target/
 
 # Editor
-.vscode/
 .idea/
 *.swp
 *.swo
