@@ -468,7 +468,7 @@ let upper = uppercase(name)         // name moved, get back new string
 ### Borrow and Return Pattern
 
 ```vibelang
-fn find_longest<'a>(a: &String, b: &String) -> Slice<u8> {
+fn find_longest(a: &String, b: &String) -> Slice<u8> {
     if a.len() > b.len() {
         return &a
     }

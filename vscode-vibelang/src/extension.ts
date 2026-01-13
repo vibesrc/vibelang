@@ -1,6 +1,7 @@
 import * as path from 'path';
 import * as fs from 'fs';
-import { workspace, ExtensionContext, window } from 'vscode';
+import * as vscode from 'vscode';
+import { workspace, ExtensionContext, window, commands, OutputChannel } from 'vscode';
 
 import {
     LanguageClient,
@@ -10,6 +11,7 @@ import {
 } from 'vscode-languageclient/node';
 
 let client: LanguageClient | undefined;
+let outputChannel: OutputChannel;
 
 function findLspBinary(configPath: string): string | undefined {
     // 1. Check environment variable (for development)
@@ -47,10 +49,7 @@ function findLspBinary(configPath: string): string | undefined {
     return 'vibelang-lsp';
 }
 
-export function activate(context: ExtensionContext) {
-    const outputChannel = window.createOutputChannel('Vibelang');
-    outputChannel.appendLine('Vibelang extension activating...');
-
+async function startClient(): Promise<boolean> {
     const config = workspace.getConfiguration('vibelang');
     const configuredPath = config.get<string>('lsp.path') ?? '';
 
@@ -65,12 +64,11 @@ export function activate(context: ExtensionContext) {
             'Vibelang LSP server not found. Some features may not work. ' +
             'Build the LSP server with: cd bootstrap && cargo build --release'
         );
-        return;
+        return false;
     }
 
     outputChannel.appendLine(`Starting LSP from: ${serverPath}`);
     outputChannel.appendLine(`File exists: ${fs.existsSync(serverPath)}`);
-    outputChannel.show();
 
     const serverOptions: ServerOptions = {
         run: {
@@ -97,7 +95,35 @@ export function activate(context: ExtensionContext) {
         clientOptions
     );
 
-    client.start();
+    await client.start();
+    return true;
+}
+
+async function restartClient(): Promise<void> {
+    outputChannel.appendLine('Restarting Vibelang Language Server...');
+
+    if (client) {
+        await client.stop();
+        client = undefined;
+    }
+
+    const success = await startClient();
+    if (success) {
+        window.showInformationMessage('Vibelang Language Server restarted');
+    }
+}
+
+export function activate(context: ExtensionContext) {
+    outputChannel = window.createOutputChannel('Vibelang');
+    outputChannel.appendLine('Vibelang extension activating...');
+
+    // Register restart command
+    context.subscriptions.push(
+        commands.registerCommand('vibelang.restartServer', restartClient)
+    );
+
+    // Start the client
+    startClient();
 
     context.subscriptions.push({
         dispose: () => {

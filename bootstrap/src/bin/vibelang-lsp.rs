@@ -694,16 +694,30 @@ impl Backend {
                 self.analyze_expr(left, symbols, diagnostics, moved_vars, borrowed_vars);
                 self.analyze_expr(right, symbols, diagnostics, moved_vars, borrowed_vars);
 
-                if matches!(op, BinOp::Assign) {
+                // Check if this is any kind of assignment (including compound assignments)
+                let is_assignment = matches!(op,
+                    BinOp::Assign | BinOp::AddAssign | BinOp::SubAssign |
+                    BinOp::MulAssign | BinOp::DivAssign | BinOp::ModAssign |
+                    BinOp::BitAndAssign | BinOp::BitOrAssign | BinOp::BitXorAssign |
+                    BinOp::ShlAssign | BinOp::ShrAssign
+                );
+
+                if is_assignment {
                     if let Expr::Ident(name, _) = left.as_ref() {
                         moved_vars.remove(name);
                     }
 
                     // Check for mutation through read-only borrow
-                    // e.g., p.x = 5 when p is &Point
+                    // e.g., p.x = 5 when p is &Point (not allowed)
+                    // but p.x = 5 when p is ~Point (allowed)
                     if let Expr::Field { object, .. } = left.as_ref() {
-                        if let Expr::Ident(var_name, _) = object.as_ref() {
-                            if let Some(var) = symbols.variables.iter().find(|v| &v.name == var_name) {
+                        if let Expr::Ident(var_name, ident_span) = object.as_ref() {
+                            // Find variable in scope at current position
+                            if let Some(var) = symbols.variables.iter().find(|v| {
+                                &v.name == var_name &&
+                                ident_span.start >= v.scope_start &&
+                                ident_span.start <= v.scope_end
+                            }) {
                                 if var.borrow_state == BorrowState::Borrowed {
                                     diagnostics.push(Diagnostic {
                                         range: self.span_to_range(span),

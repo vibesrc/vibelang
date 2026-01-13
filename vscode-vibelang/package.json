@@ -12,6 +12,12 @@
   ],
   "main": "./out/extension.js",
   "contributes": {
+    "commands": [
+      {
+        "command": "vibelang.restartServer",
+        "title": "Vibelang: Restart Language Server"
+      }
+    ],
     "languages": [
       {
         "id": "vibelang",
