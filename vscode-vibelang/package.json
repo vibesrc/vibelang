@@ -52,6 +52,18 @@
           "description": "Trace communication between VS Code and the Vibelang language server."
         }
       }
+    },
+    "configurationDefaults": {
+      "editor.tokenColorCustomizations": {
+        "textMateRules": [
+          {
+            "scope": "support.class.vibe",
+            "settings": {
+              "foreground": "#4EC9B0"
+            }
+          }
+        ]
+      }
     }
   },
   "scripts": {

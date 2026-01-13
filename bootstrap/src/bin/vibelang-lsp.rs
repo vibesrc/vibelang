@@ -494,17 +494,21 @@ impl Backend {
                 moved_vars.clear();
                 borrowed_vars.clear();
 
+                // Pass function's generic type parameters to type checking
+                let type_params = &func.generics;
+
                 for param in &func.params {
-                    self.check_type(&param.ty, symbols, diagnostics, &param.span);
+                    self.check_type(&param.ty, symbols, type_params, diagnostics, &param.span);
                 }
 
                 if let Some(ref ret_ty) = func.return_type {
-                    self.check_type(ret_ty, symbols, diagnostics, &func.span);
+                    self.check_type(ret_ty, symbols, type_params, diagnostics, &func.span);
                 }
 
                 self.analyze_block(
                     &func.body,
                     symbols,
+                    type_params,
                     diagnostics,
                     &mut moved_vars,
                     &mut borrowed_vars,
@@ -517,14 +521,18 @@ impl Backend {
         &self,
         ty: &Type,
         symbols: &SymbolTable,
+        type_params: &[String],
         diagnostics: &mut Vec<Diagnostic>,
         span: &Span,
     ) {
         match ty {
             Type::Named { name, generics } => {
-                if !symbols.structs.contains_key(name)
+                // Check if it's a type parameter in scope (e.g., T in fn foo<T>(...))
+                if !type_params.contains(name)
+                    && !symbols.structs.contains_key(name)
                     && !symbols.enums.contains_key(name)
                     && !is_builtin_type(name)
+                    && !is_prelude_type(name)
                 {
                     diagnostics.push(Diagnostic {
                         range: self.span_to_range(span),
@@ -535,7 +543,7 @@ impl Backend {
                     });
                 }
                 for g in generics {
-                    self.check_type(g, symbols, diagnostics, span);
+                    self.check_type(g, symbols, type_params, diagnostics, span);
                 }
             }
             Type::Ref(inner)
@@ -543,7 +551,7 @@ impl Backend {
             | Type::Pointer(inner)
             | Type::Array(inner, _)
             | Type::Slice(inner) => {
-                self.check_type(inner, symbols, diagnostics, span);
+                self.check_type(inner, symbols, type_params, diagnostics, span);
             }
             _ => {}
         }
@@ -553,12 +561,13 @@ impl Backend {
         &self,
         block: &Block,
         symbols: &SymbolTable,
+        type_params: &[String],
         diagnostics: &mut Vec<Diagnostic>,
         moved_vars: &mut HashMap<String, Span>,
         borrowed_vars: &mut HashMap<String, (BorrowState, Span)>,
     ) {
         for stmt in &block.stmts {
-            self.analyze_stmt(stmt, symbols, diagnostics, moved_vars, borrowed_vars);
+            self.analyze_stmt(stmt, symbols, type_params, diagnostics, moved_vars, borrowed_vars);
         }
     }
 
@@ -566,6 +575,7 @@ impl Backend {
         &self,
         stmt: &Stmt,
         symbols: &SymbolTable,
+        type_params: &[String],
         diagnostics: &mut Vec<Diagnostic>,
         moved_vars: &mut HashMap<String, Span>,
         borrowed_vars: &mut HashMap<String, (BorrowState, Span)>,
@@ -573,7 +583,7 @@ impl Backend {
         match stmt {
             Stmt::Let { ty, value, span, .. } => {
                 if let Some(t) = ty {
-                    self.check_type(t, symbols, diagnostics, span);
+                    self.check_type(t, symbols, type_params, diagnostics, span);
                 }
                 // Temporary borrows in the expression end after the let binding
                 let temp_borrows = borrowed_vars.clone();
@@ -603,14 +613,14 @@ impl Backend {
                 let moved_before = moved_vars.clone();
                 let borrowed_before = borrowed_vars.clone();
 
-                self.analyze_block(then_block, symbols, diagnostics, moved_vars, borrowed_vars);
+                self.analyze_block(then_block, symbols, type_params, diagnostics, moved_vars, borrowed_vars);
 
                 if let Some(else_b) = else_block {
                     let moved_after_then = moved_vars.clone();
                     *moved_vars = moved_before.clone();
                     *borrowed_vars = borrowed_before.clone();
 
-                    self.analyze_block(else_b, symbols, diagnostics, moved_vars, borrowed_vars);
+                    self.analyze_block(else_b, symbols, type_params, diagnostics, moved_vars, borrowed_vars);
 
                     for (name, span) in moved_after_then {
                         moved_vars.entry(name).or_insert(span);
@@ -621,11 +631,11 @@ impl Backend {
                 condition, body, ..
             } => {
                 self.analyze_expr(condition, symbols, diagnostics, moved_vars, borrowed_vars);
-                self.analyze_block(body, symbols, diagnostics, moved_vars, borrowed_vars);
+                self.analyze_block(body, symbols, type_params, diagnostics, moved_vars, borrowed_vars);
             }
             Stmt::For { iter, body, .. } => {
                 self.analyze_expr(iter, symbols, diagnostics, moved_vars, borrowed_vars);
-                self.analyze_block(body, symbols, diagnostics, moved_vars, borrowed_vars);
+                self.analyze_block(body, symbols, type_params, diagnostics, moved_vars, borrowed_vars);
             }
             Stmt::Match { value, arms, .. } => {
                 self.analyze_expr(value, symbols, diagnostics, moved_vars, borrowed_vars);
@@ -840,7 +850,13 @@ impl Backend {
             Expr::StructInit {
                 name, fields, span, ..
             } => {
-                if !symbols.structs.contains_key(name) {
+                // Check if it's a known struct, enum, or prelude type
+                // For generic instantiations like Option<i32>, extract the base name
+                let base_name = name.split('<').next().unwrap_or(name);
+                if !symbols.structs.contains_key(base_name)
+                    && !symbols.enums.contains_key(base_name)
+                    && !is_prelude_type(base_name)
+                {
                     diagnostics.push(Diagnostic {
                         range: self.span_to_range(span),
                         severity: Some(DiagnosticSeverity::ERROR),
@@ -848,7 +864,7 @@ impl Backend {
                         message: format!("Unknown struct '{}'", name),
                         ..Default::default()
                     });
-                } else if let Some(struct_info) = symbols.structs.get(name) {
+                } else if let Some(struct_info) = symbols.structs.get(base_name) {
                     let provided_fields: Vec<_> = fields.iter().map(|(n, _)| n.as_str()).collect();
                     for (field_name, _, _) in &struct_info.fields {
                         if !provided_fields.contains(&field_name.as_str()) {
@@ -894,7 +910,8 @@ impl Backend {
                 }
             }
             Expr::Block(block) => {
-                self.analyze_block(block, symbols, diagnostics, moved_vars, borrowed_vars);
+                // Block expressions don't introduce new type parameters
+                self.analyze_block(block, symbols, &[], diagnostics, moved_vars, borrowed_vars);
             }
             Expr::Try { operand, .. } => {
                 self.analyze_expr(operand, symbols, diagnostics, moved_vars, borrowed_vars);
@@ -1635,11 +1652,13 @@ fn is_builtin_type(name: &str) -> bool {
             | "f64"
             | "bool"
             | "void"
-            | "Option"
-            | "Result"
             | "Slice"
-            | "Vec"
     )
+}
+
+/// Types from the prelude that are always available
+fn is_prelude_type(name: &str) -> bool {
+    matches!(name, "Option" | "Result" | "Vec")
 }
 
 fn is_builtin_function(name: &str) -> bool {
