@@ -1,0 +1,27 @@
+// Test enum toString default representation
+
+enum Color {
+    Red
+    Green
+    Blue
+}
+
+enum Status {
+    Active
+    Inactive
+    Pending(i32)
+}
+
+fn main() {
+    let c = Color.Red
+    println("Color: ${c}")
+
+    let c2 = Color.Blue
+    println("Color: ${c2}")
+
+    let s = Status.Active
+    println("Status: ${s}")
+
+    let s2 = Status.Pending(42)
+    println("Status: ${s2}")
+}

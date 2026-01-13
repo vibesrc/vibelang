@@ -1,0 +1,26 @@
+// Test string interpolation
+
+fn main() {
+    // Test integer interpolation
+    let x: i32 = 42
+    println("x = ${x}")
+
+    // Test boolean interpolation
+    let flag = true
+    println("flag: ${flag}")
+
+    // Test expression in interpolation
+    let y = 10
+    println("y + 5 = ${y + 5}")
+
+    // Test multiple interpolations
+    let a = 1
+    let b = 2
+    println("a=${a}, b=${b}")
+
+    // Test escaped dollar sign
+    println("cost: $$50")
+
+    // Test plain string (no interpolation)
+    println("hello world")
+}

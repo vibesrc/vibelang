@@ -1,0 +1,19 @@
+// Test struct toString default representation
+
+struct Point {
+    x: i32
+    y: i32
+}
+
+struct Person {
+    age: i32
+    active: bool
+}
+
+fn main() {
+    let p = Point { x: 10, y: 20 }
+    println("Point: ${p}")
+
+    let person = Person { age: 25, active: true }
+    println("Person: ${person}")
+}
