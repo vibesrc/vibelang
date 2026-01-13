@@ -6,14 +6,6 @@ struct Point {
 }
 
 impl Point {
-    fn print(&self) {
-        print("Point(")
-        print_int(self.x)
-        print(", ")
-        print_int(self.y)
-        println(")")
-    }
-
     fn move_by(~self, x: i32, y: i32) {
         self.x += x
         self.y += y
@@ -41,11 +33,9 @@ fn main() -> i32 {
 
     // kill_point(p2) // "Use of moved value 'p2' (moved at line {line})"
 
-    println("Original point:")
-    p2.print()
+    println("Original point: ${p2}")
     p2.move_by(10, 10)
-    println("Moved point:")
-    p2.print()
-        
+    println("Moved point:    ${p2}")
+
     return p.x + p.y
 }

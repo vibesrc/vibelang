@@ -1,11 +1,11 @@
 // Option enum with data variant
 
-enum Option {
-    Some(i32),
+enum Option<T> {
+    Some(T),
     None,
 }
 
-fn unwrap(o: Option) -> i32 {
+fn unwrap<T>(o: Option<T>) -> T {
     match o {
         Option.Some(val) => val,
         Option.None => 0,
@@ -13,6 +13,6 @@ fn unwrap(o: Option) -> i32 {
 }
 
 fn main() -> i32 {
-    let x = Option.Some(42)
-    return unwrap(x)
+    let x = Option<i32>.Some(42)
+    return unwrap<i32>(x)
 }

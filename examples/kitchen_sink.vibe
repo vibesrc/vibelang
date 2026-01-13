@@ -1,0 +1,77 @@
+// kitchen_sink.vibe - Vibelang in 60 lines
+
+enum Option<T> {
+    Some(T),
+    None
+}
+
+struct Point {
+    x: i32,
+    y: i32
+}
+
+impl Point {
+    fn new(x: i32, y: i32) -> Point {
+        return Point { x: x, y: y }  // field shorthand
+    }
+
+    fn to_string(&self) {
+        return "(${self.x}, ${self.y})"
+    }
+
+    fn move_by(~self, dx: i32, dy: i32) {  // ~ = mutable borrow (vibing)
+        self.x += dx
+        self.y += dy
+    }
+}
+
+fn find_positive(arr: &i32[1024]) -> Option<i32> {
+    for x in arr {
+        if x > 0 {
+            return Option.Some(x)
+        }
+    }
+    return Option.None
+}
+
+fn main() -> i32 {
+    // Variables & strings
+    let name = "Vibelang"
+    println("Hello ${name}!")
+
+    // Structs & methods
+    let p = Point.new(10, 20)
+    println("Point: ${p}")
+    
+    p.move_by(5, -5)           // mutate via ~
+    println("Moved: ${p}")
+
+    // Arrays & slices
+    let nums = [-1, -2, 3, 4, 5]
+    
+    // Pattern matching
+    match find_positive(&nums) {
+        Option.Some(n) => println("Found: ${n}")
+        Option.None => println("No positive")
+    }
+
+    // Ownership - this would error:
+    // let q = p           // moves p
+    // println("${p}")     // ERROR: use after move
+
+    // Borrowing - this works:
+    let r = &p             // & = read-only borrow
+    println("Borrowed: ${r}")
+    println("Original: ${p}")  // still valid
+
+    // Control flow
+    let total = 0
+    for i in 0..5 {
+        if i == 3 { continue }
+        total += i
+    }
+
+    defer println("Cleanup runs last!")
+    
+    return total  // 0+1+2+4 = 7
+}

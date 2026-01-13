@@ -1,0 +1,9 @@
+fn main() {
+    // Test string length using interpolation
+    let s1 = "short"
+    let s2 = "much longer"
+
+    // Test .len() method call in interpolation
+    println("s1 length: ${s1.len()}")  // Should print 5
+    println("s2 length: ${s2.len()}")  // Should print 11
+}

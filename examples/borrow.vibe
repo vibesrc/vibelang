@@ -26,9 +26,7 @@ fn main() -> i32 {
 
     kill_point(p)
 
-    print("Point p2:")
-    print_int(p2.x)
-    print_int(p2.y)
+    println("Point p2: x=${p2.x}, y=${p2.y}")
 
     return p.x + p.y
 }

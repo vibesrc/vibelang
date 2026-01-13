@@ -1,9 +1,9 @@
-enum Option {
-    Some(i32),
+enum Option<T> {
+    Some(T),
     None,
 }
 
 fn main() -> i32 {
-    let x = Option.Some(42)
+    let x = Option<i32>.Some(42)
     return 0
 }

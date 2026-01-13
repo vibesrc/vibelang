@@ -8,11 +8,11 @@ fn factorial(n: i64) -> i64 {
 }
 
 fn main() {
-    print("Factorials 1-10:")
+    println("Factorials 1-10:")
     let i = 1
     while i <= 10 {
         let result = factorial(i)
-        print_int(result)
+        println("${i}! = ${result}")
         i = i + 1
     }
 }

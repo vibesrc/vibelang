@@ -17,6 +17,5 @@ fn area(r: Rectangle) -> i32 {
 fn main() {
     let rect = Rectangle { width: 5, height: 8 }
     let a = area(rect)
-    print("Area:")
-    print_int(a)
+    println("Area: ${a}")
 }

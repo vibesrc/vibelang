@@ -1,0 +1,87 @@
+struct Complex {
+    re: f64
+    im: f64
+}
+
+impl Complex {
+    fn new(re: f64, im: f64) -> Complex {
+        return Complex { re: re, im: im }
+    }
+
+    fn square(&self) -> Complex {
+        return Complex {
+            re: self.re * self.re - self.im * self.im,
+            im: 2.0 * self.re * self.im
+        }
+    }
+
+    fn add(&self, other: &Complex) -> Complex {
+        return Complex {
+            re: self.re + other.re,
+            im: self.im + other.im
+        }
+    }
+
+    fn mag2(&self) -> f64 {
+        return self.re * self.re + self.im * self.im
+    }
+}
+
+fn mandelbrot(c: &Complex, max_iter: i32) -> i32 {
+    let z = Complex.new(0.0, 0.0)
+    let i = 0
+
+    while i < max_iter {
+        z = z.square().add(c)
+        if z.mag2() > 4.0 {
+            return i
+        }
+        i += 1
+    }
+
+    return max_iter
+}
+
+fn shade(iter: i32, max_iter: i32) -> char {
+    let gradient = " .:-=+*#%@"
+    if iter == max_iter {
+        return "@"
+    }
+
+    let idx = iter * (gradient.len() - 1) / max_iter
+    return gradient[idx]
+}
+
+fn main() -> i32 {
+    let width = 120
+    let height = 40
+    let max_iter = 100
+
+    let xmin = -2.5
+    let xmax = 1.0
+    let ymin = -1.0
+    let ymax = 1.0
+
+    let y = 0
+    while y < height {
+        let x = 0
+        let line = String.new()
+
+        while x < width {
+            let cr = xmin + (x / width ) * (xmax - xmin)
+            let ci = ymin + (y  / height ) * (ymax - ymin)
+
+            let c = Complex.new(cr, ci)
+            let it = mandelbrot(&c, max_iter)
+            let ch = shade(it, max_iter)
+
+            line.push(ch)
+            x += 1
+        }
+
+        printf("{line}\n")
+        y += 1
+    }
+
+    return 0
+}

@@ -6,8 +6,7 @@ struct Point {
 }
 
 fn print_point(p: &Point) {
-    print_int(p.x)
-    print_int(p.y)
+    println("Point: x=${p.x}, y=${p.y}")
 }
 
 fn main() -> i32 {
