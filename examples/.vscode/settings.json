@@ -1,0 +1,11 @@
+{
+  "terminal.integrated.env.linux": {
+    "PATH": "${workspaceFolder}/../bootstrap/target/release:${env:PATH}"
+  },
+  "terminal.integrated.env.osx": {
+    "PATH": "${workspaceFolder}/../bootstrap/target/release:${env:PATH}"
+  },
+  "terminal.integrated.env.windows": {
+    "PATH": "${workspaceFolder}\\..\\bootstrap\\target\\release;${env:PATH}"
+  }
+}

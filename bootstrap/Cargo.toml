@@ -31,3 +31,8 @@ required-features = ["codegen"]
 [[bin]]
 name = "vibelang-lsp"
 path = "src/bin/vibelang-lsp.rs"
+
+[[bin]]
+name = "vibe"
+path = "src/bin/vibe.rs"
+required-features = ["codegen"]

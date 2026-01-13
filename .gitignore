@@ -1,6 +1,7 @@
 # Build artifacts
-bin/
-target/
+/bin/
+examples/bin/
+**/target/
 
 # Editor
 .idea/

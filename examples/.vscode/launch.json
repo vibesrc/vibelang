@@ -2,11 +2,22 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "Run Vibelang",
-      "type": "node-terminal",
+      "name": "Run Current File",
+      "type": "node",
       "request": "launch",
-      "command": "${workspaceFolder}/../bootstrap/target/release/vibec ${file} -q && ${workspaceFolder}/bin/${fileBasenameNoExtension}",
-      "cwd": "${workspaceFolder}"
+      "runtimeExecutable": "${workspaceFolder}/../bootstrap/target/release/vibe",
+      "runtimeArgs": ["run", "${file}"],
+      "console": "integratedTerminal",
+      "skipFiles": ["<node_internals>/**"]
+    },
+    {
+      "name": "Build Current File",
+      "type": "node",
+      "request": "launch",
+      "runtimeExecutable": "${workspaceFolder}/../bootstrap/target/release/vibe",
+      "runtimeArgs": ["build", "${file}"],
+      "console": "integratedTerminal",
+      "skipFiles": ["<node_internals>/**"]
     }
   ]
 }
