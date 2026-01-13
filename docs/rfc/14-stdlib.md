@@ -75,7 +75,7 @@ numbers.push(2)
 numbers.push(3)
 
 for n in &numbers {
-    print_int(n)
+    println("${n}")
 }
 
 const len = numbers.len()           // 3
@@ -132,7 +132,7 @@ let arr: i32[5] = [1, 2, 3, 4, 5]
 let slice: Slice<i32> = &arr[1..4]      // [2, 3, 4]
 
 for x in slice {
-    print_int(x)
+    println("${x}")
 }
 
 const first = slice.first()              // Some(&2)
@@ -408,14 +408,12 @@ scores.insert(String.from("Alice"), 100)
 scores.insert(String.from("Bob"), 85)
 
 match scores.get(&String.from("Alice")) {
-    Option.Some(score) => print_int(*score)
-    Option.None => print("Not found")
+    Option.Some(score) => println("Score: ${*score}")
+    Option.None => println("Not found")
 }
 
 for (name, score) in &scores {
-    print(&name)
-    print(": ")
-    print_int(score)
+    println("${name}: ${score}")
 }
 ```
 
@@ -480,35 +478,58 @@ defer file.close()
 let data = file.read_all()?
 ```
 
-## 14.3 Formatting
+## 14.3 Formatting and String Interpolation
 
-### Format Strings
+### String Interpolation
+
+Vibelang supports string interpolation using `${expr}` syntax inside string literals. This allows embedding expressions directly in strings:
 
 ```vibelang
-/// Format with arguments
-fn format(fmt: Slice<u8>, args: ...) -> String
+let name = "Alice"
+let age = 30
 
+println("Hello, ${name}!")              // Hello, Alice!
+println("You are ${age} years old")     // You are 30 years old
+println("Next year: ${age + 1}")        // Next year: 31
+```
+
+**Supported Types in Interpolation:**
+- Integers (i8, i16, i32, i64, u8, u16, u32, u64) → decimal string
+- Booleans → "true" or "false"
+- Floats (f32, f64) → decimal string
+- Strings (Slice<u8>) → themselves
+
+**Escaping:** Use `$$` to include a literal `$` character:
+```vibelang
+println("Cost: $$50")  // Output: Cost: $50
+```
+
+### Print Functions
+
+```vibelang
 /// Print string to stdout (no newline)
 fn print(s: Slice<u8>)
 
 /// Print string to stdout (with newline)
 fn println(s: Slice<u8>)
+```
 
-/// Print integer to stdout (no newline)
-fn print_int(n: i64)
+**Type Safety:** Print functions only accept string types (`Slice<u8>`). To print other types, use string interpolation:
+```vibelang
+let x = 42
+println("${x}")        // Prints: 42
+println("x = ${x}")    // Prints: x = 42
+```
 
-/// Print integer to stdout (with newline)
-fn println_int(n: i64)
+### Format Strings (Future)
+
+```vibelang
+/// Format with arguments
+fn format(fmt: Slice<u8>, args: ...) -> String
 
 /// Print formatted
 fn printf(fmt: Slice<u8>, args: ...)
 ```
-
-**Type Safety:** The print functions enforce strict type checking at compile time:
-- `print` and `println` only accept string types (`Slice<u8>`). Passing an integer will produce a compile error.
-- `print_int` and `println_int` only accept integer types. Passing a string will produce a compile error.
-
-This prevents common runtime errors like segfaults from format string mismatches.
 
 #### Format Usage
 
@@ -516,10 +537,12 @@ This prevents common runtime errors like segfaults from format string mismatches
 let name = "Alice"
 let age = 30
 
+// Using string interpolation (preferred)
+println("Hello, ${name}! You are ${age} years old.")
+
+// Using format function (future)
 let msg = format("Hello, {}! You are {} years old.", name, age)
 println(&msg)
-
-printf("Result: {}\n", 42)
 ```
 
 ## 14.4 Memory Functions

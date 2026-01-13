@@ -140,7 +140,7 @@ let msg = if condition { "yes" } else { "no" }
 ```vibelang
 let i = 0
 while i < 10 {
-    print_int(i)
+    println("${i}")
     i += 1
 }
 ```
@@ -153,7 +153,7 @@ while true {
     if i >= 10 {
         break
     }
-    print_int(i)
+    println("${i}")
     i += 1
 }
 ```
@@ -167,7 +167,7 @@ while i < 10 {
     if i % 2 == 0 {
         continue        // skip even numbers
     }
-    print_int(i)
+    println("${i}")
 }
 ```
 
@@ -188,12 +188,12 @@ let arr = [1, 2, 3, 4, 5]
 
 // By reference (borrowing)
 for x in &arr {
-    print_int(*x)
+    println("${*x}")
 }
 
 // By value (copies for Copy types, moves for owned types)
 for x in arr {
-    print_int(x)
+    println("${x}")
 }
 ```
 
@@ -202,17 +202,17 @@ for x in arr {
 ```vibelang
 // 0 to 9
 for i in 0..10 {
-    print_int(i)
+    println("${i}")
 }
 
 // 1 to 10 inclusive
 for i in 1..=10 {
-    print_int(i)
+    println("${i}")
 }
 
 // Reverse
 for i in (0..10).rev() {
-    print_int(i)
+    println("${i}")
 }
 ```
 
@@ -220,9 +220,7 @@ for i in (0..10).rev() {
 
 ```vibelang
 for (i, item) in arr.enumerate() {
-    print_int(i)
-    print(": ")
-    print(item)
+    println("${i}: ${item}")
 }
 ```
 
@@ -384,7 +382,7 @@ Defer captures values at declaration time:
 ```vibelang
 fn example() {
     let x = 1
-    defer print_int(x)  // captures x = 1
+    defer println("${x}")  // captures x = 1
     x = 2
 }
 // Output: 1
@@ -399,7 +397,7 @@ fn example() {
     let x = 1
     {
         let y = 2
-        print_int(x + y)
+        println("${x + y}")
     }
     // y out of scope here
 }

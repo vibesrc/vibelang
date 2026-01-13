@@ -89,7 +89,7 @@ fn double(x: i32) -> i32 {
 fn main() {
     let n = 21
     let result = double(n)  // n is copied
-    print_int(n)            // n still valid (42)
+    println("${n}")         // n still valid (21)
 }
 ```
 

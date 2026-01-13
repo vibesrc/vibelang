@@ -161,11 +161,8 @@ fn divide(a: f64, b: f64) -> Option<f64> {
 ```vibelang
 fn handle_result(r: Result<i32, String>) {
     match r {
-        Result.Ok(value) => print_int(value)
-        Result.Err(msg) => {
-            print("Error: ")
-            print(&msg)
-        }
+        Result.Ok(value) => println("${value}")
+        Result.Err(msg) => println("Error: ${msg}")
     }
 }
 ```
