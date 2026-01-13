@@ -1,0 +1,38 @@
+// Test generic Option enum
+
+enum Option<T> {
+    Some(T)
+    None
+}
+
+fn or_else<T>(opt: Option<T>, default: T) -> T {
+    match opt {
+        Option.Some(val) => val
+        Option.None => default
+    }
+}
+
+fn main() -> i64 {
+    // Option with i32
+    let some_i32 = Option.Some(42)
+    let val_i32 = or_else(some_i32, 0)
+    if val_i32 != 42 {
+        return 1
+    }
+
+    // None case (needs explicit type for unit variant)
+    let none_i32 = Option<i32>.None
+    let default_val = or_else(none_i32, 999)
+    if default_val != 999 {
+        return 2
+    }
+
+    // Chained Option operations
+    let opt1 = Option.Some(10)
+    let result = or_else(opt1, 0)
+    if result + 5 != 15 {
+        return 3
+    }
+
+    return 0
+}

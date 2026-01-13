@@ -124,6 +124,13 @@ impl<'ctx> Codegen<'ctx> {
 
         // Continue with struct field access for identifiers
         if let Expr::Ident(name, _) = object {
+            // Check if this is a generic enum - requires explicit type arguments for unit variants
+            if self.generic_enums.contains_key(name) {
+                return Err(CodegenError::NotImplemented(
+                    format!("generic enum unit variant '{}' requires explicit type arguments, e.g., {}<Type>.{}",
+                            field, name, field)
+                ));
+            }
 
             // Check for use-after-move
             if self.moved_vars.contains(name) {
@@ -185,7 +192,10 @@ impl<'ctx> Codegen<'ctx> {
 
             Ok(field_val)
         } else {
-            Err(CodegenError::NotImplemented("field access on non-identifier".to_string()))
+            Err(CodegenError::NotImplemented(
+                "nested field access (e.g., 'a.b.c') is not yet supported. \
+                 Use an intermediate variable: 'let b = a.b; b.c'".to_string()
+            ))
         }
     }
 
@@ -248,7 +258,10 @@ impl<'ctx> Codegen<'ctx> {
 
             Ok(field_ptr)
         } else {
-            Err(CodegenError::NotImplemented("field pointer on non-identifier".to_string()))
+            Err(CodegenError::NotImplemented(
+                "nested field assignment (e.g., 'a.b.c = x') is not yet supported. \
+                 Use an intermediate variable or reference".to_string()
+            ))
         }
     }
 
@@ -370,10 +383,15 @@ impl<'ctx> Codegen<'ctx> {
 
                     Ok(field_ptr.into())
                 } else {
-                    Err(CodegenError::NotImplemented("reference to complex field".to_string()))
+                    Err(CodegenError::NotImplemented(
+                        "nested field reference (e.g., '&a.b.c') is not yet supported. \
+                         Use an intermediate variable".to_string()
+                    ))
                 }
             }
-            _ => Err(CodegenError::NotImplemented("reference to non-lvalue".to_string())),
+            _ => Err(CodegenError::NotImplemented(
+                "can only take reference (&/~) of variables and struct fields, not expressions".to_string()
+            )),
         }
     }
 
@@ -517,7 +535,10 @@ impl<'ctx> Codegen<'ctx> {
                 Ok(val)
             }
         } else {
-            Err(CodegenError::NotImplemented("indexing non-variable expressions".to_string()))
+            Err(CodegenError::NotImplemented(
+                "can only index array/slice variables directly (e.g., 'arr[i]'). \
+                 Indexing expressions like 'get_array()[i]' requires an intermediate variable".to_string()
+            ))
         }
     }
 }

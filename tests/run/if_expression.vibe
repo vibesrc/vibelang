@@ -1,0 +1,66 @@
+// Test if statements
+
+fn abs(x: i64) -> i64 {
+    if x < 0 {
+        return -x
+    } else {
+        return x
+    }
+}
+
+fn min(a: i64, b: i64) -> i64 {
+    if a < b {
+        return a
+    } else {
+        return b
+    }
+}
+
+fn max(a: i64, b: i64) -> i64 {
+    if a > b {
+        return a
+    } else {
+        return b
+    }
+}
+
+fn clamp(val: i64, low: i64, high: i64) -> i64 {
+    if val < low {
+        return low
+    } else if val > high {
+        return high
+    } else {
+        return val
+    }
+}
+
+fn main() -> i64 {
+    // Test abs
+    if abs(-5) != 5 {
+        return 1
+    }
+    if abs(5) != 5 {
+        return 2
+    }
+
+    // Test min/max
+    if min(3, 7) != 3 {
+        return 3
+    }
+    if max(3, 7) != 7 {
+        return 4
+    }
+
+    // Test clamp
+    if clamp(5, 0, 10) != 5 {
+        return 5
+    }
+    if clamp(-5, 0, 10) != 0 {
+        return 6
+    }
+    if clamp(15, 0, 10) != 10 {
+        return 7
+    }
+
+    return 0
+}

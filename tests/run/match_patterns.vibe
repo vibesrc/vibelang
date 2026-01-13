@@ -1,0 +1,52 @@
+// Test pattern matching features
+
+enum Shape {
+    Circle(i64)
+    Rectangle(i64, i64)
+    Square(i64)
+}
+
+fn area(s: Shape) -> i64 {
+    match s {
+        Shape.Circle(r) => r * r * 3
+        Shape.Rectangle(w, h) => w * h
+        Shape.Square(side) => side * side
+    }
+}
+
+fn main() -> i64 {
+    // Basic enum matching
+    let c = Shape.Circle(10)
+    if area(c) != 300 {
+        return 1
+    }
+
+    let r = Shape.Rectangle(5, 10)
+    if area(r) != 50 {
+        return 2
+    }
+
+    let s = Shape.Square(7)
+    if area(s) != 49 {
+        return 3
+    }
+
+    // Match with multiple values extraction
+    let rect = Shape.Rectangle(3, 4)
+    match rect {
+        Shape.Rectangle(width, height) => {
+            let computed = width + height
+            if computed != 7 {
+                return 4
+            }
+        }
+        Shape.Circle(_) => {
+            return 5
+        }
+        Shape.Square(_) => {
+            return 6
+        }
+    }
+
+    return 0
+}

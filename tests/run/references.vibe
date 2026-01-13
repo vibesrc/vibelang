@@ -1,0 +1,43 @@
+// Test references and borrowing
+
+struct Data {
+    value: i64
+}
+
+fn read_value(d: &Data) -> i64 {
+    return d.value
+}
+
+fn modify_value(d: ~Data, new_val: i64) {
+    d.value = new_val
+}
+
+fn add_values(a: &Data, b: &Data) -> i64 {
+    return a.value + b.value
+}
+
+fn main() -> i64 {
+    let d = Data { value: 42 }
+
+    // Immutable borrow
+    let val = read_value(&d)
+    if val != 42 {
+        return 1
+    }
+
+    // Mutable borrow
+    modify_value(~d, 100)
+    if d.value != 100 {
+        return 2
+    }
+
+    // Multiple immutable borrows
+    let d1 = Data { value: 10 }
+    let d2 = Data { value: 20 }
+    let sum = add_values(&d1, &d2)
+    if sum != 30 {
+        return 3
+    }
+
+    return 0
+}

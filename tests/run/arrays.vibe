@@ -1,0 +1,51 @@
+// Test array creation and indexing
+
+fn main() -> i64 {
+    // Array literal
+    let arr = [10, 20, 30, 40, 50]
+
+    // Index access
+    if arr[0] != 10 {
+        return 1
+    }
+    if arr[2] != 30 {
+        return 2
+    }
+    if arr[4] != 50 {
+        return 3
+    }
+
+    // Array length
+    if arr.len() != 5 {
+        return 4
+    }
+
+    // Loop over array indices
+    let sum = 0
+    let i = 0
+    while i < arr.len() {
+        sum = sum + arr[i]
+        i = i + 1
+    }
+    // 10 + 20 + 30 + 40 + 50 = 150
+    if sum != 150 {
+        return 5
+    }
+
+    // Computed index
+    let idx = 2
+    if arr[idx] != 30 {
+        return 6
+    }
+
+    // Array of different type
+    let bools = [true, false, true]
+    if bools[0] != true {
+        return 7
+    }
+    if bools[1] != false {
+        return 8
+    }
+
+    return 0
+}

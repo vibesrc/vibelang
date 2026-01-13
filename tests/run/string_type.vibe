@@ -16,11 +16,11 @@ impl String {
         }
     }
 
-    fn len(self: &String) -> i64 {
+    fn len(&self) -> i64 {
         return self.len
     }
 
-    fn drop(self: ~String) {
+    fn drop(~self) {
         free(self.ptr)
     }
 }

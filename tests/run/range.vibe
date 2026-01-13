@@ -1,9 +1,13 @@
 // Test for loop over range
 
-fn main() -> i32 {
+fn main() -> i64 {
     let total = 0
     for i in 0..5 {
         total = total + i
     }
-    return total   // 0+1+2+3+4 = 10
+    // 0+1+2+3+4 = 10
+    if total != 10 {
+        return 1
+    }
+    return 0
 }

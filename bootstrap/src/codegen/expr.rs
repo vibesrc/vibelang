@@ -139,9 +139,10 @@ impl<'ctx> Codegen<'ctx> {
             Expr::InterpolatedString { parts, .. } => {
                 self.compile_interpolated_string(parts)
             }
-            _ => {
-                // TODO: implement other expressions
-                Err(CodegenError::NotImplemented("expression type".to_string()))
+            other => {
+                Err(CodegenError::NotImplemented(format!(
+                    "unsupported expression type: {:?}. This expression may not be implemented yet", other
+                )))
             }
         }
     }
@@ -203,6 +204,16 @@ impl<'ctx> Codegen<'ctx> {
         left: &Expr,
         right: &Expr,
     ) -> Result<BasicValueEnum<'ctx>, CodegenError> {
+        // Handle logical AND with short-circuit evaluation
+        if matches!(op, BinOp::And) {
+            return self.compile_logical_and(left, right);
+        }
+
+        // Handle logical OR with short-circuit evaluation
+        if matches!(op, BinOp::Or) {
+            return self.compile_logical_or(left, right);
+        }
+
         // Handle assignment specially - don't compile LHS yet for assignments
         if matches!(op, BinOp::Assign) {
             let rhs = self.compile_expr(right)?;
@@ -258,7 +269,9 @@ impl<'ctx> Codegen<'ctx> {
                     self.builder.build_ptr_to_int(rhs_ptr, self.context.i64_type(), "rhs_int").unwrap(),
                     "ne"
                 ).unwrap(),
-                _ => return Err(CodegenError::NotImplemented(format!("pointer binary op {:?}", op))),
+                _ => return Err(CodegenError::NotImplemented(format!(
+                    "pointer comparison only supports '==' and '!=', got '{:?}'", op
+                ))),
             };
 
             return Ok(result.into());
@@ -266,6 +279,23 @@ impl<'ctx> Codegen<'ctx> {
 
         let lhs_int = lhs.into_int_value();
         let rhs_int = rhs.into_int_value();
+
+        // Coerce integer types to the same width for binary operations
+        let (lhs_int, rhs_int) = if lhs_int.get_type().get_bit_width() != rhs_int.get_type().get_bit_width() {
+            let lhs_width = lhs_int.get_type().get_bit_width();
+            let rhs_width = rhs_int.get_type().get_bit_width();
+            if lhs_width > rhs_width {
+                // Widen rhs to match lhs
+                let widened = self.builder.build_int_s_extend(rhs_int, lhs_int.get_type(), "widen").unwrap();
+                (lhs_int, widened)
+            } else {
+                // Widen lhs to match rhs
+                let widened = self.builder.build_int_s_extend(lhs_int, rhs_int.get_type(), "widen").unwrap();
+                (widened, rhs_int)
+            }
+        } else {
+            (lhs_int, rhs_int)
+        };
 
         let result = match op {
             BinOp::Add => self.builder.build_int_add(lhs_int, rhs_int, "add").unwrap(),
@@ -296,7 +326,9 @@ impl<'ctx> Codegen<'ctx> {
             BinOp::BitXor => self.builder.build_xor(lhs_int, rhs_int, "xor").unwrap(),
             BinOp::Shl => self.builder.build_left_shift(lhs_int, rhs_int, "shl").unwrap(),
             BinOp::Shr => self.builder.build_right_shift(lhs_int, rhs_int, true, "shr").unwrap(),
-            _ => return Err(CodegenError::NotImplemented(format!("binary op {:?}", op))),
+            _ => return Err(CodegenError::NotImplemented(format!(
+                "binary operator '{:?}' not supported for integer types", op
+            ))),
         };
 
         Ok(result.into())
@@ -923,5 +955,87 @@ impl<'ctx> Codegen<'ctx> {
         let len_i64 = self.builder.build_int_z_extend(len, i64_type, "len_i64").unwrap();
 
         Ok((buffer, len_i64))
+    }
+
+    /// Compile logical AND with short-circuit evaluation
+    /// if left is false, skip right and return false
+    fn compile_logical_and(&mut self, left: &Expr, right: &Expr) -> Result<BasicValueEnum<'ctx>, CodegenError> {
+        let current_fn = self.builder.get_insert_block().unwrap().get_parent().unwrap();
+        let bool_type = self.context.bool_type();
+
+        // Create basic blocks
+        let rhs_block = self.context.append_basic_block(current_fn, "and.rhs");
+        let merge_block = self.context.append_basic_block(current_fn, "and.merge");
+
+        // Compile left side
+        let lhs = self.compile_expr(left)?;
+        let lhs_bool = lhs.into_int_value();
+
+        // Save the block we're coming from for the phi
+        let lhs_block = self.builder.get_insert_block().unwrap();
+
+        // Branch: if lhs is true, evaluate rhs; else short-circuit to false
+        self.builder.build_conditional_branch(lhs_bool, rhs_block, merge_block).unwrap();
+
+        // Compile right side
+        self.builder.position_at_end(rhs_block);
+        let rhs = self.compile_expr(right)?;
+        let rhs_bool = rhs.into_int_value();
+        let rhs_final_block = self.builder.get_insert_block().unwrap();
+        self.builder.build_unconditional_branch(merge_block).unwrap();
+
+        // Merge: phi node to get the result
+        self.builder.position_at_end(merge_block);
+        let phi = self.builder.build_phi(bool_type, "and.result").unwrap();
+
+        // If we came from lhs_block (short-circuit), result is false
+        // If we came from rhs_block, result is the rhs value
+        phi.add_incoming(&[
+            (&bool_type.const_zero(), lhs_block),
+            (&rhs_bool, rhs_final_block),
+        ]);
+
+        Ok(phi.as_basic_value())
+    }
+
+    /// Compile logical OR with short-circuit evaluation
+    /// if left is true, skip right and return true
+    fn compile_logical_or(&mut self, left: &Expr, right: &Expr) -> Result<BasicValueEnum<'ctx>, CodegenError> {
+        let current_fn = self.builder.get_insert_block().unwrap().get_parent().unwrap();
+        let bool_type = self.context.bool_type();
+
+        // Create basic blocks
+        let rhs_block = self.context.append_basic_block(current_fn, "or.rhs");
+        let merge_block = self.context.append_basic_block(current_fn, "or.merge");
+
+        // Compile left side
+        let lhs = self.compile_expr(left)?;
+        let lhs_bool = lhs.into_int_value();
+
+        // Save the block we're coming from for the phi
+        let lhs_block = self.builder.get_insert_block().unwrap();
+
+        // Branch: if lhs is true, short-circuit to true; else evaluate rhs
+        self.builder.build_conditional_branch(lhs_bool, merge_block, rhs_block).unwrap();
+
+        // Compile right side
+        self.builder.position_at_end(rhs_block);
+        let rhs = self.compile_expr(right)?;
+        let rhs_bool = rhs.into_int_value();
+        let rhs_final_block = self.builder.get_insert_block().unwrap();
+        self.builder.build_unconditional_branch(merge_block).unwrap();
+
+        // Merge: phi node to get the result
+        self.builder.position_at_end(merge_block);
+        let phi = self.builder.build_phi(bool_type, "or.result").unwrap();
+
+        // If we came from lhs_block (short-circuit), result is true
+        // If we came from rhs_block, result is the rhs value
+        phi.add_incoming(&[
+            (&bool_type.const_int(1, false), lhs_block),
+            (&rhs_bool, rhs_final_block),
+        ]);
+
+        Ok(phi.as_basic_value())
     }
 }

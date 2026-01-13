@@ -17,26 +17,26 @@ impl IntArray {
         }
     }
 
-    fn len(self: &IntArray) -> i64 {
+    fn len(&self) -> i64 {
         return self.len
     }
 
-    fn push(self: ~IntArray, value: i64) {
+    fn push(~self, value: i64) {
         // For now, no growing - just push if we have space
         ptr_write_i64(self.ptr, self.len, value)
         self.len = self.len + 1
     }
 
-    fn get(self: &IntArray, index: i64) -> i64 {
+    fn get(&self, index: i64) -> i64 {
         return ptr_read_i64(self.ptr, index)
     }
 
-    fn pop(self: ~IntArray) -> i64 {
+    fn pop(~self) -> i64 {
         self.len = self.len - 1
         return ptr_read_i64(self.ptr, self.len)
     }
 
-    fn drop(self: ~IntArray) {
+    fn drop(~self) {
         free(self.ptr)
     }
 }

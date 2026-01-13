@@ -1,0 +1,61 @@
+// Test generic structs, enums, and functions
+
+struct Pair<T> {
+    first: T
+    second: T
+}
+
+enum Option<T> {
+    Some(T)
+    None
+}
+
+fn identity<T>(x: T) -> T {
+    return x
+}
+
+fn unwrap<T>(o: Option<T>) -> T {
+    match o {
+        Option.Some(val) => val
+        Option.None => panic("unwrap on None")
+    }
+}
+
+fn is_some<T>(o: Option<T>) -> bool {
+    match o {
+        Option.Some(_) => true
+        Option.None => false
+    }
+}
+
+fn main() -> i64 {
+    // Generic struct with i64
+    let pair = Pair<i64> { first: 100, second: 200 }
+    if pair.first != 100 {
+        return 1
+    }
+    if pair.second != 200 {
+        return 2
+    }
+
+    // Generic enum - Some variant
+    let some_val = Option.Some(42)
+    if not is_some(some_val) {
+        return 3
+    }
+
+    // Generic enum - None variant (requires explicit type for unit variant)
+    let none_val = Option<i32>.None
+    if is_some(none_val) {
+        return 4
+    }
+
+    // Generic function with type inference
+    let some_100 = Option.Some(100)
+    let unwrapped = unwrap(some_100)
+    if unwrapped != 100 {
+        return 5
+    }
+
+    return 0
+}

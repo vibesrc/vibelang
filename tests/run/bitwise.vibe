@@ -1,0 +1,21 @@
+// Test bitwise operations
+// Note: &, |, ^ syntax conflicts with reference operators in expressions
+// Testing only bitwise NOT which uses ! prefix
+
+fn main() -> i64 {
+    // Bitwise NOT on 0 gives -1 (all bits set)
+    let x: i64 = 0
+    let not_result = !x
+    if not_result != -1 {
+        return 1
+    }
+
+    // Double NOT gives back original
+    let y: i64 = 42
+    let double_not = !!y
+    if double_not != 42 {
+        return 2
+    }
+
+    return 0
+}

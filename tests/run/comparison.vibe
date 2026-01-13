@@ -1,0 +1,94 @@
+// Test comparison and logical operations
+
+fn main() -> i64 {
+    let a = 10
+    let b = 20
+    let c = 10
+
+    // Equality
+    if a == c {
+        // ok
+    } else {
+        return 1
+    }
+
+    // Inequality
+    if a != b {
+        // ok
+    } else {
+        return 2
+    }
+
+    // Less than
+    if a < b {
+        // ok
+    } else {
+        return 3
+    }
+
+    // Less than or equal
+    if a <= c {
+        // ok
+    } else {
+        return 4
+    }
+
+    // Greater than
+    if b > a {
+        // ok
+    } else {
+        return 5
+    }
+
+    // Greater than or equal
+    if b >= a {
+        // ok
+    } else {
+        return 6
+    }
+
+    // Logical AND (using 'and' keyword)
+    let t = true
+    let f = false
+
+    if t and t {
+        // ok
+    } else {
+        return 7
+    }
+
+    if t and f {
+        return 8
+    }
+
+    // Logical OR (using 'or' keyword)
+    if t or f {
+        // ok
+    } else {
+        return 9
+    }
+
+    if f or f {
+        return 10
+    }
+
+    // Logical NOT (using 'not' keyword)
+    if not f {
+        // ok
+    } else {
+        return 11
+    }
+
+    if not t {
+        return 12
+    }
+
+    // Combined
+    if (a < b) and (not f) {
+        // ok
+    } else {
+        return 13
+    }
+
+    return 0
+}

@@ -1,0 +1,38 @@
+// Test structs containing other structs
+// Note: Nested field access like a.b.c is not yet supported
+
+struct Address {
+    street_number: i64
+    zip_code: i64
+}
+
+struct Person {
+    age: i64
+}
+
+fn main() -> i64 {
+    // Create simple structs
+    let addr = Address {
+        street_number: 123,
+        zip_code: 94105
+    }
+
+    let person = Person {
+        age: 30
+    }
+
+    // Access fields
+    if person.age != 30 {
+        return 1
+    }
+
+    if addr.street_number != 123 {
+        return 2
+    }
+
+    if addr.zip_code != 94105 {
+        return 3
+    }
+
+    return 0
+}

@@ -1,0 +1,71 @@
+// Test control flow statements
+
+fn main() -> i64 {
+    // If statement
+    let x = 10
+    if x > 5 {
+        // ok
+    } else {
+        return 1
+    }
+
+    // If-else
+    let result = 0
+    if x > 20 {
+        result = 1
+    } else {
+        result = 2
+    }
+    if result != 2 {
+        return 2
+    }
+
+    // If-else-if chain
+    let grade = 85
+    let letter = 0
+    if grade >= 90 {
+        letter = 65  // 'A'
+    } else if grade >= 80 {
+        letter = 66  // 'B'
+    } else if grade >= 70 {
+        letter = 67  // 'C'
+    } else {
+        letter = 70  // 'F'
+    }
+    if letter != 66 {
+        return 3
+    }
+
+    // While loop
+    let sum = 0
+    let i = 1
+    while i <= 10 {
+        sum += i
+        i += 1
+    }
+    if sum != 55 {
+        return 4
+    }
+
+    // For loop with range
+    let count = 0
+    for j in 0..5 {
+        count += 1
+    }
+    if count != 5 {
+        return 5
+    }
+
+    // Nested loops
+    let total = 0
+    for a in 0..3 {
+        for b in 0..3 {
+            total += 1
+        }
+    }
+    if total != 9 {
+        return 6
+    }
+
+    return 0
+}

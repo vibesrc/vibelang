@@ -1,6 +1,6 @@
 // Test break and continue in loops
 
-fn main() -> i32 {
+fn main() -> i64 {
     let total = 0
 
     // Test break: exit loop early
@@ -12,6 +12,9 @@ fn main() -> i32 {
     }
 
     // total should be 0+1+2+3+4 = 10
+    if total != 10 {
+        return 1
+    }
 
     // Test continue: skip some iterations
     for i in 0..5 {
@@ -22,5 +25,9 @@ fn main() -> i32 {
     }
 
     // total should be 10 + (0+1+3+4) = 10 + 8 = 18
-    return total
+    if total != 18 {
+        return 2
+    }
+
+    return 0
 }

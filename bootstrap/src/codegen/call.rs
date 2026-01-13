@@ -28,7 +28,10 @@ impl<'ctx> Codegen<'ctx> {
 
         let name = match func {
             Expr::Ident(name, _) => name,
-            _ => return Err(CodegenError::NotImplemented("non-ident function calls".to_string())),
+            _ => return Err(CodegenError::NotImplemented(
+                "function call requires a simple function name. \
+                 Expression calls like '(get_fn())(args)' are not yet supported".to_string()
+            )),
         };
 
         // Handle intrinsic functions
@@ -235,7 +238,8 @@ impl<'ctx> Codegen<'ctx> {
             }
         } else {
             return Err(CodegenError::NotImplemented(
-                "method call on non-identifier receiver".to_string()
+                "method call receiver must be a simple variable (e.g., 'x.method()'). \
+                 Chained calls like 'a.b().c()' require intermediate variables".to_string()
             ));
         };
 

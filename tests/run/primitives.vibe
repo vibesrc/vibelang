@@ -1,0 +1,47 @@
+// Test primitive types and literals
+
+fn main() -> i64 {
+    // Integer types (with type annotation instead of suffix)
+    let a: i8 = 127
+    let b: i16 = 32767
+    let c: i32 = 100000
+    let d: i64 = 1000000
+
+    // Unsigned types
+    let e: u8 = 255
+    let f: u16 = 65535
+    let g: u32 = 100000
+    let h: u64 = 1000000
+
+    // Float types
+    let i: f32 = 3.14
+    let j: f64 = 3.14159
+
+    // Boolean
+    let k: bool = true
+    let l: bool = false
+
+    // Hex, octal, binary literals
+    let hex = 0xFF
+    let oct = 0o77
+    let bin = 0b1010
+
+    // Underscores in numbers
+    let big = 1_000_000
+
+    // Verify some values
+    if hex != 255 {
+        return 1
+    }
+    if oct != 63 {
+        return 2
+    }
+    if bin != 10 {
+        return 3
+    }
+    if big != 1000000 {
+        return 4
+    }
+
+    return 0
+}

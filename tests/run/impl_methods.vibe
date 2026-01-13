@@ -10,15 +10,15 @@ impl Point {
         return Point { x: x, y: y }
     }
 
-    fn get_x(self: &Point) -> i64 {
+    fn get_x(&self) -> i64 {
         return self.x
     }
 
-    fn get_y(self: &Point) -> i64 {
+    fn get_y(&self) -> i64 {
         return self.y
     }
 
-    fn add(self: &Point, other: &Point) -> i64 {
+    fn add(&self, other: &Point) -> i64 {
         return self.x + other.x + self.y + other.y
     }
 }
@@ -28,11 +28,22 @@ fn main() -> i64 {
     let p2 = Point { x: 3, y: 4 }
 
     let x = p1.get_x()
+    if x != 10 {
+        return 1
+    }
+
     let y = p1.get_y()
+    if y != 20 {
+        return 2
+    }
 
     // Test method call with argument
     let sum = p1.add(&p2)
 
     // Expected: 10 + 3 + 20 + 4 = 37
-    return sum
+    if sum != 37 {
+        return 3
+    }
+
+    return 0
 }

@@ -107,12 +107,20 @@ impl<'ctx> Codegen<'ctx> {
                             (ty.as_ref().and_then(|t| self.get_struct_name_for_type(t)), None)
                         }
                     }
-                    // Handle field access for unit enum variants like Color.Red
+                    // Handle field access for unit enum variants like Color.Red or Option<i32>.None
                     Expr::Field { object, .. } => {
                         if let Expr::Ident(type_name, _) = object.as_ref() {
                             // Check if object is an enum type (unit variant constructor)
                             if self.enum_types.contains_key(type_name) {
                                 (Some(type_name.clone()), None)
+                            } else {
+                                (ty.as_ref().and_then(|t| self.get_struct_name_for_type(t)), None)
+                            }
+                        } else if let Expr::StructInit { name, generics, fields, .. } = object.as_ref() {
+                            // Handle generic enum unit variant like Option<i32>.None
+                            if fields.is_empty() && !generics.is_empty() {
+                                let mono_name = self.mangle_name(name, generics);
+                                (Some(mono_name), None)
                             } else {
                                 (ty.as_ref().and_then(|t| self.get_struct_name_for_type(t)), None)
                             }
@@ -414,7 +422,10 @@ impl<'ctx> Codegen<'ctx> {
                 }
 
                 if !var_info.ty.is_array_type() {
-                    return Err(CodegenError::NotImplemented("for loop over non-array".to_string()));
+                    return Err(CodegenError::NotImplemented(format!(
+                        "variable '{}' is not iterable. For loops require arrays, slices, or ranges (e.g., '0..10')",
+                        name
+                    )));
                 }
 
                 let array_ty = var_info.ty.into_array_type();
@@ -494,7 +505,10 @@ impl<'ctx> Codegen<'ctx> {
                 self.loop_continue_block = outer_continue;
             }
 
-            _ => return Err(CodegenError::NotImplemented("for loop over this iterator type".to_string())),
+            _ => return Err(CodegenError::NotImplemented(
+                "for loop only supports arrays, slices, and ranges (e.g., '0..10'). \
+                 Got an unsupported iterator type".to_string()
+            )),
         }
 
         Ok(None)

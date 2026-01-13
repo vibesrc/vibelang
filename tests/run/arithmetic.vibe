@@ -1,0 +1,67 @@
+// Test arithmetic operations
+
+fn main() -> i64 {
+    // Basic arithmetic
+    let a = 10
+    let b = 3
+
+    // Addition
+    if a + b != 13 {
+        return 1
+    }
+
+    // Subtraction
+    if a - b != 7 {
+        return 2
+    }
+
+    // Multiplication
+    if a * b != 30 {
+        return 3
+    }
+
+    // Division
+    if a / b != 3 {
+        return 4
+    }
+
+    // Modulo
+    if a % b != 1 {
+        return 5
+    }
+
+    // Negative numbers
+    let neg = -5
+    if neg + 10 != 5 {
+        return 6
+    }
+
+    // Compound assignment
+    let x = 10
+    x += 5
+    if x != 15 {
+        return 7
+    }
+
+    x -= 3
+    if x != 12 {
+        return 8
+    }
+
+    x *= 2
+    if x != 24 {
+        return 9
+    }
+
+    x /= 4
+    if x != 6 {
+        return 10
+    }
+
+    x %= 4
+    if x != 2 {
+        return 11
+    }
+
+    return 0
+}

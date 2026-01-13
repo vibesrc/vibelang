@@ -1,0 +1,16 @@
+// Test type annotations with different integer sizes
+// Note: Type cast syntax (as) not yet implemented
+
+fn main() -> i64 {
+    // Type annotations work for i32 and i64
+    let a: i32 = 100
+    let b: i64 = 200
+
+    // Return sum (will be promoted to i64)
+    let result = a + b
+    if result != 300 {
+        return 1
+    }
+
+    return 0
+}

@@ -1,0 +1,63 @@
+// Test enum definitions and pattern matching
+
+enum Color {
+    Red
+    Green
+    Blue
+}
+
+enum Status {
+    Active
+    Pending(i64)
+    Error(i64, i64)
+}
+
+fn get_color_value(c: Color) -> i64 {
+    match c {
+        Color.Red => 1
+        Color.Green => 2
+        Color.Blue => 3
+    }
+}
+
+fn get_status_code(s: Status) -> i64 {
+    match s {
+        Status.Active => 0
+        Status.Pending(n) => n
+        Status.Error(code, _) => code
+    }
+}
+
+fn main() -> i64 {
+    // Unit variants
+    let red = Color.Red
+    let green = Color.Green
+    let blue = Color.Blue
+
+    if get_color_value(red) != 1 {
+        return 1
+    }
+    if get_color_value(green) != 2 {
+        return 2
+    }
+    if get_color_value(blue) != 3 {
+        return 3
+    }
+
+    // Data variants
+    let active = Status.Active
+    let pending = Status.Pending(42)
+    let err = Status.Error(500, 1)
+
+    if get_status_code(active) != 0 {
+        return 4
+    }
+    if get_status_code(pending) != 42 {
+        return 5
+    }
+    if get_status_code(err) != 500 {
+        return 6
+    }
+
+    return 0
+}

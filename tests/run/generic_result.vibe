@@ -1,0 +1,32 @@
+// Test generic Result-like enum
+// Note: Type inference requires variant payload to contain T
+
+enum MyResult<T> {
+    Ok(T)
+    Err(T)  // Both variants use T for inference
+}
+
+fn unwrap_or<T>(r: MyResult<T>, default: T) -> T {
+    match r {
+        MyResult.Ok(val) => val
+        MyResult.Err(_) => default
+    }
+}
+
+fn main() -> i64 {
+    // Ok case - T inferred from argument 50
+    let ok_val = MyResult.Ok(50)
+    let result1 = unwrap_or(ok_val, 0)
+    if result1 != 50 {
+        return 1
+    }
+
+    // Err case - T inferred from argument 999
+    let err_val = MyResult.Err(999)
+    let result2 = unwrap_or(err_val, -1)
+    if result2 != -1 {
+        return 2
+    }
+
+    return 0
+}
