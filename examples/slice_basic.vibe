@@ -1,0 +1,12 @@
+// Test slice creation and indexing
+
+fn main() -> i32 {
+    let arr = [10, 20, 30, 40, 50]
+    let slice = &arr
+
+    // Test indexing
+    let first = slice[0]   // 10
+    let last = slice[4]    // 50
+
+    return first + last    // 60
+}

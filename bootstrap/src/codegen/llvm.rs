@@ -827,11 +827,20 @@ impl<'ctx> Codegen<'ctx> {
                 self.builder.position_at_end(end_bb);
             }
 
-            // Array iteration: for x in arr
+            // Array/Slice iteration: for x in arr or for x in slice
             Expr::Ident(arr_name, _) => {
                 let var_info = self.variables.get(arr_name)
                     .ok_or_else(|| CodegenError::UndefinedVariable(arr_name.clone()))?
                     .clone();
+
+                // Check if this is a slice (struct with {ptr, len} layout)
+                if var_info.ty.is_struct_type() {
+                    let struct_ty = var_info.ty.into_struct_type();
+                    // Slices are structs with 2 fields: { ptr, len }
+                    if struct_ty.count_fields() == 2 {
+                        return self.compile_for_slice(name, &var_info, body);
+                    }
+                }
 
                 if !var_info.ty.is_array_type() {
                     return Err(CodegenError::NotImplemented("for loop over non-array".to_string()));
@@ -905,6 +914,92 @@ impl<'ctx> Codegen<'ctx> {
             _ => return Err(CodegenError::NotImplemented("for loop over this iterator type".to_string())),
         }
 
+        Ok(None)
+    }
+
+    fn compile_for_slice(
+        &mut self,
+        name: &str,
+        var_info: &VarInfo<'ctx>,
+        body: &Block,
+    ) -> Result<Option<BasicValueEnum<'ctx>>, CodegenError> {
+        let fn_value = self.current_function.unwrap();
+        let struct_ty = var_info.ty.into_struct_type();
+        let i64_type = self.context.i64_type();
+
+        // Load the slice value
+        let slice_val = self.builder.build_load(struct_ty, var_info.ptr, "slice").unwrap();
+
+        // Extract pointer (field 0) and length (field 1) from slice
+        let data_ptr = self.builder
+            .build_extract_value(slice_val.into_struct_value(), 0, "slice_ptr")
+            .unwrap()
+            .into_pointer_value();
+        let len_val = self.builder
+            .build_extract_value(slice_val.into_struct_value(), 1, "slice_len")
+            .unwrap()
+            .into_int_value();
+
+        // For now, assume element type is i64 (need better type tracking)
+        let elem_type = i64_type.as_basic_type_enum();
+
+        // Create index variable
+        let idx_var = self.create_entry_block_alloca("__idx", i64_type.into());
+        self.builder.build_store(idx_var, i64_type.const_zero()).unwrap();
+
+        // Create element variable
+        let elem_var = self.create_entry_block_alloca(name, elem_type);
+        self.variables.insert(name.to_string(), VarInfo {
+            ptr: elem_var,
+            ty: elem_type,
+            struct_name: None,
+            is_ref: false,
+            is_mut_ref: false,
+            ref_struct_name: None,
+        });
+
+        let cond_bb = self.context.append_basic_block(fn_value, "for.cond");
+        let body_bb = self.context.append_basic_block(fn_value, "for.body");
+        let inc_bb = self.context.append_basic_block(fn_value, "for.inc");
+        let end_bb = self.context.append_basic_block(fn_value, "for.end");
+
+        self.builder.build_unconditional_branch(cond_bb).unwrap();
+
+        // Condition: idx < len
+        self.builder.position_at_end(cond_bb);
+        let current_idx = self.builder.build_load(i64_type, idx_var, "idx").unwrap().into_int_value();
+        let cond = self.builder.build_int_compare(
+            inkwell::IntPredicate::ULT, current_idx, len_val, "cmp"
+        ).unwrap();
+        self.builder.build_conditional_branch(cond, body_bb, end_bb).unwrap();
+
+        // Body - load current element from slice
+        self.builder.position_at_end(body_bb);
+        let current_idx = self.builder.build_load(i64_type, idx_var, "idx").unwrap().into_int_value();
+        let elem_ptr = unsafe {
+            self.builder.build_gep(
+                i64_type,
+                data_ptr,
+                &[current_idx],
+                "slice_elem_ptr"
+            ).unwrap()
+        };
+        let elem_val = self.builder.build_load(elem_type, elem_ptr, "elem").unwrap();
+        self.builder.build_store(elem_var, elem_val).unwrap();
+
+        self.compile_block(body)?;
+        if self.builder.get_insert_block().unwrap().get_terminator().is_none() {
+            self.builder.build_unconditional_branch(inc_bb).unwrap();
+        }
+
+        // Increment index
+        self.builder.position_at_end(inc_bb);
+        let current_idx = self.builder.build_load(i64_type, idx_var, "idx").unwrap().into_int_value();
+        let next_idx = self.builder.build_int_add(current_idx, i64_type.const_int(1, false), "inc").unwrap();
+        self.builder.build_store(idx_var, next_idx).unwrap();
+        self.builder.build_unconditional_branch(cond_bb).unwrap();
+
+        self.builder.position_at_end(end_bb);
         Ok(None)
     }
 
@@ -1110,6 +1205,20 @@ impl<'ctx> Codegen<'ctx> {
                                 let array_ty = var_info.ty.into_array_type();
                                 let len = array_ty.len();
                                 return Ok(self.context.i64_type().const_int(len as u64, false).into());
+                            }
+                            // Check for slice .len() method
+                            if var_info.ty.is_struct_type() {
+                                let struct_ty = var_info.ty.into_struct_type();
+                                // Slices are structs with 2 fields: { ptr, len }
+                                if struct_ty.count_fields() == 2 {
+                                    // Load the slice value
+                                    let slice_val = self.builder.build_load(struct_ty, var_info.ptr, "slice").unwrap();
+                                    // Extract length from slice (field 1)
+                                    let len_val = self.builder
+                                        .build_extract_value(slice_val.into_struct_value(), 1, "slice_len")
+                                        .unwrap();
+                                    return Ok(len_val);
+                                }
                             }
                         }
                     }
@@ -1632,7 +1741,52 @@ impl<'ctx> Codegen<'ctx> {
                 let var_info = self
                     .variables
                     .get(name)
-                    .ok_or_else(|| CodegenError::UndefinedVariable(name.clone()))?;
+                    .ok_or_else(|| CodegenError::UndefinedVariable(name.clone()))?
+                    .clone();
+
+                // If it's an array, create a slice: { ptr: *T, len: i64 }
+                if var_info.ty.is_array_type() {
+                    let array_ty = var_info.ty.into_array_type();
+                    let len = array_ty.len() as u64;
+
+                    // Get pointer to first element
+                    let elem_ptr = unsafe {
+                        self.builder.build_gep(
+                            array_ty,
+                            var_info.ptr,
+                            &[self.context.i32_type().const_zero(), self.context.i32_type().const_zero()],
+                            "slice_ptr"
+                        ).unwrap()
+                    };
+
+                    // Build slice struct type: { ptr, len }
+                    let ptr_type = self.context.ptr_type(AddressSpace::default());
+                    let len_type = self.context.i64_type();
+                    let slice_struct_type = self.context.struct_type(&[ptr_type.into(), len_type.into()], false);
+
+                    // Allocate and populate the slice struct
+                    let slice_alloca = self.create_entry_block_alloca("slice_tmp", slice_struct_type.into());
+
+                    // Store pointer field
+                    let ptr_field = self.builder
+                        .build_struct_gep(slice_struct_type, slice_alloca, 0, "slice_ptr_field")
+                        .unwrap();
+                    self.builder.build_store(ptr_field, elem_ptr).unwrap();
+
+                    // Store length field
+                    let len_field = self.builder
+                        .build_struct_gep(slice_struct_type, slice_alloca, 1, "slice_len_field")
+                        .unwrap();
+                    let len_val = self.context.i64_type().const_int(len, false);
+                    self.builder.build_store(len_field, len_val).unwrap();
+
+                    // Load and return the slice struct value
+                    let slice_val = self.builder
+                        .build_load(slice_struct_type, slice_alloca, "slice")
+                        .unwrap();
+                    return Ok(slice_val);
+                }
+
                 // Return the pointer value directly (it's already an address)
                 Ok(var_info.ptr.into())
             }
@@ -1732,6 +1886,38 @@ impl<'ctx> Codegen<'ctx> {
 
             let idx = self.compile_expr(index)?;
             let idx_val = idx.into_int_value();
+
+            // Check if this is a slice (struct with {ptr, len} layout)
+            if var_info.ty.is_struct_type() {
+                let struct_ty = var_info.ty.into_struct_type();
+                // Slices are structs with 2 fields: { ptr, i64 }
+                if struct_ty.count_fields() == 2 {
+                    // Load the slice value
+                    let slice_val = self.builder.build_load(struct_ty, var_info.ptr, "slice").unwrap();
+
+                    // Extract pointer from slice (field 0)
+                    let data_ptr = self.builder
+                        .build_extract_value(slice_val.into_struct_value(), 0, "slice_ptr")
+                        .unwrap()
+                        .into_pointer_value();
+
+                    // Get element type - assume i64 for now (need better type tracking)
+                    let elem_type = self.context.i64_type();
+
+                    // GEP to get element at index
+                    let elem_ptr = unsafe {
+                        self.builder.build_gep(
+                            elem_type,
+                            data_ptr,
+                            &[idx_val],
+                            "slice_elem_ptr"
+                        ).unwrap()
+                    };
+
+                    let val = self.builder.build_load(elem_type.as_basic_type_enum(), elem_ptr, "slice_elem").unwrap();
+                    return Ok(val);
+                }
+            }
 
             if var_info.is_ref {
                 // Indexing through a reference - load the pointer, then index
@@ -1884,6 +2070,15 @@ impl<'ctx> Codegen<'ctx> {
                     .ok_or_else(|| CodegenError::UndefinedType(lookup_name.clone()))?;
                 Ok(struct_info.llvm_type.as_basic_type_enum())
             }
+            Type::Slice(_inner) => {
+                // Slice is a struct: { ptr: *T, len: i64 }
+                let ptr_type = self.context.ptr_type(AddressSpace::default());
+                let len_type = self.context.i64_type();
+                Ok(self
+                    .context
+                    .struct_type(&[ptr_type.into(), len_type.into()], false)
+                    .into())
+            }
             _ => Err(CodegenError::NotImplemented(format!("type {:?}", ty))),
         }
     }
@@ -1940,6 +2135,7 @@ impl<'ctx> Codegen<'ctx> {
                     self.mangle_name(name, generics)
                 }
             }
+            Type::Slice(inner) => format!("slice_{}", self.type_name(inner)),
             _ => "unknown".to_string(),
         }
     }

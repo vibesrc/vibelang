@@ -1,0 +1,8 @@
+// Test slice .len() method
+
+fn main() -> i32 {
+    let arr = [1, 2, 3, 4, 5]
+    let slice = &arr
+    let len = slice.len()   // 5
+    return len
+}

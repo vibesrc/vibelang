@@ -1,0 +1,13 @@
+// Test for loop over slice
+
+fn main() -> i32 {
+    let arr = [10, 20, 30]
+    let slice = &arr
+    let total = 0
+
+    for x in slice {
+        total = total + x
+    }
+
+    return total   // 60
+}
