@@ -13,3 +13,6 @@ pub mod parser;
 // Codegen requires inkwell - only available when codegen feature is enabled
 #[cfg(all(feature = "codegen"))]
 pub mod codegen;
+
+// LSP module - provides language server protocol implementation
+pub mod lsp;
