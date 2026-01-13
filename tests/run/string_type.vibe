@@ -1,0 +1,36 @@
+// Test owned String type
+
+struct String {
+    ptr: *u8      // pointer to heap data
+    len: i64
+    capacity: i64
+}
+
+impl String {
+    fn new() -> String {
+        let ptr = malloc(16)  // Start with 16 bytes
+        return String {
+            ptr: ptr,
+            len: 0,
+            capacity: 16
+        }
+    }
+
+    fn len(self: &String) -> i64 {
+        return self.len
+    }
+
+    fn drop(self: ~String) {
+        free(self.ptr)
+    }
+}
+
+fn main() -> i64 {
+    let s = String.new()
+    let len = s.len()
+
+    s.drop()
+
+    // Length should be 0 for new string
+    return len
+}

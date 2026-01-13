@@ -1,0 +1,37 @@
+// Test simple heap-allocated array
+// This uses manual memory management with intrinsics
+
+struct IntArray {
+    ptr: i64   // pointer stored as i64 for now
+    len: i64
+    capacity: i64
+}
+
+impl IntArray {
+    fn new() -> IntArray {
+        return IntArray {
+            ptr: 0,
+            len: 0,
+            capacity: 0
+        }
+    }
+
+    fn len(self: &IntArray) -> i64 {
+        return self.len
+    }
+
+    fn capacity(self: &IntArray) -> i64 {
+        return self.capacity
+    }
+}
+
+fn main() -> i64 {
+    // For static methods, use Type.method() syntax
+    let arr = IntArray.new()
+
+    let l = arr.len()
+    let c = arr.capacity()
+
+    // Return 0 if both are 0
+    return l + c
+}

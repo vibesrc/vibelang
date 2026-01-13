@@ -1,6 +1,7 @@
 //! LLVM code generation using inkwell
 
 use crate::ast::*;
+use crate::parser::Parser;
 use inkwell::context::Context;
 use inkwell::module::Module;
 use inkwell::builder::Builder;
@@ -8,6 +9,7 @@ use inkwell::values::{BasicValueEnum, FunctionValue, PointerValue};
 use inkwell::types::{BasicTypeEnum, BasicType};
 use inkwell::AddressSpace;
 use std::collections::{HashMap, HashSet};
+use std::path::{Path, PathBuf};
 
 /// Tracks the borrow state of a variable
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -36,6 +38,14 @@ pub struct Codegen<'ctx> {
     loop_continue_block: Option<inkwell::basic_block::BasicBlock<'ctx>>,
     // Deferred expressions (LIFO order)
     deferred_exprs: Vec<Expr>,
+    // Methods for types (type_name -> (method_name -> mangled_function_name))
+    type_methods: HashMap<String, HashMap<String, String>>,
+    // Module system
+    current_module_path: Vec<String>,            // Current module path (e.g., ["compiler", "lexer"])
+    source_dir: Option<PathBuf>,                 // Directory of the main source file
+    loaded_modules: HashSet<String>,             // Modules already loaded (prevent duplicates)
+    imports: HashMap<String, String>,            // Name aliases from 'use' (short_name -> qualified_name)
+    module_items: HashMap<String, Vec<String>>,  // Items exported by each module (module_path -> item_names)
 }
 
 #[derive(Clone)]
@@ -85,6 +95,12 @@ impl<'ctx> Codegen<'ctx> {
             loop_break_block: None,
             loop_continue_block: None,
             deferred_exprs: Vec::new(),
+            type_methods: HashMap::new(),
+            current_module_path: Vec::new(),
+            source_dir: None,
+            loaded_modules: HashSet::new(),
+            imports: HashMap::new(),
+            module_items: HashMap::new(),
         };
 
         // Declare intrinsics
@@ -96,6 +112,7 @@ impl<'ctx> Codegen<'ctx> {
     fn declare_intrinsics(&mut self) {
         // Declare puts from libc for print functionality
         let i32_type = self.context.i32_type();
+        let i64_type = self.context.i64_type();
         let ptr_type = self.context.ptr_type(AddressSpace::default());
         let puts_type = i32_type.fn_type(&[ptr_type.into()], false);
         self.module.add_function("puts", puts_type, None);
@@ -103,9 +120,139 @@ impl<'ctx> Codegen<'ctx> {
         // Declare printf for formatted output
         let printf_type = i32_type.fn_type(&[ptr_type.into()], true); // variadic
         self.module.add_function("printf", printf_type, None);
+
+        // Declare malloc for heap allocation
+        let malloc_type = ptr_type.fn_type(&[i64_type.into()], false);
+        self.module.add_function("malloc", malloc_type, None);
+
+        // Declare realloc for resizing allocations
+        let realloc_type = ptr_type.fn_type(&[ptr_type.into(), i64_type.into()], false);
+        self.module.add_function("realloc", realloc_type, None);
+
+        // Declare free for releasing memory
+        let free_type = self.context.void_type().fn_type(&[ptr_type.into()], false);
+        self.module.add_function("free", free_type, None);
+
+        // Declare memcpy for copying memory
+        let memcpy_type = ptr_type.fn_type(&[ptr_type.into(), ptr_type.into(), i64_type.into()], false);
+        self.module.add_function("memcpy", memcpy_type, None);
+
+        // Declare exit for panic
+        let exit_type = self.context.void_type().fn_type(&[i32_type.into()], false);
+        self.module.add_function("exit", exit_type, None);
+    }
+
+    /// Set the source directory for module resolution
+    pub fn set_source_dir(&mut self, dir: PathBuf) {
+        self.source_dir = Some(dir);
+    }
+
+    /// Load a module from a file
+    fn load_module(&mut self, mod_name: &str, is_pub: bool) -> Result<(), CodegenError> {
+        // Build module path string for tracking
+        let mut module_path = self.current_module_path.clone();
+        module_path.push(mod_name.to_string());
+        let module_path_str = module_path.join(".");
+
+        // Check if already loaded
+        if self.loaded_modules.contains(&module_path_str) {
+            return Ok(());
+        }
+        self.loaded_modules.insert(module_path_str.clone());
+
+        // Find the module file
+        let source_dir = self.source_dir.clone()
+            .ok_or_else(|| CodegenError::NotImplemented("source_dir not set for module loading".to_string()))?;
+
+        // Try <mod_name>.vibe first, then <mod_name>/mod.vibe
+        let file_path = source_dir.join(format!("{}.vibe", mod_name));
+        let dir_mod_path = source_dir.join(mod_name).join("mod.vibe");
+
+        let is_dir_module = dir_mod_path.exists();
+        let actual_path = if file_path.exists() {
+            file_path.clone()
+        } else if is_dir_module {
+            dir_mod_path.clone()
+        } else {
+            return Err(CodegenError::NotImplemented(
+                format!("module '{}' not found (tried {} and {})",
+                    mod_name, file_path.display(), dir_mod_path.display())
+            ));
+        };
+
+        // Read and parse the module file
+        let source = std::fs::read_to_string(&actual_path)
+            .map_err(|e| CodegenError::NotImplemented(format!("failed to read module '{}': {}", mod_name, e)))?;
+
+        let module_program = Parser::parse(&source)
+            .map_err(|e| CodegenError::NotImplemented(format!("failed to parse module '{}': {}", mod_name, e)))?;
+
+        // Save current state
+        let old_module_path = self.current_module_path.clone();
+        let old_source_dir = self.source_dir.clone();
+
+        // Set new module context
+        self.current_module_path = module_path.clone();
+        // Update source_dir for nested modules (directory modules)
+        if is_dir_module {
+            self.source_dir = Some(source_dir.join(mod_name));
+        }
+
+        // Track public items from this module
+        let mut public_items = Vec::new();
+        for item in &module_program.items {
+            match item {
+                Item::Function(f) if f.is_pub => public_items.push(f.name.clone()),
+                Item::Struct(s) if s.is_pub => public_items.push(s.name.clone()),
+                Item::Enum(e) if e.is_pub => public_items.push(e.name.clone()),
+                Item::Static(s) if s.is_pub => public_items.push(s.name.clone()),
+                _ => {}
+            }
+        }
+        self.module_items.insert(module_path_str.clone(), public_items);
+
+        // Compile the module items
+        self.compile(&module_program)?;
+
+        // Restore state
+        self.current_module_path = old_module_path;
+        self.source_dir = old_source_dir;
+
+        Ok(())
+    }
+
+    /// Process a use declaration
+    fn process_use(&mut self, use_decl: &Use) -> Result<(), CodegenError> {
+        // The use path is like ["module", "submodule", "Item"]
+        // We import the last element as an alias to the full path
+        if use_decl.path.is_empty() {
+            return Ok(());
+        }
+
+        let item_name = use_decl.path.last().unwrap();
+        let alias = use_decl.alias.as_ref().unwrap_or(item_name);
+
+        // For now, we'll use the full path with underscores for qualified lookups
+        let qualified_name = use_decl.path.join("_");
+
+        self.imports.insert(alias.clone(), qualified_name);
+        Ok(())
     }
 
     pub fn compile(&mut self, program: &Program) -> Result<(), CodegenError> {
+        // Pass 0: Process module and use declarations first
+        for item in &program.items {
+            match item {
+                Item::Mod(m) => {
+                    self.load_module(&m.name, m.is_pub)?;
+                }
+                Item::Use(u) => {
+                    self.process_use(u)?;
+                }
+                _ => {}
+            }
+        }
+
         // First pass: store generic definitions, define concrete struct/enum types
         for item in &program.items {
             match item {
@@ -135,21 +282,111 @@ impl<'ctx> Codegen<'ctx> {
             }
         }
 
-        // Second pass: declare all concrete functions
+        // Second pass: declare all concrete functions and impl methods
         for item in &program.items {
-            if let Item::Function(func) = item {
-                if func.generics.is_empty() {
-                    self.declare_function(func)?;
+            match item {
+                Item::Function(func) => {
+                    if func.generics.is_empty() {
+                        self.declare_function(func)?;
+                    }
                 }
+                Item::Impl(impl_block) => {
+                    self.declare_impl_methods(impl_block)?;
+                }
+                _ => {}
             }
         }
 
-        // Third pass: define all concrete functions
+        // Third pass: define all concrete functions and impl methods
         for item in &program.items {
-            if let Item::Function(func) = item {
-                if func.generics.is_empty() {
-                    self.compile_function(func)?;
+            match item {
+                Item::Function(func) => {
+                    if func.generics.is_empty() {
+                        self.compile_function(func)?;
+                    }
                 }
+                Item::Impl(impl_block) => {
+                    self.compile_impl_methods(impl_block)?;
+                }
+                _ => {}
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Get the type name from a Type for method lookup
+    fn get_type_name(&self, ty: &Type) -> Option<String> {
+        match ty {
+            Type::Named { name, generics } => {
+                if generics.is_empty() {
+                    Some(name.clone())
+                } else {
+                    Some(self.mangle_name(name, generics))
+                }
+            }
+            _ => None,
+        }
+    }
+
+    /// Declare methods from an impl block
+    fn declare_impl_methods(&mut self, impl_block: &Impl) -> Result<(), CodegenError> {
+        let type_name = self.get_type_name(&impl_block.target)
+            .ok_or_else(|| CodegenError::UndefinedType("impl target must be a named type".to_string()))?;
+
+        for method in &impl_block.methods {
+            // Create mangled function name: TypeName_methodName
+            let mangled_name = format!("{}_{}", type_name, method.name);
+
+            // Create a modified function with the mangled name
+            let mangled_func = Function {
+                name: mangled_name.clone(),
+                generics: method.generics.clone(),
+                params: method.params.clone(),
+                return_type: method.return_type.clone(),
+                body: method.body.clone(),
+                is_pub: method.is_pub,
+                span: method.span,
+            };
+
+            if method.generics.is_empty() {
+                self.declare_function(&mangled_func)?;
+            } else {
+                // Store generic method for later monomorphization
+                self.generic_functions.insert(mangled_name.clone(), mangled_func);
+            }
+
+            // Register the method for this type
+            self.type_methods
+                .entry(type_name.clone())
+                .or_insert_with(HashMap::new)
+                .insert(method.name.clone(), mangled_name);
+        }
+
+        Ok(())
+    }
+
+    /// Compile methods from an impl block
+    fn compile_impl_methods(&mut self, impl_block: &Impl) -> Result<(), CodegenError> {
+        let type_name = self.get_type_name(&impl_block.target)
+            .ok_or_else(|| CodegenError::UndefinedType("impl target must be a named type".to_string()))?;
+
+        for method in &impl_block.methods {
+            if method.generics.is_empty() {
+                let mangled_name = format!("{}_{}", type_name, method.name);
+
+                // Create a modified function with the mangled name
+                let mangled_func = Function {
+                    name: mangled_name,
+                    generics: method.generics.clone(),
+                    params: method.params.clone(),
+                    return_type: method.return_type.clone(),
+                    body: method.body.clone(),
+                    is_pub: method.is_pub,
+                    span: method.span,
+                };
+
+                self.compile_function(&mangled_func)?;
             }
         }
 
@@ -462,7 +699,7 @@ impl<'ctx> Codegen<'ctx> {
     fn define_enum(&mut self, e: &Enum) -> Result<(), CodegenError> {
         let mut variant_tags = HashMap::new();
         let mut variant_payloads: HashMap<String, Vec<BasicTypeEnum<'ctx>>> = HashMap::new();
-        let mut max_payload_size: u32 = 0;
+        let mut max_payload_fields: Vec<BasicTypeEnum<'ctx>> = Vec::new();
 
         for (i, variant) in e.variants.iter().enumerate() {
             variant_tags.insert(variant.name.clone(), i as u32);
@@ -482,26 +719,21 @@ impl<'ctx> Codegen<'ctx> {
                 }
             };
 
-            // Calculate payload size (simplified: just count i32s for now)
-            let payload_size = payload_types.len() as u32 * 4;
-            if payload_size > max_payload_size {
-                max_payload_size = payload_size;
+            // Track the variant with most payload fields (simplified union approximation)
+            if payload_types.len() > max_payload_fields.len() {
+                max_payload_fields = payload_types.clone();
             }
 
             variant_payloads.insert(variant.name.clone(), payload_types);
         }
 
         // Create LLVM type: { i32 tag, payload... }
-        // For simplicity, use the largest variant's types as the payload
         let i32_type = self.context.i32_type();
         let mut struct_fields: Vec<BasicTypeEnum<'ctx>> = vec![i32_type.into()]; // tag
 
-        // Add payload field (use i32 array for max size, or actual types if single variant with data)
-        if max_payload_size > 0 {
-            let payload_slots = (max_payload_size + 3) / 4; // round up to i32 slots
-            for _ in 0..payload_slots {
-                struct_fields.push(i32_type.into());
-            }
+        // Add payload fields from the largest variant
+        for ty in &max_payload_fields {
+            struct_fields.push(*ty);
         }
 
         let llvm_type = self.context.struct_type(&struct_fields, false);
@@ -512,7 +744,7 @@ impl<'ctx> Codegen<'ctx> {
                 llvm_type,
                 variant_tags,
                 variant_payloads,
-                payload_size: max_payload_size,
+                payload_size: max_payload_fields.len() as u32,
             },
         );
 
@@ -640,6 +872,29 @@ impl<'ctx> Codegen<'ctx> {
                             }
                         } else {
                             (None, None)
+                        }
+                    }
+                    // Handle static method calls like IntArray.new() - receiver is the type name
+                    Expr::MethodCall { receiver, .. } => {
+                        if let Expr::Ident(type_name, _) = receiver.as_ref() {
+                            // Check if receiver is a struct type (static method call)
+                            if self.struct_types.contains_key(type_name) {
+                                (Some(type_name.clone()), None)
+                            } else {
+                                (ty.as_ref().and_then(|t| self.get_struct_name_for_type(t)), None)
+                            }
+                        } else {
+                            (ty.as_ref().and_then(|t| self.get_struct_name_for_type(t)), None)
+                        }
+                    }
+                    // Handle regular Call expressions that might return structs
+                    Expr::Call { func, .. } => {
+                        if let Expr::Ident(fn_name, _) = func.as_ref() {
+                            // Check if it's a constructor call (TypeName_methodName pattern)
+                            // or just use explicit type annotation
+                            (ty.as_ref().and_then(|t| self.get_struct_name_for_type(t)), None)
+                        } else {
+                            (ty.as_ref().and_then(|t| self.get_struct_name_for_type(t)), None)
                         }
                     }
                     _ => (ty.as_ref().and_then(|t| self.get_struct_name_for_type(t)), None),
@@ -1322,6 +1577,16 @@ impl<'ctx> Codegen<'ctx> {
                         return self.compile_enum_variant_constructor(&enum_info, name, method, args);
                     }
 
+                    // Check if this is a module function call (e.g., math.add())
+                    if self.module_items.contains_key(name) {
+                        return self.compile_module_function_call(name, method, args);
+                    }
+
+                    // Check if this is a static method call on a struct type (e.g., IntArray.new())
+                    if self.struct_types.contains_key(name) || self.type_methods.contains_key(name) {
+                        return self.compile_static_method_call(name, method, args);
+                    }
+
                     // Check for array .len() method
                     if method == "len" && args.is_empty() {
                         if let Some(var_info) = self.variables.get(name) {
@@ -1347,7 +1612,8 @@ impl<'ctx> Codegen<'ctx> {
                         }
                     }
                 }
-                Err(CodegenError::NotImplemented("method calls".to_string()))
+                // Try to resolve as a method call on a type
+                self.compile_method_call(receiver, method, args)
             }
             Expr::Ref { operand, .. } => {
                 // &expr - get address of the operand
@@ -1371,6 +1637,15 @@ impl<'ctx> Codegen<'ctx> {
             }
             Expr::Index { array, index, .. } => {
                 self.compile_index(array, index)
+            }
+            Expr::Try { operand, .. } => {
+                self.compile_try_operator(operand)
+            }
+            Expr::Block(block) => {
+                // Compile all statements in the block
+                self.compile_block(block)?;
+                // Return a dummy value for blocks (the last statement's value)
+                Ok(self.context.i64_type().const_zero().into())
             }
             _ => {
                 // TODO: implement other expressions
@@ -1461,6 +1736,41 @@ impl<'ctx> Codegen<'ctx> {
 
         let lhs = self.compile_expr(left)?;
         let rhs = self.compile_expr(right)?;
+
+        // Handle pointer comparisons
+        if lhs.is_pointer_value() || rhs.is_pointer_value() {
+            // Convert both to pointers for comparison (int 0 becomes null pointer)
+            let lhs_ptr = if lhs.is_pointer_value() {
+                lhs.into_pointer_value()
+            } else {
+                // Convert int to null pointer for comparison
+                self.context.ptr_type(AddressSpace::default()).const_null()
+            };
+            let rhs_ptr = if rhs.is_pointer_value() {
+                rhs.into_pointer_value()
+            } else {
+                // Convert int to null pointer for comparison
+                self.context.ptr_type(AddressSpace::default()).const_null()
+            };
+
+            let result = match op {
+                BinOp::Eq => self.builder.build_int_compare(
+                    inkwell::IntPredicate::EQ,
+                    self.builder.build_ptr_to_int(lhs_ptr, self.context.i64_type(), "lhs_int").unwrap(),
+                    self.builder.build_ptr_to_int(rhs_ptr, self.context.i64_type(), "rhs_int").unwrap(),
+                    "eq"
+                ).unwrap(),
+                BinOp::Ne => self.builder.build_int_compare(
+                    inkwell::IntPredicate::NE,
+                    self.builder.build_ptr_to_int(lhs_ptr, self.context.i64_type(), "lhs_int").unwrap(),
+                    self.builder.build_ptr_to_int(rhs_ptr, self.context.i64_type(), "rhs_int").unwrap(),
+                    "ne"
+                ).unwrap(),
+                _ => return Err(CodegenError::NotImplemented(format!("pointer binary op {:?}", op))),
+            };
+
+            return Ok(result.into());
+        }
 
         let lhs_int = lhs.into_int_value();
         let rhs_int = rhs.into_int_value();
@@ -1558,6 +1868,28 @@ impl<'ctx> Codegen<'ctx> {
         if name == "print_int" {
             return self.compile_print_int_call(args);
         }
+        if name == "malloc" {
+            return self.compile_malloc_call(args);
+        }
+        if name == "realloc" {
+            return self.compile_realloc_call(args);
+        }
+        if name == "free" {
+            return self.compile_free_call(args);
+        }
+        if name == "memcpy" {
+            return self.compile_memcpy_call(args);
+        }
+        if name == "panic" {
+            return self.compile_panic_call(args);
+        }
+        // Low-level memory access intrinsics
+        if name == "ptr_write_i64" {
+            return self.compile_ptr_write_i64(args);
+        }
+        if name == "ptr_read_i64" {
+            return self.compile_ptr_read_i64(args);
+        }
 
         // Generate monomorphized function if type args are present
         let mono_name = if type_args.is_empty() {
@@ -1588,6 +1920,153 @@ impl<'ctx> Codegen<'ctx> {
             inkwell::values::ValueKind::Basic(val) => Ok(val),
             inkwell::values::ValueKind::Instruction(_) => {
                 // Void return - return a dummy value
+                Ok(self.context.i64_type().const_zero().into())
+            }
+        }
+    }
+
+    /// Compile a static method call (Type.method(args))
+    /// Compile a module function call (e.g., math.add(1, 2))
+    fn compile_module_function_call(
+        &mut self,
+        module_name: &str,
+        func_name: &str,
+        args: &[Expr],
+    ) -> Result<BasicValueEnum<'ctx>, CodegenError> {
+        // Get the function - module functions are defined with their simple name
+        let fn_value = self.module
+            .get_function(func_name)
+            .ok_or_else(|| CodegenError::UndefinedFunction(
+                format!("function '{}' not found in module '{}'", func_name, module_name)
+            ))?;
+
+        // Compile the arguments
+        let compiled_args: Vec<BasicValueEnum> = args
+            .iter()
+            .map(|a| self.compile_expr(a))
+            .collect::<Result<_, _>>()?;
+
+        let args_meta: Vec<_> = compiled_args.iter().map(|a| (*a).into()).collect();
+
+        let call_site = self.builder
+            .build_call(fn_value, &args_meta, "module_call")
+            .unwrap();
+
+        match call_site.try_as_basic_value() {
+            inkwell::values::ValueKind::Basic(val) => Ok(val),
+            inkwell::values::ValueKind::Instruction(_) => {
+                Ok(self.context.i64_type().const_zero().into())
+            }
+        }
+    }
+
+    fn compile_static_method_call(
+        &mut self,
+        type_name: &str,
+        method: &str,
+        args: &[Expr],
+    ) -> Result<BasicValueEnum<'ctx>, CodegenError> {
+        // Look up the method in the type's method table
+        let mangled_name = self.type_methods
+            .get(type_name)
+            .and_then(|methods| methods.get(method))
+            .cloned()
+            .ok_or_else(|| CodegenError::UndefinedFunction(
+                format!("static method '{}' not found on type '{}'", method, type_name)
+            ))?;
+
+        // Get the function
+        let fn_value = self.module
+            .get_function(&mangled_name)
+            .ok_or_else(|| CodegenError::UndefinedFunction(mangled_name.clone()))?;
+
+        // Compile the arguments (no receiver for static methods)
+        let compiled_args: Vec<BasicValueEnum> = args
+            .iter()
+            .map(|a| self.compile_expr(a))
+            .collect::<Result<_, _>>()?;
+
+        let args_meta: Vec<_> = compiled_args.iter().map(|a| (*a).into()).collect();
+
+        let call_site = self.builder
+            .build_call(fn_value, &args_meta, "static_method_call")
+            .unwrap();
+
+        match call_site.try_as_basic_value() {
+            inkwell::values::ValueKind::Basic(val) => Ok(val),
+            inkwell::values::ValueKind::Instruction(_) => {
+                Ok(self.context.i64_type().const_zero().into())
+            }
+        }
+    }
+
+    /// Compile a method call (receiver.method(args))
+    fn compile_method_call(
+        &mut self,
+        receiver: &Expr,
+        method: &str,
+        args: &[Expr],
+    ) -> Result<BasicValueEnum<'ctx>, CodegenError> {
+        // Get the type name of the receiver
+        let type_name = if let Expr::Ident(name, _) = receiver {
+            // Get variable info to find its type
+            let var_info = self.variables.get(name)
+                .ok_or_else(|| CodegenError::UndefinedVariable(name.clone()))?;
+
+            // Determine the type name from variable info
+            if let Some(ref sn) = var_info.struct_name {
+                sn.clone()
+            } else if let Some(ref sn) = var_info.ref_struct_name {
+                sn.clone()
+            } else {
+                return Err(CodegenError::NotImplemented(
+                    format!("method call on variable '{}' without struct type", name)
+                ));
+            }
+        } else {
+            return Err(CodegenError::NotImplemented(
+                "method call on non-identifier receiver".to_string()
+            ));
+        };
+
+        // Look up the method in the type's method table
+        let mangled_name = self.type_methods
+            .get(&type_name)
+            .and_then(|methods| methods.get(method))
+            .cloned()
+            .ok_or_else(|| CodegenError::UndefinedFunction(
+                format!("method '{}' not found on type '{}'", method, type_name)
+            ))?;
+
+        // Get the function
+        let fn_value = self.module
+            .get_function(&mangled_name)
+            .ok_or_else(|| CodegenError::UndefinedFunction(mangled_name.clone()))?;
+
+        // Compile receiver as first argument (pass as pointer/reference)
+        let receiver_val = if let Expr::Ident(name, _) = receiver {
+            let var_info = self.variables.get(name).unwrap();
+            // Return the pointer to the struct directly
+            var_info.ptr.into()
+        } else {
+            self.compile_expr(receiver)?
+        };
+
+        // Compile the rest of the arguments
+        let mut compiled_args: Vec<BasicValueEnum> = vec![receiver_val];
+        for arg in args {
+            compiled_args.push(self.compile_expr(arg)?);
+        }
+
+        let args_meta: Vec<_> = compiled_args.iter().map(|a| (*a).into()).collect();
+
+        let call_site = self.builder
+            .build_call(fn_value, &args_meta, "method_call")
+            .unwrap();
+
+        match call_site.try_as_basic_value() {
+            inkwell::values::ValueKind::Basic(val) => Ok(val),
+            inkwell::values::ValueKind::Instruction(_) => {
                 Ok(self.context.i64_type().const_zero().into())
             }
         }
@@ -2192,6 +2671,244 @@ impl<'ctx> Codegen<'ctx> {
                 Ok(self.context.i32_type().const_zero().into())
             }
         }
+    }
+
+    fn compile_malloc_call(&mut self, args: &[Expr]) -> Result<BasicValueEnum<'ctx>, CodegenError> {
+        if args.len() != 1 {
+            return Err(CodegenError::InvalidArguments("malloc requires 1 argument (size)".to_string()));
+        }
+
+        let malloc_fn = self.module.get_function("malloc").unwrap();
+        let size = self.compile_expr(&args[0])?;
+
+        let call_site = self.builder
+            .build_call(malloc_fn, &[size.into()], "malloc_call")
+            .unwrap();
+
+        match call_site.try_as_basic_value() {
+            inkwell::values::ValueKind::Basic(val) => Ok(val),
+            inkwell::values::ValueKind::Instruction(_) => {
+                Ok(self.context.ptr_type(AddressSpace::default()).const_null().into())
+            }
+        }
+    }
+
+    fn compile_realloc_call(&mut self, args: &[Expr]) -> Result<BasicValueEnum<'ctx>, CodegenError> {
+        if args.len() != 2 {
+            return Err(CodegenError::InvalidArguments("realloc requires 2 arguments (ptr, size)".to_string()));
+        }
+
+        let realloc_fn = self.module.get_function("realloc").unwrap();
+        let ptr = self.compile_expr(&args[0])?;
+        let size = self.compile_expr(&args[1])?;
+
+        let call_site = self.builder
+            .build_call(realloc_fn, &[ptr.into(), size.into()], "realloc_call")
+            .unwrap();
+
+        match call_site.try_as_basic_value() {
+            inkwell::values::ValueKind::Basic(val) => Ok(val),
+            inkwell::values::ValueKind::Instruction(_) => {
+                Ok(self.context.ptr_type(AddressSpace::default()).const_null().into())
+            }
+        }
+    }
+
+    fn compile_free_call(&mut self, args: &[Expr]) -> Result<BasicValueEnum<'ctx>, CodegenError> {
+        if args.len() != 1 {
+            return Err(CodegenError::InvalidArguments("free requires 1 argument (ptr)".to_string()));
+        }
+
+        let free_fn = self.module.get_function("free").unwrap();
+        let ptr = self.compile_expr(&args[0])?;
+
+        self.builder.build_call(free_fn, &[ptr.into()], "").unwrap();
+
+        // Return a dummy value since free returns void
+        Ok(self.context.i64_type().const_zero().into())
+    }
+
+    fn compile_memcpy_call(&mut self, args: &[Expr]) -> Result<BasicValueEnum<'ctx>, CodegenError> {
+        if args.len() != 3 {
+            return Err(CodegenError::InvalidArguments("memcpy requires 3 arguments (dest, src, size)".to_string()));
+        }
+
+        let memcpy_fn = self.module.get_function("memcpy").unwrap();
+        let dest = self.compile_expr(&args[0])?;
+        let src = self.compile_expr(&args[1])?;
+        let size = self.compile_expr(&args[2])?;
+
+        let call_site = self.builder
+            .build_call(memcpy_fn, &[dest.into(), src.into(), size.into()], "memcpy_call")
+            .unwrap();
+
+        match call_site.try_as_basic_value() {
+            inkwell::values::ValueKind::Basic(val) => Ok(val),
+            inkwell::values::ValueKind::Instruction(_) => {
+                Ok(self.context.ptr_type(AddressSpace::default()).const_null().into())
+            }
+        }
+    }
+
+    /// Compile the ? operator for Result/Option propagation
+    fn compile_try_operator(&mut self, operand: &Expr) -> Result<BasicValueEnum<'ctx>, CodegenError> {
+        let fn_value = self.current_function.unwrap();
+        let result_val = self.compile_expr(operand)?;
+
+        // The result should be an enum (Result or Option) with { tag: i32, payload }
+        // Tag 0 = Ok/Some, Tag 1 = Err/None
+        if !result_val.is_struct_value() {
+            return Err(CodegenError::NotImplemented(
+                "? operator requires Result or Option type".to_string()
+            ));
+        }
+
+        let struct_val = result_val.into_struct_value();
+        let struct_ty = struct_val.get_type();
+
+        // Store the enum to get a pointer for GEP operations
+        let alloca = self.builder.build_alloca(struct_ty, "try_val").unwrap();
+        self.builder.build_store(alloca, struct_val).unwrap();
+
+        // Extract tag (field 0)
+        let tag_ptr = self.builder
+            .build_struct_gep(struct_ty, alloca, 0, "tag_ptr")
+            .unwrap();
+        let tag = self.builder.build_load(self.context.i32_type(), tag_ptr, "tag").unwrap().into_int_value();
+
+        // Create basic blocks for success and error paths
+        let ok_bb = self.context.append_basic_block(fn_value, "try.ok");
+        let err_bb = self.context.append_basic_block(fn_value, "try.err");
+        let merge_bb = self.context.append_basic_block(fn_value, "try.merge");
+
+        // Compare tag: 0 = Ok/Some, non-zero = Err/None
+        let zero = self.context.i32_type().const_zero();
+        let is_ok = self.builder.build_int_compare(
+            inkwell::IntPredicate::EQ, tag, zero, "is_ok"
+        ).unwrap();
+        self.builder.build_conditional_branch(is_ok, ok_bb, err_bb).unwrap();
+
+        // Error path: return the error/None value
+        self.builder.position_at_end(err_bb);
+        // Execute deferred expressions before early return
+        self.emit_deferred_exprs()?;
+        // Load the original result and return it
+        let err_val = self.builder.build_load(struct_ty, alloca, "err_val").unwrap();
+        self.builder.build_return(Some(&err_val)).unwrap();
+
+        // Success path: extract the Ok/Some payload
+        self.builder.position_at_end(ok_bb);
+        // Payload is at field 1
+        let payload_ptr = self.builder
+            .build_struct_gep(struct_ty, alloca, 1, "payload_ptr")
+            .unwrap();
+
+        // Determine payload type from struct field
+        let payload_ty = struct_ty.get_field_type_at_index(1)
+            .ok_or_else(|| CodegenError::NotImplemented("enum has no payload".to_string()))?;
+        let payload = self.builder.build_load(payload_ty, payload_ptr, "payload").unwrap();
+
+        self.builder.build_unconditional_branch(merge_bb).unwrap();
+
+        // Merge block - continue with extracted value
+        self.builder.position_at_end(merge_bb);
+
+        // Use phi to get the payload value (only one incoming path for now)
+        let phi = self.builder.build_phi(payload_ty, "try_result").unwrap();
+        phi.add_incoming(&[(&payload, ok_bb)]);
+
+        Ok(phi.as_basic_value())
+    }
+
+    fn compile_panic_call(&mut self, args: &[Expr]) -> Result<BasicValueEnum<'ctx>, CodegenError> {
+        // Print message if provided
+        if !args.is_empty() {
+            self.compile_print_call(args)?;
+        }
+
+        // Call exit(1) to terminate
+        let exit_fn = self.module.get_function("exit").unwrap();
+        self.builder.build_call(exit_fn, &[self.context.i32_type().const_int(1, false).into()], "").unwrap();
+
+        // Mark as unreachable
+        self.builder.build_unreachable().unwrap();
+
+        // Return a dummy value
+        Ok(self.context.i64_type().const_zero().into())
+    }
+
+    fn compile_ptr_write_i64(&mut self, args: &[Expr]) -> Result<BasicValueEnum<'ctx>, CodegenError> {
+        // ptr_write_i64(ptr, index: i64, value: i64)
+        // Writes value to *(ptr + index * 8)
+        if args.len() != 3 {
+            return Err(CodegenError::InvalidArguments("ptr_write_i64 requires 3 arguments (ptr, index, value)".to_string()));
+        }
+
+        let ptr_val = self.compile_expr(&args[0])?;
+        let index = self.compile_expr(&args[1])?.into_int_value();
+        let value = self.compile_expr(&args[2])?.into_int_value();
+
+        // Get pointer - could be a PointerValue or an IntValue to convert
+        let ptr = if ptr_val.is_pointer_value() {
+            ptr_val.into_pointer_value()
+        } else {
+            self.builder.build_int_to_ptr(
+                ptr_val.into_int_value(),
+                self.context.ptr_type(AddressSpace::default()),
+                "ptr"
+            ).unwrap()
+        };
+
+        // Calculate offset and get element pointer
+        let elem_ptr = unsafe {
+            self.builder.build_gep(
+                self.context.i64_type(),
+                ptr,
+                &[index],
+                "elem_ptr"
+            ).unwrap()
+        };
+
+        // Store the value
+        self.builder.build_store(elem_ptr, value).unwrap();
+
+        Ok(self.context.i64_type().const_zero().into())
+    }
+
+    fn compile_ptr_read_i64(&mut self, args: &[Expr]) -> Result<BasicValueEnum<'ctx>, CodegenError> {
+        // ptr_read_i64(ptr, index: i64) -> i64
+        // Returns *(ptr + index * 8)
+        if args.len() != 2 {
+            return Err(CodegenError::InvalidArguments("ptr_read_i64 requires 2 arguments (ptr, index)".to_string()));
+        }
+
+        let ptr_val = self.compile_expr(&args[0])?;
+        let index = self.compile_expr(&args[1])?.into_int_value();
+
+        // Get pointer - could be a PointerValue or an IntValue to convert
+        let ptr = if ptr_val.is_pointer_value() {
+            ptr_val.into_pointer_value()
+        } else {
+            self.builder.build_int_to_ptr(
+                ptr_val.into_int_value(),
+                self.context.ptr_type(AddressSpace::default()),
+                "ptr"
+            ).unwrap()
+        };
+
+        // Calculate offset and get element pointer
+        let elem_ptr = unsafe {
+            self.builder.build_gep(
+                self.context.i64_type(),
+                ptr,
+                &[index],
+                "elem_ptr"
+            ).unwrap()
+        };
+
+        // Load and return the value
+        let val = self.builder.build_load(self.context.i64_type(), elem_ptr, "val").unwrap();
+        Ok(val)
     }
 
     fn llvm_type(&self, ty: &Type) -> Result<BasicTypeEnum<'ctx>, CodegenError> {

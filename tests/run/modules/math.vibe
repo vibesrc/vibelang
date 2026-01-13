@@ -1,0 +1,18 @@
+// Math module
+
+pub fn add(a: i64, b: i64) -> i64 {
+    return a + b
+}
+
+pub fn sub(a: i64, b: i64) -> i64 {
+    return a - b
+}
+
+// Private function - not exported
+fn helper() -> i64 {
+    return 42
+}
+
+pub fn mul(a: i64, b: i64) -> i64 {
+    return a * b
+}

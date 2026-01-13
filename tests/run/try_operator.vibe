@@ -1,0 +1,46 @@
+// Test ? operator with Option (non-generic version)
+
+enum OptInt {
+    Some(i64)
+    None
+}
+
+fn get_value(flag: i64) -> OptInt {
+    if flag > 0 {
+        return OptInt.Some(42)
+    }
+    return OptInt.None
+}
+
+fn process_positive(flag: i64) -> OptInt {
+    let val = get_value(flag)?
+    return OptInt.Some(val + 10)
+}
+
+fn main() -> i64 {
+    // Test with positive flag - should get Some(52)
+    let result1 = process_positive(1)
+    match result1 {
+        OptInt.Some(v) => {
+            if v != 52 {
+                return 101  // Wrong value
+            }
+        }
+        OptInt.None => {
+            return 102  // Should have been Some
+        }
+    }
+
+    // Test with zero flag - should get None
+    let result2 = process_positive(0)
+    match result2 {
+        OptInt.Some(v) => {
+            return 103  // Should have been None
+        }
+        OptInt.None => {
+            // Correct - early return from ?
+        }
+    }
+
+    return 0
+}

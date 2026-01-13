@@ -1,0 +1,77 @@
+// Test heap-allocated array with struct
+
+struct IntArray {
+    ptr: *i64     // pointer to heap data
+    len: i64
+    capacity: i64
+}
+
+impl IntArray {
+    fn new() -> IntArray {
+        // Start with capacity 4
+        let ptr = malloc(32)  // 4 * 8 bytes
+        return IntArray {
+            ptr: ptr,
+            len: 0,
+            capacity: 4
+        }
+    }
+
+    fn len(self: &IntArray) -> i64 {
+        return self.len
+    }
+
+    fn push(self: ~IntArray, value: i64) {
+        // For now, no growing - just push if we have space
+        ptr_write_i64(self.ptr, self.len, value)
+        self.len = self.len + 1
+    }
+
+    fn get(self: &IntArray, index: i64) -> i64 {
+        return ptr_read_i64(self.ptr, index)
+    }
+
+    fn pop(self: ~IntArray) -> i64 {
+        self.len = self.len - 1
+        return ptr_read_i64(self.ptr, self.len)
+    }
+
+    fn drop(self: ~IntArray) {
+        free(self.ptr)
+    }
+}
+
+fn main() -> i64 {
+    let arr = IntArray.new()
+
+    arr.push(10)
+    arr.push(20)
+    arr.push(30)
+
+    let len = arr.len()
+    if len != 3 {
+        return 100
+    }
+
+    let v0 = arr.get(0)
+    let v1 = arr.get(1)
+    let v2 = arr.get(2)
+
+    if v0 != 10 {
+        return 101
+    }
+    if v1 != 20 {
+        return 102
+    }
+    if v2 != 30 {
+        return 103
+    }
+
+    let popped = arr.pop()
+    if popped != 30 {
+        return 104
+    }
+
+    arr.drop()
+    return 0
+}

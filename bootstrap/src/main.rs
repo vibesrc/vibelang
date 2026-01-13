@@ -5,7 +5,7 @@ mod parser;
 
 use codegen::Codegen;
 use parser::Parser;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 fn main() {
@@ -73,6 +73,16 @@ fn main() {
         .unwrap_or("main");
 
     let mut codegen = Codegen::new(&context, module_name);
+
+    // Set source directory for module resolution
+    if let Some(parent) = Path::new(filename).parent() {
+        let source_dir = if parent.as_os_str().is_empty() {
+            std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
+        } else {
+            parent.to_path_buf()
+        };
+        codegen.set_source_dir(source_dir);
+    }
 
     if let Err(e) = codegen.compile(&program) {
         eprintln!("Codegen error: {}", e);

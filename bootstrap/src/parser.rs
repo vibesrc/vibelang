@@ -1098,6 +1098,11 @@ impl Parser {
                 let block = self.parse_block()?;
                 Ok(Expr::Block(block))
             }
+            Some(TokenKind::Keyword(Keyword::SelfValue)) => {
+                // 'self' used as an expression (e.g., self.field in methods)
+                self.advance();
+                Ok(Expr::Ident("self".to_string(), span))
+            }
             _ => Err(self.error("expected expression")),
         }
     }
@@ -1268,6 +1273,16 @@ impl Parser {
                 let name = name.clone();
                 self.advance();
                 Ok(name)
+            }
+            // Allow 'self' as identifier in parameter position
+            Some(TokenKind::Keyword(Keyword::SelfValue)) => {
+                self.advance();
+                Ok("self".to_string())
+            }
+            // Allow 'Self' as identifier for type position
+            Some(TokenKind::Keyword(Keyword::SelfType)) => {
+                self.advance();
+                Ok("Self".to_string())
             }
             _ => Err(self.error("expected identifier")),
         }

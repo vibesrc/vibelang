@@ -1,0 +1,75 @@
+// Vibelang Array<T> - heap-allocated, growable array
+// This is a compiler-supported type with special intrinsics
+
+pub struct Array<T> {
+    ptr: *T       // pointer to heap data
+    len: i64      // current number of elements
+    capacity: i64 // allocated capacity
+}
+
+impl Array<T> {
+    // Create a new empty array
+    pub fn new() -> Array<T> {
+        return Array {
+            ptr: null(),
+            len: 0,
+            capacity: 0
+        }
+    }
+
+    // Create an array with initial capacity
+    pub fn with_capacity(cap: i64) -> Array<T> {
+        let ptr = malloc(cap * size_of::<T>()) as *T
+        return Array {
+            ptr: ptr,
+            len: 0,
+            capacity: cap
+        }
+    }
+
+    // Get the length
+    pub fn len(self: &Array<T>) -> i64 {
+        return self.len
+    }
+
+    // Get the capacity
+    pub fn capacity(self: &Array<T>) -> i64 {
+        return self.capacity
+    }
+
+    // Push an element
+    pub fn push(self: ~Array<T>, value: T) {
+        if self.len == self.capacity {
+            self.grow()
+        }
+        // Store value at self.ptr + self.len
+        *(self.ptr + self.len) = value
+        self.len = self.len + 1
+    }
+
+    // Pop an element
+    pub fn pop(self: ~Array<T>) -> Option<T> {
+        if self.len == 0 {
+            return Option.None
+        }
+        self.len = self.len - 1
+        let value = *(self.ptr + self.len)
+        return Option.Some(value)
+    }
+
+    // Get element at index
+    pub fn get(self: &Array<T>, index: i64) -> Option<&T> {
+        if index < 0 or index >= self.len {
+            return Option.None
+        }
+        return Option.Some(&*(self.ptr + index))
+    }
+
+    // Internal: grow the array
+    fn grow(self: ~Array<T>) {
+        let new_cap = if self.capacity == 0 { 4 } else { self.capacity * 2 }
+        let new_ptr = realloc(self.ptr as *void, new_cap * size_of::<T>()) as *T
+        self.ptr = new_ptr
+        self.capacity = new_cap
+    }
+}
