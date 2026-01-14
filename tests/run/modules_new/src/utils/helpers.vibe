@@ -1,0 +1,6 @@
+// Test relative imports within same directory
+use .format.prefix_num
+
+pub fn add_prefix(x: i32) -> i32 {
+    return prefix_num(x)
+}

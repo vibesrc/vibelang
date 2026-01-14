@@ -1,0 +1,6 @@
+// Test relative imports (single file mode, no vibe.toml)
+use .helper.get_value
+
+fn main() -> i32 {
+    return get_value()  // Should return 42
+}

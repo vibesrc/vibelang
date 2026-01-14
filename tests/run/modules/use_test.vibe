@@ -1,9 +1,8 @@
-// Test 'use' declaration
-mod math
-use math.add
+// Test 'use' declaration with relative import
+use .math.add
 
 fn main() -> i64 {
-    // After 'use math.add', we can call add directly
+    // After 'use .math.add', we can call add directly
     let result = add(15, 25)
     return result
 }

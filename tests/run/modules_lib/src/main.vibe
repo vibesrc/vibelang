@@ -1,0 +1,8 @@
+// Test lib. imports for local workspace packages
+use lib.mylib.{add, triple}
+
+fn main() -> i32 {
+    let sum = add(5, 3)      // 8
+    let tripled = triple(4)  // 12
+    return sum + tripled     // 20
+}

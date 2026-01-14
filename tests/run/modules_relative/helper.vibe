@@ -1,0 +1,4 @@
+// Helper module for relative import test
+pub fn get_value() -> i32 {
+    return 42
+}

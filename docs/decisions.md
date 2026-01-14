@@ -48,9 +48,30 @@ This document tracks key design decisions for the Vibelang compiler. Claude Code
 - `panic()` for unrecoverable bugs
 - No try/catch, no exceptions
 
+## Module System
+
+| Prefix | Resolves to | Notes |
+|--------|-------------|-------|
+| `use src.foo` | `<project_root>/src/foo.vibe` | Requires vibe.toml project |
+| `use lib.pkg.foo` | `<project_root>/lib/pkg/src/foo.vibe` | Local workspace packages |
+| `use dep.pkg.foo` | `<project_root>/dep/pkg/src/foo.vibe` | Vendored external deps |
+| `use std.foo` | Standard library | Requires VIBELANG_STDLIB |
+| `use .foo` | Relative to current file | Works in single-file mode |
+
+Key decisions:
+- Prefix-based imports (no ambiguous bare paths)
+- `vibe.toml` for project configuration
+- Private by default, `pub` to export
+- `mod.vibe` optional for directory modules (re-exports only)
+- Clear error messages for missing project config
+- `lib/` for local workspace packages (your code)
+- `dep/` for vendored external dependencies (managed by tooling)
+
+See `docs/rfc/13-modules.md` for full specification.
+
 ## Package Management (Post-v1)
 
-- Config: probably `vibe.yaml`
+- Config: `vibe.toml`
 - Distribution: GitHub releases
 - No central registry
 

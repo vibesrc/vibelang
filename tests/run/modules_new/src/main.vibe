@@ -1,0 +1,8 @@
+// Test new module system with src. prefix
+use src.math.{add, double}
+
+fn main() -> i32 {
+    let sum = add(2, 3)
+    let doubled = double(5)
+    return sum + doubled  // 5 + 10 = 15
+}

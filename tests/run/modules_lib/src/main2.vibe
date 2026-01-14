@@ -1,0 +1,7 @@
+// Test lib. imports for submodules: lib.pkg.submodule
+use lib.mylib.utils.double
+
+fn main() -> i32 {
+    let result = double(21)  // 42
+    return result
+}

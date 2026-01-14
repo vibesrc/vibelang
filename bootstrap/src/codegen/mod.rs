@@ -8,8 +8,11 @@ mod memory;
 mod module;
 mod monomorph;
 mod pattern;
+mod project;
 mod stmt;
 mod types;
+
+pub use project::{ProjectConfig, ProjectContext};
 
 use crate::ast::*;
 use inkwell::context::Context;
@@ -52,10 +55,14 @@ pub struct Codegen<'ctx> {
     pub(crate) type_methods: HashMap<String, HashMap<String, String>>,
     // Module system
     pub(crate) current_module_path: Vec<String>,            // Current module path (e.g., ["compiler", "lexer"])
-    pub(crate) source_dir: Option<PathBuf>,                 // Directory of the main source file
+    pub(crate) source_dir: Option<PathBuf>,                 // Directory of the current source file
+    pub(crate) current_file_path: Option<PathBuf>,          // Path to the current source file being compiled
     pub(crate) loaded_modules: HashSet<String>,             // Modules already loaded (prevent duplicates)
     pub(crate) imports: HashMap<String, String>,            // Name aliases from 'use' (short_name -> qualified_name)
     pub(crate) module_items: HashMap<String, Vec<String>>,  // Items exported by each module (module_path -> item_names)
+    pub(crate) module_public_items: HashMap<String, HashSet<String>>, // Public items per module for visibility checking
+    // Project context
+    pub(crate) project: ProjectContext,                     // Project configuration and paths
     // Function return types (for inferring struct types from function calls)
     pub(crate) function_return_types: HashMap<String, Option<Type>>,
 }
@@ -116,9 +123,55 @@ impl<'ctx> Codegen<'ctx> {
             type_methods: HashMap::new(),
             current_module_path: Vec::new(),
             source_dir: None,
+            current_file_path: None,
             loaded_modules: HashSet::new(),
             imports: HashMap::new(),
             module_items: HashMap::new(),
+            module_public_items: HashMap::new(),
+            project: ProjectContext::discover(std::path::Path::new(".")),
+            function_return_types: HashMap::new(),
+        };
+
+        // Declare intrinsics
+        codegen.declare_intrinsics();
+
+        codegen
+    }
+
+    /// Create a new Codegen with a specific source file path for project detection
+    pub fn new_with_source(context: &'ctx Context, module_name: &str, source_path: &std::path::Path) -> Self {
+        let module = context.create_module(module_name);
+        let builder = context.create_builder();
+
+        // Discover project from source file location
+        let project = ProjectContext::discover(source_path);
+        let source_dir = source_path.parent().map(|p| p.to_path_buf());
+
+        let mut codegen = Codegen {
+            context,
+            module,
+            builder,
+            variables: HashMap::new(),
+            current_function: None,
+            struct_types: HashMap::new(),
+            enum_types: HashMap::new(),
+            moved_vars: HashSet::new(),
+            borrowed_vars: HashMap::new(),
+            generic_structs: HashMap::new(),
+            generic_enums: HashMap::new(),
+            generic_functions: HashMap::new(),
+            loop_break_block: None,
+            loop_continue_block: None,
+            deferred_exprs: Vec::new(),
+            type_methods: HashMap::new(),
+            current_module_path: Vec::new(),
+            source_dir,
+            current_file_path: Some(source_path.to_path_buf()),
+            loaded_modules: HashSet::new(),
+            imports: HashMap::new(),
+            module_items: HashMap::new(),
+            module_public_items: HashMap::new(),
+            project,
             function_return_types: HashMap::new(),
         };
 

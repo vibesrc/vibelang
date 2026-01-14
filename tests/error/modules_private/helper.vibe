@@ -1,0 +1,8 @@
+// Private function - not accessible from other modules
+fn private_fn() -> i32 {
+    return 1
+}
+
+pub fn public_fn() -> i32 {
+    return private_fn()
+}

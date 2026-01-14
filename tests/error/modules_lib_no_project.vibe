@@ -1,0 +1,6 @@
+// ERROR: lib. imports require a vibe.toml project
+use lib.mylib.foo
+
+fn main() -> i32 {
+    return 0
+}

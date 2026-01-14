@@ -1,0 +1,6 @@
+// ERROR: dep. imports require vibe.toml [dep] section
+use dep.postgres.connect
+
+fn main() -> i32 {
+    return 0
+}

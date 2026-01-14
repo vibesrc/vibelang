@@ -73,17 +73,9 @@ fn main() {
         .and_then(|s| s.to_str())
         .unwrap_or("main");
 
-    let mut codegen = Codegen::new(&context, module_name);
-
-    // Set source directory for module resolution
-    if let Some(parent) = Path::new(filename).parent() {
-        let source_dir = if parent.as_os_str().is_empty() {
-            std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
-        } else {
-            parent.to_path_buf()
-        };
-        codegen.set_source_dir(source_dir);
-    }
+    // Create codegen with source file path for project detection
+    let source_path = Path::new(filename).canonicalize().unwrap_or_else(|_| PathBuf::from(filename));
+    let mut codegen = Codegen::new_with_source(&context, module_name, &source_path);
 
     if let Err(e) = codegen.compile(&program) {
         eprintln!("Codegen error: {}", e);

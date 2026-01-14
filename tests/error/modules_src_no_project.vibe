@@ -1,0 +1,6 @@
+// ERROR: src. imports require a vibe.toml project
+use src.foo.bar
+
+fn main() -> i32 {
+    return 0
+}

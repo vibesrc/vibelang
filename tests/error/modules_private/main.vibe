@@ -1,0 +1,6 @@
+// ERROR: 'private_fn' is not public in module 'helper'
+use .helper.private_fn
+
+fn main() -> i32 {
+    return private_fn()
+}

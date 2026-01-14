@@ -92,10 +92,47 @@ pub struct Static {
     pub span: Span,
 }
 
+/// Import prefix for use statements
+#[derive(Debug, Clone, PartialEq)]
+pub enum ImportPrefix {
+    /// use src.foo - absolute path from project root's src/ directory
+    Src,
+    /// use lib.foo - local workspace packages from project root's lib/ directory
+    Lib,
+    /// use std.foo - standard library
+    Std,
+    /// use dep.foo - vendored external dependencies from project root's dep/ directory
+    Dep,
+    /// use .foo - relative to current file's directory
+    Relative,
+}
+
+/// What items to import from a module
+#[derive(Debug, Clone)]
+pub enum ImportItems {
+    /// Import specific items: use src.foo.{bar, baz}
+    Named(Vec<ImportItem>),
+    /// Import all public items: use src.foo.*
+    Glob,
+}
+
+/// A single imported item, optionally with an alias
+#[derive(Debug, Clone)]
+pub struct ImportItem {
+    pub name: String,
+    pub alias: Option<String>,
+    pub span: Span,
+}
+
 #[derive(Debug, Clone)]
 pub struct Use {
+    /// The import prefix (src, std, dep, or relative)
+    pub prefix: ImportPrefix,
+    /// The module path after the prefix (e.g., ["utils", "format"] for src.utils.format)
     pub path: Vec<String>,
-    pub alias: Option<String>,
+    /// The items to import from the module
+    pub items: ImportItems,
+    /// Whether this is a re-export (pub use)
     pub is_pub: bool,
     pub span: Span,
 }

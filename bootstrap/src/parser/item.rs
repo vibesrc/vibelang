@@ -233,23 +233,149 @@ impl Parser {
         let start = self.current_span();
         self.expect_keyword(Keyword::Use)?;
 
-        let mut path = vec![self.expect_ident()?];
-        while self.match_token(TokenKind::Dot) {
-            path.push(self.expect_ident()?);
+        // Parse the prefix and first path segment
+        let (prefix, mut path) = self.parse_use_prefix()?;
+
+        // Parse remaining path segments (after prefix)
+        // e.g., for "use src.utils.format.{x}", path becomes ["utils", "format"]
+        // The items to import come after the last dot
+        while self.check(TokenKind::Dot) {
+            // Peek ahead to see what's after the dot
+            let mut lookahead = self.pos;
+            lookahead += 1; // skip current token
+            if lookahead < self.tokens.len() {
+                match &self.tokens[lookahead].kind {
+                    TokenKind::LBrace => {
+                        // Next is {, so parse grouped imports
+                        self.advance(); // consume the dot
+                        break;
+                    }
+                    TokenKind::Star => {
+                        // Next is *, so parse glob import
+                        self.advance(); // consume the dot
+                        self.advance(); // consume the *
+                        return Ok(Use {
+                            prefix,
+                            path,
+                            items: ImportItems::Glob,
+                            is_pub,
+                            span: self.span_from(start),
+                        });
+                    }
+                    TokenKind::Ident(_) => {
+                        // More path segments
+                        self.advance(); // consume the dot
+                        path.push(self.expect_ident()?);
+                    }
+                    _ => {
+                        return Err(self.error("expected identifier, '{', or '*' after '.'"));
+                    }
+                }
+            } else {
+                return Err(self.error("unexpected end of input in use statement"));
+            }
         }
 
-        let alias = if self.match_keyword(Keyword::As) {
-            Some(self.expect_ident()?)
+        // Parse the imported items
+        let items = if self.check(TokenKind::LBrace) {
+            // Grouped import: use src.foo.{bar, baz as b}
+            self.parse_use_group()?
+        } else if path.is_empty() {
+            return Err(self.error("use statement requires at least one path segment"));
         } else {
-            None
+            // Single import: use src.foo.bar or use src.foo.bar as b
+            // The last path segment is the item to import
+            let item_name = path.pop().unwrap();
+            let alias = if self.match_keyword(Keyword::As) {
+                Some(self.expect_ident()?)
+            } else {
+                None
+            };
+            ImportItems::Named(vec![ImportItem {
+                name: item_name,
+                alias,
+                span: self.span_from(start),
+            }])
         };
 
         Ok(Use {
+            prefix,
             path,
-            alias,
+            items,
             is_pub,
             span: self.span_from(start),
         })
+    }
+
+    /// Parse the prefix of a use statement (src, std, dep, or relative .)
+    fn parse_use_prefix(&mut self) -> Result<(ImportPrefix, Vec<String>), ParseError> {
+        // Check for relative import starting with .
+        if self.check(TokenKind::Dot) {
+            self.advance(); // consume the dot
+            let first_segment = self.expect_ident()?;
+            return Ok((ImportPrefix::Relative, vec![first_segment]));
+        }
+
+        // Parse the first identifier (src, std, dep, or module name for backward compat)
+        let first = self.expect_ident()?;
+
+        match first.as_str() {
+            "src" => {
+                self.expect(TokenKind::Dot)?;
+                let next = self.expect_ident()?;
+                Ok((ImportPrefix::Src, vec![next]))
+            }
+            "lib" => {
+                self.expect(TokenKind::Dot)?;
+                let next = self.expect_ident()?;
+                Ok((ImportPrefix::Lib, vec![next]))
+            }
+            "std" => {
+                self.expect(TokenKind::Dot)?;
+                let next = self.expect_ident()?;
+                Ok((ImportPrefix::Std, vec![next]))
+            }
+            "dep" => {
+                self.expect(TokenKind::Dot)?;
+                let next = self.expect_ident()?;
+                Ok((ImportPrefix::Dep, vec![next]))
+            }
+            _ => {
+                // Not a known prefix - this is an error in the new module system
+                Err(self.error(&format!(
+                    "invalid import prefix '{}'. Use 'src.', 'lib.', 'std.', 'dep.', or '.' for relative imports",
+                    first
+                )))
+            }
+        }
+    }
+
+    /// Parse a grouped import: {foo, bar as b, baz}
+    fn parse_use_group(&mut self) -> Result<ImportItems, ParseError> {
+        self.expect(TokenKind::LBrace)?;
+        let mut items = Vec::new();
+
+        while !self.check(TokenKind::RBrace) {
+            let item_start = self.current_span();
+            let name = self.expect_ident()?;
+            let alias = if self.match_keyword(Keyword::As) {
+                Some(self.expect_ident()?)
+            } else {
+                None
+            };
+            items.push(ImportItem {
+                name,
+                alias,
+                span: self.span_from(item_start),
+            });
+
+            if !self.match_token(TokenKind::Comma) {
+                break;
+            }
+        }
+
+        self.expect(TokenKind::RBrace)?;
+        Ok(ImportItems::Named(items))
     }
 
     pub(crate) fn parse_mod(&mut self, is_pub: bool) -> Result<Mod, ParseError> {

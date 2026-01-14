@@ -1,0 +1,8 @@
+// Library module for lib. import test
+pub fn add(a: i32, b: i32) -> i32 {
+    return a + b
+}
+
+pub fn triple(x: i32) -> i32 {
+    return x * 3
+}
