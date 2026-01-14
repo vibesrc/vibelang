@@ -38,12 +38,10 @@
           "begin": "\\b(enum)\\s+([A-Z][a-zA-Z0-9_]*)(?:<[^>]*>)?\\s*(\\{)",
           "beginCaptures": {
             "1": { "name": "keyword.declaration.vibe" },
-            "2": { "name": "entity.name.type.vibe" },
-            "3": { "name": "punctuation.brackets.curly.vibe" }
+            "2": { "name": "entity.name.type.vibe" }
           },
           "end": "(\\})",
           "endCaptures": {
-            "1": { "name": "punctuation.brackets.curly.vibe" }
           },
           "patterns": [
             { "include": "#comments" },
@@ -80,10 +78,10 @@
           "begin": "\"",
           "end": "\"",
           "beginCaptures": {
-            "0": { "name": "punctuation.definition.string.begin.vibe" }
+            "0": { "name": "string.quoted.double.vibe punctuation.definition.string.begin.vibe" }
           },
           "endCaptures": {
-            "0": { "name": "punctuation.definition.string.end.vibe" }
+            "0": { "name": "string.quoted.double.vibe punctuation.definition.string.end.vibe" }
           },
           "patterns": [
             {
@@ -97,14 +95,14 @@
             },
             {
               "comment": "String interpolation",
-              "begin": "(\\$)(\\{)",
-              "end": "(\\})",
+              "name": "meta.template.expression.vibe",
+              "begin": "\\$\\{",
+              "end": "\\}",
               "beginCaptures": {
-                "1": { "name": "keyword.declaration.vibe" },
-                "2": { "name": "keyword.declaration.vibe" }
+                "0": { "name": "punctuation.definition.template-expression.begin.vibe" }
               },
               "endCaptures": {
-                "1": { "name": "keyword.declaration.vibe" }
+                "0": { "name": "punctuation.definition.template-expression.end.vibe" }
               },
               "patterns": [
                 { "include": "#interpolation-contents" }
@@ -288,16 +286,8 @@
           "match": "\\."
         },
         {
-          "name": "punctuation.brackets.round.vibe",
-          "match": "[()]"
-        },
-        {
-          "name": "punctuation.brackets.curly.vibe",
-          "match": "[{}]"
-        },
-        {
-          "name": "punctuation.brackets.square.vibe",
-          "match": "[\\[\\]]"
+          "comment": "Brackets left unscoped for VS Code bracket pair colorization",
+          "match": "[(){}\\[\\]<>]"
         }
       ]
     },

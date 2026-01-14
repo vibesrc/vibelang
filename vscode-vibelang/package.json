@@ -35,12 +35,15 @@
       {
         "language": "vibelang",
         "scopeName": "source.vibe",
-        "path": "./syntaxes/vibelang.tmLanguage.json"
+        "path": "./syntaxes/vibelang.tmLanguage.json",
+        "tokenTypes": {
+          "punctuation.definition.template-expression": "string"
+        }
       }
     ],
 "configurationDefaults": {
       "[vibelang]": {
-        "editor.bracketPairColorization.enabled": false
+        "editor.bracketPairColorization.enabled": true
       }
     },
     "configuration": {
