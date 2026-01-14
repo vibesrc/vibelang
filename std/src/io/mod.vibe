@@ -1,0 +1,22 @@
+// std.io - Input/Output operations
+// print and println are compiler intrinsics
+
+/// Print a string without newline
+pub fn print(s: &Slice<u8>) {
+    __intrinsic_print(s)
+}
+
+/// Print a string with newline
+pub fn println(s: &Slice<u8>) {
+    __intrinsic_println(s)
+}
+
+/// Print to stderr without newline
+pub fn eprint(s: &Slice<u8>) {
+    __intrinsic_eprint(s)
+}
+
+/// Print to stderr with newline
+pub fn eprintln(s: &Slice<u8>) {
+    __intrinsic_eprintln(s)
+}

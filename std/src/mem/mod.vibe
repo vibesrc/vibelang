@@ -1,0 +1,46 @@
+// std.mem - Memory allocation primitives
+// These functions wrap compiler intrinsics and should be used
+// internally by safe data structures like Array and String.
+
+/// Allocate `size` bytes of uninitialized memory
+/// Returns a pointer to the allocated memory
+/// Safety: Caller must ensure proper deallocation
+pub fn alloc(size: i64) -> *u8 {
+    unsafe {
+        return malloc(size)
+    }
+}
+
+/// Reallocate memory to a new size
+/// Returns a pointer to the reallocated memory
+/// Safety: ptr must have been allocated by alloc/realloc
+pub fn resize(ptr: *u8, new_size: i64) -> *u8 {
+    unsafe {
+        return realloc(ptr, new_size)
+    }
+}
+
+/// Deallocate memory previously allocated by alloc/resize
+/// Safety: ptr must have been allocated by alloc/resize
+pub fn dealloc(ptr: *u8) {
+    unsafe {
+        free(ptr)
+    }
+}
+
+/// Copy `count` bytes from src to dest
+/// Safety: Memory regions must not overlap, both must be valid
+pub fn copy(dest: *u8, src: *u8, count: i64) {
+    unsafe {
+        memcpy(dest, src, count)
+    }
+}
+
+// Note: For generic operations like size_of<T>(), null_ptr<T>(), write<T>(), read<T>(), offset<T>(),
+// use the compiler intrinsics directly:
+//   sizeof<T>()      - get size of type T in bytes
+//   ptr_null<T>()    - get null pointer of type *T
+//   ptr_is_null(ptr) - check if pointer is null
+//   ptr_write<T>(ptr, value) - write value through pointer (unsafe)
+//   ptr_read<T>(ptr) -> T    - read value through pointer (unsafe)
+//   ptr_add<T>(ptr, offset) -> *T - add offset to pointer (unsafe)

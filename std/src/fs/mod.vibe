@@ -1,0 +1,291 @@
+// std.fs - File system operations
+// Uses raw file descriptors with safe wrappers
+
+use std.types.{Result, Error, Option}
+use std.string.{String}
+use std.collections.{Array}
+use std.mem.{alloc, dealloc}
+
+// Unix open() flags
+static O_RDONLY: i32 = 0
+static O_WRONLY: i32 = 1
+static O_RDWR: i32 = 2
+static O_CREAT: i32 = 64      // 0100 octal
+static O_TRUNC: i32 = 512     // 01000 octal
+static O_APPEND: i32 = 1024   // 02000 octal
+
+// Unix lseek() whence values
+static SEEK_SET: i32 = 0
+static SEEK_CUR: i32 = 1
+static SEEK_END: i32 = 2
+
+// Default file permissions (0644)
+static DEFAULT_MODE: i32 = 420
+
+/// Open mode for file operations
+pub enum OpenMode {
+    Read       // O_RDONLY
+    Write      // O_WRONLY
+    ReadWrite  // O_RDWR
+}
+
+/// Flags for opening files
+pub struct OpenFlags {
+    pub create: bool    // O_CREAT - create if doesn't exist
+    pub truncate: bool  // O_TRUNC - truncate to zero length
+    pub append: bool    // O_APPEND - append to end
+}
+
+/// Seek position reference
+pub enum SeekFrom {
+    Start      // SEEK_SET - from beginning
+    Current    // SEEK_CUR - from current position
+    End        // SEEK_END - from end
+}
+
+/// File handle with safe operations
+pub struct File {
+    fd: i32
+    is_closed: bool
+}
+
+impl File {
+    // === Opening ===
+
+    /// Open a file with specified mode and flags
+    pub fn open(path: &Slice<u8>, mode: OpenMode, flags: OpenFlags) -> Result<File, Error> {
+        // Build Unix flags from mode
+        let unix_flags: i32 = 0
+        match mode {
+            OpenMode.Read => { unix_flags = O_RDONLY }
+            OpenMode.Write => { unix_flags = O_WRONLY }
+            OpenMode.ReadWrite => { unix_flags = O_RDWR }
+        }
+
+        // Add optional flags
+        if flags.create {
+            unix_flags = unix_flags | O_CREAT
+        }
+        if flags.truncate {
+            unix_flags = unix_flags | O_TRUNC
+        }
+        if flags.append {
+            unix_flags = unix_flags | O_APPEND
+        }
+
+        let fd = sys_open(path, unix_flags, DEFAULT_MODE)
+
+        if fd < 0 {
+            return Result<File, Error>.Err(Error { message: "failed to open file" })
+        }
+
+        return Result<File, Error>.Ok(File { fd: fd, is_closed: false })
+    }
+
+    /// Open file for reading only
+    pub fn read(path: &Slice<u8>) -> Result<File, Error> {
+        return File.open(path, OpenMode.Read, OpenFlags { create: false, truncate: false, append: false })
+    }
+
+    /// Create file for writing (truncates if exists)
+    pub fn create(path: &Slice<u8>) -> Result<File, Error> {
+        return File.open(path, OpenMode.Write, OpenFlags { create: true, truncate: true, append: false })
+    }
+
+    /// Open file for appending (creates if doesn't exist)
+    pub fn append(path: &Slice<u8>) -> Result<File, Error> {
+        return File.open(path, OpenMode.Write, OpenFlags { create: true, truncate: false, append: true })
+    }
+
+    // === Core I/O ===
+
+    /// Read up to `count` bytes into buffer, returns bytes actually read
+    pub fn read_bytes(~self, buf: *u8, count: i64) -> Result<i64, Error> {
+        if self.is_closed {
+            return Result<i64, Error>.Err(Error { message: "file is closed" })
+        }
+
+        let n = sys_read(self.fd, buf, count)
+
+        if n < 0 {
+            return Result<i64, Error>.Err(Error { message: "read failed" })
+        }
+
+        return Result<i64, Error>.Ok(n)
+    }
+
+    /// Write bytes from buffer, returns bytes actually written
+    pub fn write_bytes(~self, buf: &Slice<u8>) -> Result<i64, Error> {
+        if self.is_closed {
+            return Result<i64, Error>.Err(Error { message: "file is closed" })
+        }
+
+        let n = sys_write(self.fd, buf.ptr, buf.len)
+
+        if n < 0 {
+            return Result<i64, Error>.Err(Error { message: "write failed" })
+        }
+
+        return Result<i64, Error>.Ok(n)
+    }
+
+    /// Seek to position, returns new position
+    pub fn seek(~self, offset: i64, whence: SeekFrom) -> Result<i64, Error> {
+        if self.is_closed {
+            return Result<i64, Error>.Err(Error { message: "file is closed" })
+        }
+
+        let unix_whence: i32 = 0
+        match whence {
+            SeekFrom.Start => { unix_whence = SEEK_SET }
+            SeekFrom.Current => { unix_whence = SEEK_CUR }
+            SeekFrom.End => { unix_whence = SEEK_END }
+        }
+
+        let pos = sys_lseek(self.fd, offset, unix_whence)
+
+        if pos < 0 {
+            return Result<i64, Error>.Err(Error { message: "seek failed" })
+        }
+
+        return Result<i64, Error>.Ok(pos)
+    }
+
+    /// Close the file
+    pub fn close(~self) -> Result<i32, Error> {
+        if self.is_closed {
+            return Result<i32, Error>.Err(Error { message: "file already closed" })
+        }
+
+        let result = sys_close(self.fd)
+        self.is_closed = true
+
+        if result < 0 {
+            return Result<i32, Error>.Err(Error { message: "close failed" })
+        }
+
+        return Result<i32, Error>.Ok(0)
+    }
+
+    // === Convenience Methods ===
+
+    /// Read entire file contents into a String
+    pub fn read_all(~self) -> Result<String, Error> {
+        if self.is_closed {
+            return Result<String, Error>.Err(Error { message: "file is closed" })
+        }
+
+        // Get file size by seeking to end
+        let end_pos = self.seek(0, SeekFrom.End)?
+        self.seek(0, SeekFrom.Start)?
+
+        if end_pos == 0 {
+            return Result<String, Error>.Ok(String.new())
+        }
+
+        // Allocate buffer
+        let buf = alloc(end_pos)
+        if ptr_is_null(buf) {
+            return Result<String, Error>.Err(Error { message: "allocation failed" })
+        }
+
+        // Read all content
+        let total_read: i64 = 0
+        while total_read < end_pos {
+            let n = self.read_bytes(ptr_add<u8>(buf, total_read), end_pos - total_read)?
+            if n == 0 {
+                break  // EOF
+            }
+            total_read = total_read + n
+        }
+
+        // Build String from buffer
+        let result = String.with_capacity(total_read)
+        let i: i64 = 0
+        while i < total_read {
+            unsafe {
+                result.push(ptr_read<u8>(ptr_add<u8>(buf, i)))
+            }
+            i = i + 1
+        }
+
+        dealloc(buf)
+        return Result<String, Error>.Ok(result)
+    }
+
+    /// Read up to `count` bytes, allocating a new Array
+    pub fn read_n(~self, count: i64) -> Result<Array<u8>, Error> {
+        if self.is_closed {
+            return Result<Array<u8>, Error>.Err(Error { message: "file is closed" })
+        }
+
+        let buf = alloc(count)
+        if ptr_is_null(buf) {
+            return Result<Array<u8>, Error>.Err(Error { message: "allocation failed" })
+        }
+
+        let n = self.read_bytes(buf, count)?
+
+        // Build Array from buffer
+        let result = Array<u8>.with_capacity(n)
+        let i: i64 = 0
+        while i < n {
+            unsafe {
+                result.push(ptr_read<u8>(ptr_add<u8>(buf, i)))
+            }
+            i = i + 1
+        }
+
+        dealloc(buf)
+        return Result<Array<u8>, Error>.Ok(result)
+    }
+
+    // === Queries ===
+
+    /// Check if file is closed
+    pub fn is_closed(&self) -> bool {
+        return self.is_closed
+    }
+
+    /// Get the raw file descriptor (for advanced use)
+    pub fn fd(&self) -> i32 {
+        return self.fd
+    }
+}
+
+// === Module-level convenience functions ===
+
+/// Read entire file as String
+pub fn read_file(path: &Slice<u8>) -> Result<String, Error> {
+    let file = File.read(path)?
+    let content = file.read_all()?
+    file.close()?
+    return Result<String, Error>.Ok(content)
+}
+
+/// Write string to file (creates/truncates)
+pub fn write_file(path: &Slice<u8>, content: &Slice<u8>) -> Result<i32, Error> {
+    let file = File.create(path)?
+    let written = file.write_bytes(content)?
+    file.close()?
+
+    if written != content.len {
+        return Result<i32, Error>.Err(Error { message: "incomplete write" })
+    }
+
+    return Result<i32, Error>.Ok(0)
+}
+
+/// Check if path exists
+pub fn exists(path: &Slice<u8>) -> bool {
+    // Try to open read-only, if it succeeds the file exists
+    match File.open(path, OpenMode.Read, OpenFlags { create: false, truncate: false, append: false }) {
+        Result.Ok(file) => {
+            file.close()
+            return true
+        }
+        Result.Err(_) => {
+            return false
+        }
+    }
+}

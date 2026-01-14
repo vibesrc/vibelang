@@ -113,6 +113,9 @@ pub enum ImportItems {
     Named(Vec<ImportItem>),
     /// Import all public items: use src.foo.*
     Glob,
+    /// Import the module itself as a namespace: use std.fs
+    /// Allows usage like fs.File, fs.read_file, etc.
+    Module,
 }
 
 /// A single imported item, optionally with an alias
@@ -330,6 +333,10 @@ pub enum Expr {
     },
     InterpolatedString {
         parts: Vec<StringPart>,
+        span: Span,
+    },
+    Unsafe {
+        block: Block,
         span: Span,
     },
 }

@@ -35,12 +35,42 @@ This document tracks key design decisions for the Vibelang compiler. Claude Code
 | Testing | Unit + snapshot + e2e | All three levels |
 | FFI | Intrinsics + extern blocks | `sys_*` built-in, `extern "C"` for user |
 
-## Stdlib Priority
+## Stdlib Implementation
 
-1. Collections (Array, Map, Set)
-2. String manipulation
-3. File I/O
-4. Networking (v2)
+The standard library uses a modular structure under `std/`:
+
+```
+std/
+├── vibe.toml
+└── src/
+    ├── lib.vibe
+    ├── types/
+    │   ├── mod.vibe          # Option, Result, Error (prelude)
+    │   ├── option.vibe
+    │   ├── result.vibe
+    │   └── error.vibe
+    ├── collections/
+    │   ├── mod.vibe          # Array<T>
+    │   └── array.vibe
+    ├── string/mod.vibe       # String type + utilities
+    ├── io/mod.vibe           # print, println
+    └── fs/mod.vibe           # file operations
+```
+
+**Prelude (auto-imported):**
+- Option, Result, Error from `std/src/types/mod.vibe`
+- `print`, `println` are compiler intrinsics
+
+**Resolution:** `use std.X` resolves to `<VIBELANG_STD>/src/X/mod.vibe`.
+
+Environment variable: `VIBELANG_STD` (or legacy `VIBELANG_STDLIB`).
+
+**Priority:**
+1. ✅ Types (Option, Result, Error)
+2. ✅ Collections (Array, String basics)
+3. ✅ String utilities (split, join, trim)
+4. 🚧 File I/O (intrinsics needed)
+5. Future: Networking
 
 ## Error Handling
 
@@ -55,7 +85,7 @@ This document tracks key design decisions for the Vibelang compiler. Claude Code
 | `use src.foo` | `<project_root>/src/foo.vibe` | Requires vibe.toml project |
 | `use lib.pkg.foo` | `<project_root>/lib/pkg/src/foo.vibe` | Local workspace packages |
 | `use dep.pkg.foo` | `<project_root>/dep/pkg/src/foo.vibe` | Vendored external deps |
-| `use std.foo` | Standard library | Requires VIBELANG_STDLIB |
+| `use std.foo` | Standard library | Requires VIBELANG_STD env var |
 | `use .foo` | Relative to current file | Works in single-file mode |
 
 Key decisions:
@@ -137,6 +167,13 @@ vibelang/
 │   └── run/                # Compile + execute + verify
 ├── examples/
 │   └── hello.vibe
-└── stdlib/                 # Standard library (vibelang source)
-    └── prelude.vibe
+└── std/                    # Standard library (package)
+    ├── vibe.toml
+    └── src/
+        ├── lib.vibe
+        ├── types/mod.vibe  # Option, Result, Error
+        ├── collections/mod.vibe  # Array
+        ├── string/mod.vibe # String + utilities
+        ├── io/mod.vibe     # print, println
+        └── fs/mod.vibe     # File operations
 ```

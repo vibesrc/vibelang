@@ -10,10 +10,80 @@ impl<'ctx> Codegen<'ctx> {
         value: &Expr,
         arms: &[MatchArm],
     ) -> Result<Option<BasicValueEnum<'ctx>>, CodegenError> {
+        // First, try to get the enum type from the matched expression's type info
+        // This is more reliable than guessing from the pattern
+        let enum_name_from_value = match value {
+            Expr::Ident(var_name, _) => {
+                self.variables.get(var_name).and_then(|info| info.struct_name.clone())
+            }
+            Expr::MethodCall { receiver, method, .. } => {
+                // Get the receiver's type and look up the method return type
+                if let Expr::Ident(name, _) = receiver.as_ref() {
+                    // Check if this is a static method call on a struct type (e.g., File.open)
+                    if self.struct_types.contains_key(name) {
+                        let mangled_method = format!("{}_{}", name, method);
+                        self.function_return_types
+                            .get(&mangled_method)
+                            .and_then(|ret_ty| ret_ty.as_ref())
+                            .and_then(|ret_ty| self.get_struct_name_for_type(ret_ty))
+                    } else if let Some(var_info) = self.variables.get(name).cloned() {
+                        // Instance method call on a variable
+                        let struct_name = var_info.struct_name.as_ref()
+                            .or(var_info.ref_struct_name.as_ref())
+                            .cloned();
+                        if let Some(struct_name) = struct_name {
+                            // Ensure impl methods are monomorphized if this is a generic type
+                            if !self.type_methods.contains_key(&struct_name) {
+                                if let Some((base_name, type_args)) = self.parse_mangled_name(&struct_name) {
+                                    if self.generic_impls.contains_key(&base_name) {
+                                        let _ = self.ensure_monomorphized_impl(&base_name, &type_args);
+                                    }
+                                }
+                            }
+                            // Look up method return type
+                            if let Some(methods) = self.type_methods.get(&struct_name) {
+                                if let Some(mangled_method) = methods.get(method) {
+                                    self.function_return_types
+                                        .get(mangled_method)
+                                        .and_then(|ret_ty| ret_ty.as_ref())
+                                        .and_then(|ret_ty| self.get_struct_name_for_type(ret_ty))
+                                }  else {
+                                    None
+                                }
+                            } else {
+                                None
+                            }
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            }
+            Expr::Call { func, .. } => {
+                // Look up the function's return type from its name
+                if let Expr::Ident(name, _) = func.as_ref() {
+                    self.function_return_types
+                        .get(name)
+                        .and_then(|ret_ty| ret_ty.as_ref())
+                        .and_then(|ret_ty| self.get_struct_name_for_type(ret_ty))
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        };
+
         let match_val = self.compile_expr(value)?;
 
-        // Get enum info - first try from the pattern, then try to find monomorphized version
-        let enum_info = if let Some(arm) = arms.first() {
+        // Get enum info - first try from the matched value's type, then fall back to pattern
+        let enum_info = if let Some(ref enum_name) = enum_name_from_value {
+            // Use the exact enum type from the variable
+            self.enum_types.get(enum_name).cloned()
+        } else if let Some(arm) = arms.first() {
             if let Pattern::Enum { path, .. } = &arm.pattern {
                 if path.len() >= 1 {
                     let base_name = &path[0];
@@ -101,6 +171,9 @@ impl<'ctx> Codegen<'ctx> {
                 if let (Some(ptr), Some((variant_name, fields))) = (match_ptr, binding_info) {
                     if let Some(ref info) = enum_info {
                         if let Some(payload_types) = info.variant_payloads.get(variant_name) {
+                            // Get AST types for struct_name lookup
+                            let ast_types = info.ast_variant_payloads.get(variant_name);
+
                             for (j, pattern) in fields.iter().enumerate() {
                                 if let Pattern::Ident(var_name) = pattern {
                                     if j < payload_types.len() {
@@ -113,14 +186,23 @@ impl<'ctx> Codegen<'ctx> {
                                             .build_load(payload_type, payload_ptr, var_name)
                                             .unwrap();
 
+                                        // Determine struct_name from AST type if available
+                                        let struct_name = ast_types
+                                            .and_then(|types| types.get(j))
+                                            .and_then(|ast_ty| self.get_struct_name_for_type(ast_ty));
+
+                                        let ast_type = ast_types
+                                            .and_then(|types| types.get(j).cloned())
+                                            .or_else(|| self.llvm_type_to_ast_type(payload_type));
+
                                         // Bind to variable
                                         let var_alloca = self.create_entry_block_alloca(var_name, payload_type);
                                         self.builder.build_store(var_alloca, payload_val).unwrap();
                                         self.variables.insert(var_name.clone(), VarInfo {
                                             ptr: var_alloca,
                                             ty: payload_type,
-                                            struct_name: None,
-                                            ast_type: self.llvm_type_to_ast_type(payload_type),
+                                            struct_name,
+                                            ast_type,
                                             is_ref: false,
                                             is_mut_ref: false,
                                             ref_struct_name: None,

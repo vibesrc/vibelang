@@ -74,8 +74,24 @@ impl<'ctx> Codegen<'ctx> {
 
                 Err(CodegenError::UndefinedType(lookup_name))
             }
-            Type::Slice(_inner) => {
-                // Slice is a struct: { ptr: *T, len: i64 }
+            Type::Slice(inner) => {
+                // Slice<T> is a user-defined struct - resolve to Slice_T
+                let mono_name = self.mangle_name("Slice", &[inner.as_ref().clone()]);
+
+                // Check if already monomorphized
+                if let Some(struct_info) = self.struct_types.get(&mono_name) {
+                    return Ok(struct_info.llvm_type.as_basic_type_enum());
+                }
+
+                // Try to monomorphize from generic_structs
+                if self.generic_structs.contains_key("Slice") {
+                    self.ensure_monomorphized_struct("Slice", &[inner.as_ref().clone()])?;
+                    if let Some(struct_info) = self.struct_types.get(&mono_name) {
+                        return Ok(struct_info.llvm_type.as_basic_type_enum());
+                    }
+                }
+
+                // Fallback: create inline struct type (for bootstrapping before stdlib loaded)
                 let ptr_type = self.context.ptr_type(AddressSpace::default());
                 let len_type = self.context.i64_type();
                 Ok(self
@@ -103,6 +119,46 @@ impl<'ctx> Codegen<'ctx> {
             .collect();
 
         format!("{}_{}", name, type_suffixes.join("_"))
+    }
+
+    /// Parse a mangled name back into base name and type arguments
+    /// e.g., "Slice_u8" => Some(("Slice", [Type::U8]))
+    /// e.g., "Array_String" => Some(("Array", [Type::Named { name: "String", generics: [] }]))
+    pub(crate) fn parse_mangled_name(&self, mangled: &str) -> Option<(String, Vec<Type>)> {
+        // Find the first underscore that separates base name from type args
+        if let Some(underscore_pos) = mangled.find('_') {
+            let base_name = &mangled[..underscore_pos];
+            let type_suffix = &mangled[underscore_pos + 1..];
+
+            // Parse the type argument from the suffix
+            let type_arg = match type_suffix {
+                "i8" => Type::I8,
+                "i16" => Type::I16,
+                "i32" => Type::I32,
+                "i64" => Type::I64,
+                "u8" => Type::U8,
+                "u16" => Type::U16,
+                "u32" => Type::U32,
+                "u64" => Type::U64,
+                "f32" => Type::F32,
+                "f64" => Type::F64,
+                "bool" => Type::Bool,
+                _ => {
+                    // Check if this is a known struct type
+                    // For named types like "String", create Type::Named
+                    if self.struct_types.contains_key(type_suffix) ||
+                       self.generic_structs.contains_key(type_suffix) {
+                        Type::Named { name: type_suffix.to_string(), generics: vec![] }
+                    } else {
+                        // Assume it's a named type - might be a forward reference
+                        Type::Named { name: type_suffix.to_string(), generics: vec![] }
+                    }
+                }
+            };
+            Some((base_name.to_string(), vec![type_arg]))
+        } else {
+            None
+        }
     }
 
     /// Get a string representation of a type for mangling
@@ -165,16 +221,63 @@ impl<'ctx> Codegen<'ctx> {
     pub(crate) fn get_struct_name_for_type(&self, ty: &Type) -> Option<String> {
         match ty {
             Type::Named { name, generics } => {
-                // Check for monomorphized name first (e.g., Pair_i32)
+                // Check for monomorphized name first (e.g., Pair_i32, Result_File_Error)
                 if !generics.is_empty() {
                     let mangled = self.mangle_name(name, generics);
+                    // Check if it's a monomorphized struct
                     if self.struct_types.contains_key(&mangled) {
                         return Some(mangled);
                     }
+                    // Check if it's a monomorphized enum
+                    if self.enum_types.contains_key(&mangled) {
+                        return Some(mangled);
+                    }
+                    // Return the expected name if it's a generic struct (will be monomorphized later)
+                    if self.generic_structs.contains_key(name) {
+                        return Some(mangled);
+                    }
+                    // Return the expected name if it's a generic enum (will be monomorphized later)
+                    if self.generic_enums.contains_key(name) {
+                        return Some(mangled);
+                    }
                 }
-                // Fall back to base name
+                // Fall back to base name for structs
                 if self.struct_types.contains_key(name) {
-                    Some(name.clone())
+                    return Some(name.clone());
+                }
+                // Fall back to base name for enums
+                if self.enum_types.contains_key(name) {
+                    return Some(name.clone());
+                }
+                None
+            }
+            Type::Slice(inner) => {
+                // Slice<T> maps to Slice_T struct
+                let mangled = self.mangle_name("Slice", &[inner.as_ref().clone()]);
+                if self.struct_types.contains_key(&mangled) {
+                    Some(mangled)
+                } else {
+                    // Return the expected name even if not yet monomorphized
+                    // This allows get_ref_info to work before monomorphization
+                    if self.generic_structs.contains_key("Slice") {
+                        Some(mangled)
+                    } else {
+                        None
+                    }
+                }
+            }
+            _ => None,
+        }
+    }
+
+    /// Extract the Ok type (T) from Result<T, E> or the Some type from Option<T>
+    pub(crate) fn get_result_ok_type(&self, ty: &Type) -> Option<Type> {
+        match ty {
+            Type::Named { name, generics } => {
+                // Result<T, E> - return T (first generic)
+                // Option<T> - return T (first generic)
+                if (name == "Result" || name == "Option") && !generics.is_empty() {
+                    Some(generics[0].clone())
                 } else {
                     None
                 }
@@ -209,6 +312,43 @@ impl<'ctx> Codegen<'ctx> {
                 }
             }
             _ => None,
+        }
+    }
+
+    /// Check if a type contains unresolved type parameters (e.g., T in Array<T>)
+    /// Returns true if any Named type is not a known struct, enum, or primitive
+    pub(crate) fn has_type_parameters(&self, ty: &Type) -> bool {
+        match ty {
+            Type::Named { name, generics } => {
+                // Check if this name is an unresolved type parameter
+                let is_known = self.struct_types.contains_key(name)
+                    || self.enum_types.contains_key(name)
+                    || self.generic_structs.contains_key(name)
+                    || self.generic_enums.contains_key(name)
+                    || name == "Slice"; // Built-in
+
+                if !is_known && generics.is_empty() {
+                    // This is an unresolved type parameter like T
+                    return true;
+                }
+
+                // Recursively check generics
+                generics.iter().any(|g| self.has_type_parameters(g))
+            }
+            Type::Pointer(inner) | Type::Ref(inner) | Type::RefMut(inner) | Type::Slice(inner) => {
+                self.has_type_parameters(inner)
+            }
+            Type::Array(inner, _) => self.has_type_parameters(inner),
+            _ => false, // Primitives have no type parameters
+        }
+    }
+
+    /// Check if an impl block target has type parameters
+    pub(crate) fn is_generic_impl(&self, target: &Type) -> bool {
+        if let Type::Named { generics, .. } = target {
+            generics.iter().any(|g| self.has_type_parameters(g))
+        } else {
+            false
         }
     }
 

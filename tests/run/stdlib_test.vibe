@@ -1,0 +1,33 @@
+// Test stdlib types and functions
+
+use std.types.{Option, Result, Error}
+use std.collections.{Array}
+use std.string.{String}
+
+fn main() -> i32 {
+    // Test Option
+    let some_val = Option.Some(42)
+    let none_val = Option<i32>.None
+
+    match some_val {
+        Option.Some(x) => println("Got value: ${x}")
+        Option.None => println("Got none")
+    }
+
+    // Test Array
+    let arr = Array<i32>.new()
+    arr.push(1)
+    arr.push(2)
+    arr.push(3)
+
+    println("Array length: ${arr.len()}")
+
+    // Test String
+    let s = String.new()
+    s.push(72)  // 'H'
+    s.push(105) // 'i'
+
+    println("String length: ${s.len()}")
+
+    return 0
+}

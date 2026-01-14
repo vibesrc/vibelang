@@ -1,0 +1,8 @@
+// Vibelang Standard Library
+//
+// Modules:
+//   std.types       - Option, Result, Error
+//   std.collections - Array, Map
+//   std.string      - String type and utilities
+//   std.io          - Input/output
+//   std.fs          - File system

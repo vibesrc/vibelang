@@ -1,0 +1,93 @@
+// Basic file I/O test using raw syscalls
+
+fn main() {
+    println("=== Basic File I/O Test ===")
+
+    // Test 1: Write to file using raw syscalls
+    // O_WRONLY | O_CREAT | O_TRUNC = 1 | 64 | 512 = 577
+    let fd = sys_open("test_output.txt", 577, 420)
+    println("Open for write: fd = ${fd}")
+
+    if fd >= 0 {
+        let buf = malloc(13) as *u8
+        unsafe {
+            ptr_write<u8>(ptr_add<u8>(buf, 0), 72)   // H
+            ptr_write<u8>(ptr_add<u8>(buf, 1), 101)  // e
+            ptr_write<u8>(ptr_add<u8>(buf, 2), 108)  // l
+            ptr_write<u8>(ptr_add<u8>(buf, 3), 108)  // l
+            ptr_write<u8>(ptr_add<u8>(buf, 4), 111)  // o
+            ptr_write<u8>(ptr_add<u8>(buf, 5), 32)   // space
+            ptr_write<u8>(ptr_add<u8>(buf, 6), 87)   // W
+            ptr_write<u8>(ptr_add<u8>(buf, 7), 111)  // o
+            ptr_write<u8>(ptr_add<u8>(buf, 8), 114)  // r
+            ptr_write<u8>(ptr_add<u8>(buf, 9), 108)  // l
+            ptr_write<u8>(ptr_add<u8>(buf, 10), 100) // d
+            ptr_write<u8>(ptr_add<u8>(buf, 11), 33)  // !
+            ptr_write<u8>(ptr_add<u8>(buf, 12), 10)  // newline
+        }
+
+        let written = sys_write(fd, buf, 13)
+        println("Wrote ${written} bytes")
+        free(buf)
+
+        let result = sys_close(fd)
+        println("Close result: ${result}")
+    } else {
+        println("Failed to open file for write")
+    }
+
+    // Test 2: Read from file
+    let fd2 = sys_open("test_output.txt", 0, 0)
+    println("Open for read: fd = ${fd2}")
+
+    if fd2 >= 0 {
+        let buf = malloc(100) as *u8
+        let n = sys_read(fd2, buf, 100)
+        println("Read ${n} bytes")
+
+        // Print first few bytes as ASCII codes
+        if n > 0 {
+            unsafe {
+                let b0 = ptr_read<u8>(ptr_add<u8>(buf, 0))
+                let b1 = ptr_read<u8>(ptr_add<u8>(buf, 1))
+                let b2 = ptr_read<u8>(ptr_add<u8>(buf, 2))
+                let b3 = ptr_read<u8>(ptr_add<u8>(buf, 3))
+                let b4 = ptr_read<u8>(ptr_add<u8>(buf, 4))
+                println("First 5 bytes: ${b0} ${b1} ${b2} ${b3} ${b4}")
+            }
+        }
+
+        free(buf)
+        sys_close(fd2)
+    } else {
+        println("Failed to open file for read")
+    }
+
+    // Test 3: Seek
+    let fd3 = sys_open("test_output.txt", 0, 0)
+    if fd3 >= 0 {
+        let pos = sys_lseek(fd3, 6, 0)  // SEEK_SET = 0, seek to "World"
+        println("Seek to position: ${pos}")
+
+        let buf2 = malloc(20) as *u8
+        let n2 = sys_read(fd3, buf2, 5)
+        println("Read after seek: ${n2} bytes")
+
+        if n2 > 0 {
+            unsafe {
+                let b0 = ptr_read<u8>(ptr_add<u8>(buf2, 0))
+                let b1 = ptr_read<u8>(ptr_add<u8>(buf2, 1))
+                let b2 = ptr_read<u8>(ptr_add<u8>(buf2, 2))
+                let b3 = ptr_read<u8>(ptr_add<u8>(buf2, 3))
+                let b4 = ptr_read<u8>(ptr_add<u8>(buf2, 4))
+                println("Bytes: ${b0} ${b1} ${b2} ${b3} ${b4}")
+                // Should be: W=87 o=111 r=114 l=108 d=100
+            }
+        }
+
+        free(buf2)
+        sys_close(fd3)
+    }
+
+    println("=== Test Complete ===")
+}

@@ -61,15 +61,20 @@ impl Parser {
             }
         };
 
-        // Check for array type T[N]
+        // Check for array type T[N] or slice type T[]
         if self.match_token(TokenKind::LBracket) {
             if let Some(TokenKind::Int(n)) = self.peek_kind() {
+                // T[N] - fixed-size array
                 let size = *n as usize;
                 self.advance();
                 self.expect(TokenKind::RBracket)?;
                 return Ok(Type::Array(Box::new(ty), size));
+            } else if self.check(TokenKind::RBracket) {
+                // T[] - slice (sugar for Slice<T>)
+                self.expect(TokenKind::RBracket)?;
+                return Ok(Type::Slice(Box::new(ty)));
             } else {
-                return Err(self.error("expected array size"));
+                return Err(self.error("expected array size or ]"));
             }
         }
 

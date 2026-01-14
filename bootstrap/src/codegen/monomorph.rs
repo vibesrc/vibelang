@@ -164,6 +164,123 @@ impl<'ctx> Codegen<'ctx> {
         Ok(mono_name)
     }
 
+    /// Ensure impl methods are monomorphized for a generic struct/enum
+    pub(crate) fn ensure_monomorphized_impl(&mut self, name: &str, type_args: &[Type]) -> Result<(), CodegenError> {
+        let mono_name = self.mangle_name(name, type_args);
+
+        // Already have methods for this type?
+        if self.type_methods.contains_key(&mono_name) {
+            return Ok(());
+        }
+
+        // Get generic impl block
+        let generic_impl = match self.generic_impls.get(name) {
+            Some(impl_block) => impl_block.clone(),
+            None => {
+                return Ok(()); // No impl block for this type
+            }
+        };
+
+        // Build type parameter mapping
+        // The type parameters come from the generic struct/enum definition
+        let type_params = if let Some(s) = self.generic_structs.get(name) {
+            s.generics.clone()
+        } else if let Some(e) = self.generic_enums.get(name) {
+            e.generics.clone()
+        } else {
+            return Ok(());
+        };
+
+        let mut type_map: HashMap<String, Type> = HashMap::new();
+        for (param, arg) in type_params.iter().zip(type_args.iter()) {
+            type_map.insert(param.clone(), arg.clone());
+        }
+
+        // Save current compilation state
+        let saved_function = self.current_function;
+        let saved_variables = std::mem::take(&mut self.variables);
+        let saved_moved = std::mem::take(&mut self.moved_vars);
+        let saved_borrowed = std::mem::take(&mut self.borrowed_vars);
+        let saved_block = self.builder.get_insert_block();
+
+        // First pass: create monomorphized methods and declare them
+        let mut mono_methods = Vec::new();
+        for method in &generic_impl.methods {
+            let mangled_method_name = format!("{}_{}", mono_name, method.name);
+
+            // Already declared?
+            if self.module.get_function(&mangled_method_name).is_some() {
+                continue;
+            }
+
+            // Substitute types in method
+            let mono_method = Function {
+                name: mangled_method_name.clone(),
+                generics: Vec::new(),
+                params: method.params.iter().map(|p| {
+                    let mut ty = self.substitute_type(&p.ty, &type_map);
+                    // Also substitute Self with the monomorphized type
+                    if let Type::SelfType = ty {
+                        ty = Type::Named { name: mono_name.clone(), generics: vec![] };
+                    }
+                    // Handle &Self and ~Self
+                    if let Type::Ref(inner) = &ty {
+                        if let Type::SelfType = inner.as_ref() {
+                            ty = Type::Ref(Box::new(Type::Named { name: mono_name.clone(), generics: vec![] }));
+                        }
+                    }
+                    if let Type::RefMut(inner) = &ty {
+                        if let Type::SelfType = inner.as_ref() {
+                            ty = Type::RefMut(Box::new(Type::Named { name: mono_name.clone(), generics: vec![] }));
+                        }
+                    }
+                    Param {
+                        name: p.name.clone(),
+                        ty,
+                        span: p.span,
+                    }
+                }).collect(),
+                return_type: method.return_type.as_ref().map(|t| {
+                    let mut ty = self.substitute_type(t, &type_map);
+                    if let Type::SelfType = ty {
+                        ty = Type::Named { name: mono_name.clone(), generics: vec![] };
+                    }
+                    ty
+                }),
+                body: self.substitute_block(&method.body, &type_map),
+                is_pub: method.is_pub,
+                span: method.span,
+            };
+
+            // Declare the function
+            self.declare_function(&mono_method)?;
+
+            // Register the method for the monomorphized type
+            self.type_methods
+                .entry(mono_name.clone())
+                .or_insert_with(HashMap::new)
+                .insert(method.name.clone(), mangled_method_name);
+
+            mono_methods.push(mono_method);
+        }
+
+        // Second pass: compile all methods
+        for mono_method in &mono_methods {
+            self.compile_function(mono_method)?;
+        }
+
+        // Restore compilation state
+        self.current_function = saved_function;
+        self.variables = saved_variables;
+        self.moved_vars = saved_moved;
+        self.borrowed_vars = saved_borrowed;
+        if let Some(block) = saved_block {
+            self.builder.position_at_end(block);
+        }
+
+        Ok(())
+    }
+
     /// Substitute type parameters in a type
     pub(crate) fn substitute_type(&self, ty: &Type, type_map: &HashMap<String, Type>) -> Type {
         match ty {
@@ -277,6 +394,15 @@ impl<'ctx> Codegen<'ctx> {
             Expr::Range { start, end, span } => Expr::Range {
                 start: Box::new(self.substitute_expr(start, type_map)),
                 end: Box::new(self.substitute_expr(end, type_map)),
+                span: *span,
+            },
+            Expr::Cast { expr: e, ty, span } => Expr::Cast {
+                expr: Box::new(self.substitute_expr(e, type_map)),
+                ty: self.substitute_type(ty, type_map),
+                span: *span,
+            },
+            Expr::Unsafe { block, span } => Expr::Unsafe {
+                block: self.substitute_block(block, type_map),
                 span: *span,
             },
             _ => expr.clone(),

@@ -1,0 +1,39 @@
+// Test unsafe blocks and pointer intrinsics
+
+fn main() {
+    println("Testing unsafe blocks and pointer intrinsics")
+
+    // Test sizeof
+    let size_i64 = sizeof<i64>()
+    println("sizeof<i64> = ${size_i64}")
+
+    // Test ptr_null and ptr_is_null
+    let null_p = ptr_null<i64>()
+    if ptr_is_null(null_p) {
+        println("null pointer detected correctly")
+    }
+
+    // Test malloc, ptr_write, ptr_read in unsafe block
+    unsafe {
+        let ptr = malloc(16)
+        let int_ptr = ptr as *i64
+
+        // Write values
+        ptr_write<i64>(int_ptr, 42)
+
+        // Read back
+        let val = ptr_read<i64>(int_ptr)
+        println("Read value: ${val}")
+
+        // Test ptr_add
+        let ptr2 = ptr_add<i64>(int_ptr, 1)
+        ptr_write<i64>(ptr2, 100)
+        let val2 = ptr_read<i64>(ptr2)
+        println("Read value at offset 1: ${val2}")
+
+        // Cleanup
+        free(ptr)
+    }
+
+    println("All pointer tests passed!")
+}

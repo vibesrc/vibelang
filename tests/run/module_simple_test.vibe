@@ -1,0 +1,29 @@
+// Test module-as-namespace imports
+use std.fs
+
+fn main() {
+    println("Testing module import")
+
+    // Test module-qualified function call
+    let exists = fs.exists("test.txt")
+    if exists {
+        println("test.txt exists")
+    } else {
+        println("test.txt does not exist")
+    }
+
+    // Test module-qualified struct static method: fs.File.create
+    let result = fs.File.create("module_test_output.txt")
+    match result {
+        Result.Ok(f) => {
+            println("Created file via fs.File.create")
+            f.write_bytes("Hello from module import!\n")
+            f.close()
+        }
+        Result.Err(e) => {
+            println("Failed to create file: ${e.message}")
+        }
+    }
+
+    println("Module import test complete")
+}

@@ -103,22 +103,58 @@ impl<'ctx> Codegen<'ctx> {
         object: &Expr,
         field: &str,
     ) -> Result<BasicValueEnum<'ctx>, CodegenError> {
-        // If object is an identifier, check if it's an enum type or a variable
+        // If object is an identifier, check if it's an enum type, module alias, or a variable
         if let Expr::Ident(name, _) = object {
             // Check if this is an enum variant access (e.g., Color.Green for unit variant)
             if let Some(enum_info) = self.enum_types.get(name).cloned() {
                 // For unit variants, construct the full tagged union
                 return self.compile_enum_variant_constructor(&enum_info, name, field, &[]);
             }
+
+            // Check if this is a module-qualified type access (e.g., fs.File)
+            if self.module_aliases.contains_key(name) {
+                // Resolve as module_Type (e.g., fs.File -> fs_File)
+                let qualified_name = format!("{}_{}", name, field);
+                let resolved_name = self.imports.get(&qualified_name)
+                    .cloned()
+                    .unwrap_or(qualified_name);
+
+                // Check if it's a struct type - return a placeholder for method chaining
+                if self.struct_types.contains_key(&resolved_name) {
+                    // This is used for fs.File.create() style calls
+                    // Return a dummy value - the actual call handling happens in compile_call
+                    return Err(CodegenError::NotImplemented(
+                        format!("module type '{}' used in expression context; use '{}.{}' for static methods",
+                                resolved_name, name, field)
+                    ));
+                }
+
+                // Check if it's an enum type
+                if let Some(enum_info) = self.enum_types.get(&resolved_name).cloned() {
+                    // This allows fs.Result.Ok style syntax
+                    return Err(CodegenError::NotImplemented(
+                        format!("enum '{}' from module '{}' - use {}.VariantName for variants",
+                                field, name, resolved_name)
+                    ));
+                }
+
+                return Err(CodegenError::UndefinedType(
+                    format!("'{}' not found in module '{}'", field, name)
+                ));
+            }
         }
 
         // Check for generic enum unit variant: EnumName<Type>.Variant
         if let Expr::StructInit { name, generics, fields, .. } = object {
             if fields.is_empty() && !generics.is_empty() {
-                let mono_name = self.ensure_monomorphized_enum(name, generics)?;
-                let enum_info = self.enum_types.get(&mono_name).cloned()
-                    .ok_or_else(|| CodegenError::UndefinedType(format!("enum '{}' not found after monomorphization", mono_name)))?;
-                return self.compile_enum_variant_constructor(&enum_info, &mono_name, field, &[]);
+                // Only handle as enum if it's actually a generic enum
+                if self.generic_enums.contains_key(name) {
+                    let mono_name = self.ensure_monomorphized_enum(name, generics)?;
+                    let enum_info = self.enum_types.get(&mono_name).cloned()
+                        .ok_or_else(|| CodegenError::UndefinedType(format!("enum '{}' not found after monomorphization", mono_name)))?;
+                    return self.compile_enum_variant_constructor(&enum_info, &mono_name, field, &[]);
+                }
+                // For generic structs like Array<u8>, this will be handled by method call logic
             }
         }
 
@@ -156,6 +192,17 @@ impl<'ctx> Codegen<'ctx> {
             let struct_name = struct_name
                 .ok_or_else(|| CodegenError::UndefinedType(format!("variable '{}' is not a struct", name)))?;
 
+            // Ensure the struct is monomorphized if it's a generic type
+            // This handles cases like Slice_u8 where we know the name but haven't materialized it yet
+            if !self.struct_types.contains_key(struct_name) {
+                // Try to extract base name and type args from mangled name (e.g., "Slice_u8" -> "Slice", [u8])
+                if let Some((base_name, type_args)) = self.parse_mangled_name(struct_name) {
+                    if self.generic_structs.contains_key(&base_name) {
+                        self.ensure_monomorphized_struct(&base_name, &type_args)?;
+                    }
+                }
+            }
+
             let struct_info = self
                 .struct_types
                 .get(struct_name)
@@ -191,10 +238,145 @@ impl<'ctx> Codegen<'ctx> {
                 .unwrap();
 
             Ok(field_val)
+        } else if let Expr::Field { object: inner_obj, field: inner_field, .. } = object {
+            // Nested field access: a.b.c
+            // Get a pointer to the inner field (a.b), then access .c on that
+            let (inner_ptr, inner_struct_name) = self.compile_nested_field_ptr(inner_obj, inner_field)?;
+
+            // Now access the outer field on the inner struct
+            let struct_info = self
+                .struct_types
+                .get(&inner_struct_name)
+                .ok_or_else(|| CodegenError::UndefinedType(inner_struct_name.clone()))?
+                .clone();
+
+            let field_idx = *struct_info
+                .field_indices
+                .get(field)
+                .ok_or_else(|| CodegenError::UndefinedField(field.to_string()))?;
+
+            let field_type = struct_info.field_types[field_idx as usize];
+
+            let field_ptr = self
+                .builder
+                .build_struct_gep(struct_info.llvm_type, inner_ptr, field_idx, &format!("nested.{}", field))
+                .unwrap();
+
+            let field_val = self
+                .builder
+                .build_load(field_type, field_ptr, field)
+                .unwrap();
+
+            Ok(field_val)
         } else {
             Err(CodegenError::NotImplemented(
-                "nested field access (e.g., 'a.b.c') is not yet supported. \
-                 Use an intermediate variable: 'let b = a.b; b.c'".to_string()
+                "field access on complex expressions not yet supported".to_string()
+            ))
+        }
+    }
+
+    /// Get a pointer to a nested field and return both the pointer and the struct type name
+    fn compile_nested_field_ptr(
+        &mut self,
+        object: &Expr,
+        field: &str,
+    ) -> Result<(PointerValue<'ctx>, String), CodegenError> {
+        if let Expr::Ident(name, _) = object {
+            let var_info = self
+                .variables
+                .get(name)
+                .ok_or_else(|| CodegenError::UndefinedVariable(name.clone()))?
+                .clone();
+
+            let struct_name = if var_info.is_ref {
+                var_info.ref_struct_name.as_ref()
+            } else {
+                var_info.struct_name.as_ref()
+            };
+
+            let struct_name = struct_name
+                .ok_or_else(|| CodegenError::UndefinedType(format!("variable '{}' is not a struct", name)))?
+                .clone();
+
+            // Ensure struct is monomorphized
+            if !self.struct_types.contains_key(&struct_name) {
+                if let Some((base_name, type_args)) = self.parse_mangled_name(&struct_name) {
+                    if self.generic_structs.contains_key(&base_name) {
+                        self.ensure_monomorphized_struct(&base_name, &type_args)?;
+                    }
+                }
+            }
+
+            let struct_info = self
+                .struct_types
+                .get(&struct_name)
+                .ok_or_else(|| CodegenError::UndefinedType(struct_name.clone()))?
+                .clone();
+
+            let field_idx = *struct_info
+                .field_indices
+                .get(field)
+                .ok_or_else(|| CodegenError::UndefinedField(field.to_string()))?;
+
+            // Get the AST type of this field to determine its struct name
+            let field_ast_type = struct_info.ast_field_types.get(field_idx as usize)
+                .ok_or_else(|| CodegenError::UndefinedField(field.to_string()))?
+                .clone();
+
+            let field_struct_name = self.get_struct_name_for_type(&field_ast_type)
+                .ok_or_else(|| CodegenError::NotImplemented(
+                    format!("field '{}' is not a struct type", field)
+                ))?;
+
+            // Get pointer to the struct
+            let struct_ptr = if var_info.is_ref {
+                self.builder
+                    .build_load(self.context.ptr_type(AddressSpace::default()), var_info.ptr, "deref_ptr")
+                    .unwrap()
+                    .into_pointer_value()
+            } else {
+                var_info.ptr
+            };
+
+            let field_ptr = self
+                .builder
+                .build_struct_gep(struct_info.llvm_type, struct_ptr, field_idx, &format!("{}.{}", name, field))
+                .unwrap();
+
+            Ok((field_ptr, field_struct_name))
+        } else if let Expr::Field { object: inner_obj, field: inner_field, .. } = object {
+            // Recursive case: a.b.c.d
+            let (inner_ptr, inner_struct_name) = self.compile_nested_field_ptr(inner_obj, inner_field)?;
+
+            let struct_info = self
+                .struct_types
+                .get(&inner_struct_name)
+                .ok_or_else(|| CodegenError::UndefinedType(inner_struct_name.clone()))?
+                .clone();
+
+            let field_idx = *struct_info
+                .field_indices
+                .get(field)
+                .ok_or_else(|| CodegenError::UndefinedField(field.to_string()))?;
+
+            let field_ast_type = struct_info.ast_field_types.get(field_idx as usize)
+                .ok_or_else(|| CodegenError::UndefinedField(field.to_string()))?
+                .clone();
+
+            let field_struct_name = self.get_struct_name_for_type(&field_ast_type)
+                .ok_or_else(|| CodegenError::NotImplemented(
+                    format!("field '{}' is not a struct type", field)
+                ))?;
+
+            let field_ptr = self
+                .builder
+                .build_struct_gep(struct_info.llvm_type, inner_ptr, field_idx, &format!("nested.{}", field))
+                .unwrap();
+
+            Ok((field_ptr, field_struct_name))
+        } else {
+            Err(CodegenError::NotImplemented(
+                "complex nested field access not yet supported".to_string()
             ))
         }
     }
@@ -400,9 +582,20 @@ impl<'ctx> Codegen<'ctx> {
         let ptr_val = self.compile_expr(operand)?;
         let ptr = ptr_val.into_pointer_value();
 
-        // For now, assume we're dereferencing to i32 (need type inference for general case)
-        let val = self.builder.build_load(self.context.i32_type(), ptr, "deref").unwrap();
+        // Try to infer the pointed-to type from context
+        // For now, support common cases: pointer to i8/i32/i64 and generic type T
+        // Default to i64 as it's the common case for Array<i64> etc.
+        // TODO: Add proper type inference based on pointer type annotations
+        let val = self.builder.build_load(self.context.i64_type(), ptr, "deref").unwrap();
         Ok(val)
+    }
+
+    /// Compile assignment through pointer: *ptr = value
+    pub(crate) fn compile_deref_assign(&mut self, target: &Expr, value: BasicValueEnum<'ctx>) -> Result<BasicValueEnum<'ctx>, CodegenError> {
+        let ptr_val = self.compile_expr(target)?;
+        let ptr = ptr_val.into_pointer_value();
+        self.builder.build_store(ptr, value).unwrap();
+        Ok(value)
     }
 
     pub(crate) fn compile_array_init_with_type(&mut self, elements: &[Expr], elem_type: Option<&Type>) -> Result<BasicValueEnum<'ctx>, CodegenError> {

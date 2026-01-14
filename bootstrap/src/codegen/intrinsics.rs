@@ -402,4 +402,421 @@ impl<'ctx> Codegen<'ctx> {
         let val = self.builder.build_load(self.context.i64_type(), elem_ptr, "val").unwrap();
         Ok(val)
     }
+
+    /// null<T>() - returns a null pointer of type *T
+    pub(crate) fn compile_null_call(&mut self, _type_args: &[Type]) -> Result<BasicValueEnum<'ctx>, CodegenError> {
+        // Return a null pointer (type doesn't matter in LLVM's opaque pointer model)
+        Ok(self.context.ptr_type(AddressSpace::default()).const_null().into())
+    }
+
+    /// sizeof<T>() - returns the size of type T in bytes
+    pub(crate) fn compile_sizeof_call(&mut self, type_args: &[Type]) -> Result<BasicValueEnum<'ctx>, CodegenError> {
+        if type_args.is_empty() {
+            return Err(CodegenError::InvalidArguments(
+                "sizeof requires a type argument: sizeof<T>()".to_string()
+            ));
+        }
+
+        let llvm_type = self.llvm_type(&type_args[0])?;
+
+        // Calculate size using LLVM's size_of method
+        // This returns an IntValue<'ctx> representing the size
+        let size_val = match llvm_type {
+            inkwell::types::BasicTypeEnum::IntType(t) => t.size_of(),
+            inkwell::types::BasicTypeEnum::FloatType(t) => t.size_of(),
+            inkwell::types::BasicTypeEnum::PointerType(t) => t.size_of(),
+            inkwell::types::BasicTypeEnum::ArrayType(t) => t.size_of().unwrap(),
+            inkwell::types::BasicTypeEnum::StructType(t) => t.size_of().unwrap(),
+            inkwell::types::BasicTypeEnum::VectorType(t) => t.size_of().unwrap(),
+            inkwell::types::BasicTypeEnum::ScalableVectorType(_) => {
+                return Err(CodegenError::NotImplemented(
+                    "sizeof not supported for scalable vector types".to_string()
+                ));
+            }
+        };
+
+        Ok(size_val.into())
+    }
+
+    /// ptr_null<T>() - returns a null pointer of type *T
+    pub(crate) fn compile_ptr_null_call(&mut self, _type_args: &[Type]) -> Result<BasicValueEnum<'ctx>, CodegenError> {
+        // Return a null pointer (type doesn't matter in LLVM's opaque pointer model)
+        Ok(self.context.ptr_type(AddressSpace::default()).const_null().into())
+    }
+
+    /// ptr_is_null<T>(ptr: *T) -> bool - check if pointer is null
+    pub(crate) fn compile_ptr_is_null_call(&mut self, args: &[Expr]) -> Result<BasicValueEnum<'ctx>, CodegenError> {
+        if args.len() != 1 {
+            return Err(CodegenError::InvalidArguments(
+                "ptr_is_null requires 1 argument (ptr)".to_string()
+            ));
+        }
+
+        let ptr_val = self.compile_expr(&args[0])?;
+
+        if !ptr_val.is_pointer_value() {
+            return Err(CodegenError::InvalidArguments(
+                "ptr_is_null requires a pointer argument".to_string()
+            ));
+        }
+
+        let ptr = ptr_val.into_pointer_value();
+        let null_ptr = self.context.ptr_type(AddressSpace::default()).const_null();
+
+        // Compare pointer to null
+        let is_null = self.builder
+            .build_int_compare(
+                inkwell::IntPredicate::EQ,
+                self.builder.build_ptr_to_int(ptr, self.context.i64_type(), "ptr_int").unwrap(),
+                self.builder.build_ptr_to_int(null_ptr, self.context.i64_type(), "null_int").unwrap(),
+                "is_null"
+            )
+            .unwrap();
+
+        // Zero-extend i1 to i64 for bool representation
+        let result = self.builder
+            .build_int_z_extend(is_null, self.context.i64_type(), "is_null_i64")
+            .unwrap();
+
+        Ok(result.into())
+    }
+
+    /// ptr_write<T>(ptr: *T, value: T) - write value through typed pointer
+    pub(crate) fn compile_ptr_write_call(&mut self, type_args: &[Type], args: &[Expr]) -> Result<BasicValueEnum<'ctx>, CodegenError> {
+        if args.len() != 2 {
+            return Err(CodegenError::InvalidArguments(
+                "ptr_write requires 2 arguments (ptr, value)".to_string()
+            ));
+        }
+
+        let ptr_val = self.compile_expr(&args[0])?;
+        let value_val = self.compile_expr(&args[1])?;
+
+        if !ptr_val.is_pointer_value() {
+            return Err(CodegenError::InvalidArguments(
+                "ptr_write requires a pointer as first argument".to_string()
+            ));
+        }
+
+        let ptr = ptr_val.into_pointer_value();
+
+        // If type args provided, we can verify the type, but for now just store
+        let _ = type_args; // Type args help with type inference but aren't strictly needed for store
+
+        // Store the value through the pointer
+        self.builder.build_store(ptr, value_val).unwrap();
+
+        Ok(self.context.i64_type().const_zero().into())
+    }
+
+    /// ptr_read<T>(ptr: *T) -> T - read value through typed pointer
+    pub(crate) fn compile_ptr_read_call(&mut self, type_args: &[Type], args: &[Expr]) -> Result<BasicValueEnum<'ctx>, CodegenError> {
+        if args.len() != 1 {
+            return Err(CodegenError::InvalidArguments(
+                "ptr_read requires 1 argument (ptr)".to_string()
+            ));
+        }
+
+        let ptr_val = self.compile_expr(&args[0])?;
+
+        if !ptr_val.is_pointer_value() {
+            return Err(CodegenError::InvalidArguments(
+                "ptr_read requires a pointer argument".to_string()
+            ));
+        }
+
+        let ptr = ptr_val.into_pointer_value();
+
+        // Determine the type to load
+        let load_type = if !type_args.is_empty() {
+            self.llvm_type(&type_args[0])?
+        } else {
+            // Default to i64 if no type argument provided
+            self.context.i64_type().into()
+        };
+
+        // Load and return the value
+        let val = self.builder.build_load(load_type, ptr, "ptr_read").unwrap();
+        Ok(val)
+    }
+
+    /// ptr_add<T>(ptr: *T, offset: i64) -> *T - add offset to typed pointer
+    pub(crate) fn compile_ptr_add_call(&mut self, type_args: &[Type], args: &[Expr]) -> Result<BasicValueEnum<'ctx>, CodegenError> {
+        if args.len() != 2 {
+            return Err(CodegenError::InvalidArguments(
+                "ptr_add requires 2 arguments (ptr, offset)".to_string()
+            ));
+        }
+
+        let ptr_val = self.compile_expr(&args[0])?;
+        let offset_val = self.compile_expr(&args[1])?;
+
+        if !ptr_val.is_pointer_value() {
+            return Err(CodegenError::InvalidArguments(
+                "ptr_add requires a pointer as first argument".to_string()
+            ));
+        }
+
+        if !offset_val.is_int_value() {
+            return Err(CodegenError::InvalidArguments(
+                "ptr_add requires an integer offset as second argument".to_string()
+            ));
+        }
+
+        let ptr = ptr_val.into_pointer_value();
+        let offset = offset_val.into_int_value();
+
+        // Determine element type for GEP
+        let elem_type = if !type_args.is_empty() {
+            self.llvm_type(&type_args[0])?
+        } else {
+            // Default to i8 for byte-wise pointer arithmetic
+            self.context.i8_type().into()
+        };
+
+        // Use GEP to calculate the new pointer
+        let new_ptr = unsafe {
+            self.builder.build_gep(elem_type, ptr, &[offset], "ptr_add").unwrap()
+        };
+
+        Ok(new_ptr.into())
+    }
+
+    // ========== File I/O Syscalls ==========
+
+    /// sys_open(path: *u8, flags: i32, mode: i32) -> i32
+    /// Wrapper around Unix open() syscall
+    pub(crate) fn compile_sys_open_call(&mut self, args: &[Expr]) -> Result<BasicValueEnum<'ctx>, CodegenError> {
+        if args.len() != 3 {
+            return Err(CodegenError::InvalidArguments(
+                "sys_open requires 3 arguments (path, flags, mode)".to_string()
+            ));
+        }
+
+        let open_fn = self.module.get_function("open").unwrap();
+
+        let path_val = self.compile_expr(&args[0])?;
+        let flags_val = self.compile_expr(&args[1])?;
+        let mode_val = self.compile_expr(&args[2])?;
+
+        // Extract pointer from Slice<u8> if needed
+        let path_ptr = self.extract_string_ptr(path_val);
+
+        // Convert flags and mode to i32 if needed
+        let flags = if flags_val.is_int_value() {
+            let int_val = flags_val.into_int_value();
+            self.builder.build_int_truncate(int_val, self.context.i32_type(), "flags_i32").unwrap()
+        } else {
+            return Err(CodegenError::InvalidArguments(
+                "sys_open flags must be an integer".to_string()
+            ));
+        };
+
+        let mode = if mode_val.is_int_value() {
+            let int_val = mode_val.into_int_value();
+            self.builder.build_int_truncate(int_val, self.context.i32_type(), "mode_i32").unwrap()
+        } else {
+            return Err(CodegenError::InvalidArguments(
+                "sys_open mode must be an integer".to_string()
+            ));
+        };
+
+        let call_site = self.builder
+            .build_call(open_fn, &[path_ptr.into(), flags.into(), mode.into()], "open_call")
+            .unwrap();
+
+        match call_site.try_as_basic_value() {
+            inkwell::values::ValueKind::Basic(val) => Ok(val),
+            inkwell::values::ValueKind::Instruction(_) => Ok(self.context.i32_type().const_zero().into()),
+        }
+    }
+
+    /// sys_close(fd: i32) -> i32
+    /// Wrapper around Unix close() syscall
+    pub(crate) fn compile_sys_close_call(&mut self, args: &[Expr]) -> Result<BasicValueEnum<'ctx>, CodegenError> {
+        if args.len() != 1 {
+            return Err(CodegenError::InvalidArguments(
+                "sys_close requires 1 argument (fd)".to_string()
+            ));
+        }
+
+        let close_fn = self.module.get_function("close").unwrap();
+
+        let fd_val = self.compile_expr(&args[0])?;
+
+        let fd = if fd_val.is_int_value() {
+            let int_val = fd_val.into_int_value();
+            self.builder.build_int_truncate(int_val, self.context.i32_type(), "fd_i32").unwrap()
+        } else {
+            return Err(CodegenError::InvalidArguments(
+                "sys_close fd must be an integer".to_string()
+            ));
+        };
+
+        let call_site = self.builder
+            .build_call(close_fn, &[fd.into()], "close_call")
+            .unwrap();
+
+        match call_site.try_as_basic_value() {
+            inkwell::values::ValueKind::Basic(val) => Ok(val),
+            inkwell::values::ValueKind::Instruction(_) => Ok(self.context.i32_type().const_zero().into()),
+        }
+    }
+
+    /// sys_read(fd: i32, buf: *u8, count: i64) -> i64
+    /// Wrapper around Unix read() syscall
+    pub(crate) fn compile_sys_read_call(&mut self, args: &[Expr]) -> Result<BasicValueEnum<'ctx>, CodegenError> {
+        if args.len() != 3 {
+            return Err(CodegenError::InvalidArguments(
+                "sys_read requires 3 arguments (fd, buf, count)".to_string()
+            ));
+        }
+
+        let read_fn = self.module.get_function("read").unwrap();
+
+        let fd_val = self.compile_expr(&args[0])?;
+        let buf_val = self.compile_expr(&args[1])?;
+        let count_val = self.compile_expr(&args[2])?;
+
+        let fd = if fd_val.is_int_value() {
+            let int_val = fd_val.into_int_value();
+            self.builder.build_int_truncate(int_val, self.context.i32_type(), "fd_i32").unwrap()
+        } else {
+            return Err(CodegenError::InvalidArguments(
+                "sys_read fd must be an integer".to_string()
+            ));
+        };
+
+        // buf should be a pointer
+        let buf_ptr = if buf_val.is_pointer_value() {
+            buf_val.into_pointer_value()
+        } else {
+            return Err(CodegenError::InvalidArguments(
+                "sys_read buf must be a pointer".to_string()
+            ));
+        };
+
+        let count = if count_val.is_int_value() {
+            count_val.into_int_value()
+        } else {
+            return Err(CodegenError::InvalidArguments(
+                "sys_read count must be an integer".to_string()
+            ));
+        };
+
+        let call_site = self.builder
+            .build_call(read_fn, &[fd.into(), buf_ptr.into(), count.into()], "read_call")
+            .unwrap();
+
+        match call_site.try_as_basic_value() {
+            inkwell::values::ValueKind::Basic(val) => Ok(val),
+            inkwell::values::ValueKind::Instruction(_) => Ok(self.context.i64_type().const_zero().into()),
+        }
+    }
+
+    /// sys_write(fd: i32, buf: *u8, count: i64) -> i64
+    /// Wrapper around Unix write() syscall
+    pub(crate) fn compile_sys_write_call(&mut self, args: &[Expr]) -> Result<BasicValueEnum<'ctx>, CodegenError> {
+        if args.len() != 3 {
+            return Err(CodegenError::InvalidArguments(
+                "sys_write requires 3 arguments (fd, buf, count)".to_string()
+            ));
+        }
+
+        let write_fn = self.module.get_function("write").unwrap();
+
+        let fd_val = self.compile_expr(&args[0])?;
+        let buf_val = self.compile_expr(&args[1])?;
+        let count_val = self.compile_expr(&args[2])?;
+
+        let fd = if fd_val.is_int_value() {
+            let int_val = fd_val.into_int_value();
+            self.builder.build_int_truncate(int_val, self.context.i32_type(), "fd_i32").unwrap()
+        } else {
+            return Err(CodegenError::InvalidArguments(
+                "sys_write fd must be an integer".to_string()
+            ));
+        };
+
+        // buf can be a pointer or a Slice<u8>
+        let buf_ptr = if buf_val.is_pointer_value() {
+            buf_val.into_pointer_value()
+        } else if buf_val.is_struct_value() {
+            // Extract pointer from Slice<u8>
+            let struct_val = buf_val.into_struct_value();
+            self.builder.build_extract_value(struct_val, 0, "buf_ptr").unwrap().into_pointer_value()
+        } else {
+            return Err(CodegenError::InvalidArguments(
+                "sys_write buf must be a pointer or Slice<u8>".to_string()
+            ));
+        };
+
+        let count = if count_val.is_int_value() {
+            count_val.into_int_value()
+        } else {
+            return Err(CodegenError::InvalidArguments(
+                "sys_write count must be an integer".to_string()
+            ));
+        };
+
+        let call_site = self.builder
+            .build_call(write_fn, &[fd.into(), buf_ptr.into(), count.into()], "write_call")
+            .unwrap();
+
+        match call_site.try_as_basic_value() {
+            inkwell::values::ValueKind::Basic(val) => Ok(val),
+            inkwell::values::ValueKind::Instruction(_) => Ok(self.context.i64_type().const_zero().into()),
+        }
+    }
+
+    /// sys_lseek(fd: i32, offset: i64, whence: i32) -> i64
+    /// Wrapper around Unix lseek() syscall
+    pub(crate) fn compile_sys_lseek_call(&mut self, args: &[Expr]) -> Result<BasicValueEnum<'ctx>, CodegenError> {
+        if args.len() != 3 {
+            return Err(CodegenError::InvalidArguments(
+                "sys_lseek requires 3 arguments (fd, offset, whence)".to_string()
+            ));
+        }
+
+        let lseek_fn = self.module.get_function("lseek").unwrap();
+
+        let fd_val = self.compile_expr(&args[0])?;
+        let offset_val = self.compile_expr(&args[1])?;
+        let whence_val = self.compile_expr(&args[2])?;
+
+        let fd = if fd_val.is_int_value() {
+            let int_val = fd_val.into_int_value();
+            self.builder.build_int_truncate(int_val, self.context.i32_type(), "fd_i32").unwrap()
+        } else {
+            return Err(CodegenError::InvalidArguments(
+                "sys_lseek fd must be an integer".to_string()
+            ));
+        };
+
+        let offset = if offset_val.is_int_value() {
+            offset_val.into_int_value()
+        } else {
+            return Err(CodegenError::InvalidArguments(
+                "sys_lseek offset must be an integer".to_string()
+            ));
+        };
+
+        let whence = if whence_val.is_int_value() {
+            let int_val = whence_val.into_int_value();
+            self.builder.build_int_truncate(int_val, self.context.i32_type(), "whence_i32").unwrap()
+        } else {
+            return Err(CodegenError::InvalidArguments(
+                "sys_lseek whence must be an integer".to_string()
+            ));
+        };
+
+        let call_site = self.builder
+            .build_call(lseek_fn, &[fd.into(), offset.into(), whence.into()], "lseek_call")
+            .unwrap();
+
+        match call_site.try_as_basic_value() {
+            inkwell::values::ValueKind::Basic(val) => Ok(val),
+            inkwell::values::ValueKind::Instruction(_) => Ok(self.context.i64_type().const_zero().into()),
+        }
+    }
 }

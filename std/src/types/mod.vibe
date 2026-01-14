@@ -1,0 +1,32 @@
+// std.types - Core type definitions
+// These are auto-imported via prelude
+
+/// Slice - fat pointer to contiguous memory {ptr, len}
+/// This is the underlying type for string literals and borrowed arrays
+pub struct Slice<T> {
+    pub ptr: *T
+    pub len: i64
+}
+
+/// Option type for nullable values
+pub enum Option<T> {
+    Some(T)
+    None
+}
+
+/// Result type for error handling
+pub enum Result<T, E> {
+    Ok(T)
+    Err(E)
+}
+
+/// Error struct with a message
+pub struct Error {
+    pub message: Slice<u8>
+}
+
+impl Error {
+    pub fn new(message: Slice<u8>) -> Error {
+        return Error { message: message }
+    }
+}

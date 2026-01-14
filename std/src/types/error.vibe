@@ -1,0 +1,12 @@
+// std.types.error - Error type
+
+/// Error struct with a message
+pub struct Error {
+    pub message: Slice<u8>
+}
+
+impl Error {
+    pub fn new(message: Slice<u8>) -> Error {
+        return Error { message: message }
+    }
+}

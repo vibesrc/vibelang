@@ -1,0 +1,468 @@
+// std.string - String type and utilities
+// Method-based API with chaining support
+
+use std.collections.{Array}
+use std.types.{Option}
+use std.mem.{alloc, dealloc, copy}
+
+/// String - heap-allocated, growable UTF-8 string
+pub struct String {
+    data: Array<u8>
+}
+
+impl String {
+    // === Constructors ===
+
+    /// Create a new empty String
+    pub fn new() -> String {
+        return String { data: Array<u8>.new() }
+    }
+
+    /// Create a String with pre-allocated capacity
+    pub fn with_capacity(cap: i64) -> String {
+        return String { data: Array<u8>.with_capacity(cap) }
+    }
+
+    /// Create a String from a slice
+    pub fn from(s: &Slice<u8>) -> String {
+        let result = String.with_capacity(s.len)
+        let i: i64 = 0
+        while i < s.len {
+            unsafe {
+                result.data.push(ptr_read<u8>(ptr_add<u8>(s.ptr, i)))
+            }
+            i = i + 1
+        }
+        return result
+    }
+
+    // === Properties ===
+
+    /// Get the length in bytes
+    pub fn len(&self) -> i64 {
+        return self.data.len
+    }
+
+    /// Get the allocated capacity
+    pub fn capacity(&self) -> i64 {
+        return self.data.capacity
+    }
+
+    /// Check if string is empty
+    pub fn is_empty(&self) -> bool {
+        return self.data.len == 0
+    }
+
+    /// Get the underlying bytes as a slice
+    pub fn as_bytes(&self) -> Slice<u8> {
+        return Slice<u8> { ptr: self.data.ptr, len: self.data.len }
+    }
+
+    // === Mutation (returns String for chaining) ===
+
+    /// Append a single byte
+    pub fn push(~self, byte: u8) -> String {
+        self.data.push(byte)
+        return self
+    }
+
+    /// Append a string slice
+    pub fn push_str(~self, s: &Slice<u8>) -> String {
+        let i: i64 = 0
+        while i < s.len {
+            unsafe {
+                self.data.push(ptr_read<u8>(ptr_add<u8>(s.ptr, i)))
+            }
+            i = i + 1
+        }
+        return self
+    }
+
+    /// Clear the string contents
+    pub fn clear(~self) -> String {
+        self.data.clear()
+        return self
+    }
+
+    // === Transformations (return new String) ===
+
+    /// Trim whitespace from both ends
+    pub fn trim(&self) -> String {
+        let bytes = self.as_bytes()
+        let start: i64 = 0
+        let end = bytes.len
+
+        // Trim leading whitespace
+        while start < end {
+            let c = unsafe { ptr_read<u8>(ptr_add<u8>(bytes.ptr, start)) }
+            if c != 32 and c != 9 and c != 10 and c != 13 {
+                break
+            }
+            start = start + 1
+        }
+
+        // Trim trailing whitespace
+        while end > start {
+            let c = unsafe { ptr_read<u8>(ptr_add<u8>(bytes.ptr, end - 1)) }
+            if c != 32 and c != 9 and c != 10 and c != 13 {
+                break
+            }
+            end = end - 1
+        }
+
+        let result = String.with_capacity(end - start)
+        let i = start
+        while i < end {
+            unsafe {
+                result.data.push(ptr_read<u8>(ptr_add<u8>(bytes.ptr, i)))
+            }
+            i = i + 1
+        }
+        return result
+    }
+
+    /// Trim leading whitespace
+    pub fn trim_start(&self) -> String {
+        let bytes = self.as_bytes()
+        let start: i64 = 0
+
+        while start < bytes.len {
+            let c = unsafe { ptr_read<u8>(ptr_add<u8>(bytes.ptr, start)) }
+            if c != 32 and c != 9 and c != 10 and c != 13 {
+                break
+            }
+            start = start + 1
+        }
+
+        let result = String.with_capacity(bytes.len - start)
+        let i = start
+        while i < bytes.len {
+            unsafe {
+                result.data.push(ptr_read<u8>(ptr_add<u8>(bytes.ptr, i)))
+            }
+            i = i + 1
+        }
+        return result
+    }
+
+    /// Trim trailing whitespace
+    pub fn trim_end(&self) -> String {
+        let bytes = self.as_bytes()
+        let end = bytes.len
+
+        while end > 0 {
+            let c = unsafe { ptr_read<u8>(ptr_add<u8>(bytes.ptr, end - 1)) }
+            if c != 32 and c != 9 and c != 10 and c != 13 {
+                break
+            }
+            end = end - 1
+        }
+
+        let result = String.with_capacity(end)
+        let i: i64 = 0
+        while i < end {
+            unsafe {
+                result.data.push(ptr_read<u8>(ptr_add<u8>(bytes.ptr, i)))
+            }
+            i = i + 1
+        }
+        return result
+    }
+
+    /// Convert to lowercase (ASCII only)
+    pub fn to_lowercase(&self) -> String {
+        let result = String.with_capacity(self.data.len)
+        let i: i64 = 0
+        while i < self.data.len {
+            let c = unsafe { ptr_read<u8>(ptr_add<u8>(self.data.ptr, i)) }
+            // A-Z (65-90) -> a-z (97-122)
+            if c >= 65 and c <= 90 {
+                result.data.push(c + 32)
+            } else {
+                result.data.push(c)
+            }
+            i = i + 1
+        }
+        return result
+    }
+
+    /// Convert to uppercase (ASCII only)
+    pub fn to_uppercase(&self) -> String {
+        let result = String.with_capacity(self.data.len)
+        let i: i64 = 0
+        while i < self.data.len {
+            let c = unsafe { ptr_read<u8>(ptr_add<u8>(self.data.ptr, i)) }
+            // a-z (97-122) -> A-Z (65-90)
+            if c >= 97 and c <= 122 {
+                result.data.push(c - 32)
+            } else {
+                result.data.push(c)
+            }
+            i = i + 1
+        }
+        return result
+    }
+
+    /// Replace all occurrences of `from` with `to`
+    pub fn replace(&self, from: &Slice<u8>, to: &Slice<u8>) -> String {
+        if from.len == 0 {
+            return String.from(self.as_bytes())
+        }
+
+        let result = String.new()
+        let bytes = self.as_bytes()
+        let i: i64 = 0
+
+        while i < bytes.len {
+            // Check if we have a match at position i
+            let matches = true
+            if i + from.len <= bytes.len {
+                let j: i64 = 0
+                while j < from.len {
+                    let c1 = unsafe { ptr_read<u8>(ptr_add<u8>(bytes.ptr, i + j)) }
+                    let c2 = unsafe { ptr_read<u8>(ptr_add<u8>(from.ptr, j)) }
+                    if c1 != c2 {
+                        matches = false
+                        break
+                    }
+                    j = j + 1
+                }
+            } else {
+                matches = false
+            }
+
+            if matches {
+                // Append replacement
+                let j: i64 = 0
+                while j < to.len {
+                    unsafe {
+                        result.data.push(ptr_read<u8>(ptr_add<u8>(to.ptr, j)))
+                    }
+                    j = j + 1
+                }
+                i = i + from.len
+            } else {
+                // Append original character
+                unsafe {
+                    result.data.push(ptr_read<u8>(ptr_add<u8>(bytes.ptr, i)))
+                }
+                i = i + 1
+            }
+        }
+
+        return result
+    }
+
+    /// Repeat string n times
+    pub fn repeat(&self, n: i64) -> String {
+        if n <= 0 {
+            return String.new()
+        }
+
+        let result = String.with_capacity(self.data.len * n)
+        let count: i64 = 0
+        while count < n {
+            let i: i64 = 0
+            while i < self.data.len {
+                unsafe {
+                    result.data.push(ptr_read<u8>(ptr_add<u8>(self.data.ptr, i)))
+                }
+                i = i + 1
+            }
+            count = count + 1
+        }
+        return result
+    }
+
+    // === Queries ===
+
+    /// Check if string contains substring
+    pub fn contains(&self, needle: &Slice<u8>) -> bool {
+        match self.find(needle) {
+            Option.Some(idx) => { return true }
+            Option.None => { return false }
+        }
+    }
+
+    /// Check if string starts with prefix
+    pub fn starts_with(&self, prefix: &Slice<u8>) -> bool {
+        if prefix.len > self.data.len {
+            return false
+        }
+
+        let i: i64 = 0
+        while i < prefix.len {
+            let c1 = unsafe { ptr_read<u8>(ptr_add<u8>(self.data.ptr, i)) }
+            let c2 = unsafe { ptr_read<u8>(ptr_add<u8>(prefix.ptr, i)) }
+            if c1 != c2 {
+                return false
+            }
+            i = i + 1
+        }
+        return true
+    }
+
+    /// Check if string ends with suffix
+    pub fn ends_with(&self, suffix: &Slice<u8>) -> bool {
+        if suffix.len > self.data.len {
+            return false
+        }
+
+        let offset = self.data.len - suffix.len
+        let i: i64 = 0
+        while i < suffix.len {
+            let c1 = unsafe { ptr_read<u8>(ptr_add<u8>(self.data.ptr, offset + i)) }
+            let c2 = unsafe { ptr_read<u8>(ptr_add<u8>(suffix.ptr, i)) }
+            if c1 != c2 {
+                return false
+            }
+            i = i + 1
+        }
+        return true
+    }
+
+    /// Find first occurrence of needle, returns byte index
+    pub fn find(&self, needle: &Slice<u8>) -> Option<i64> {
+        if needle.len > self.data.len {
+            return Option<i64>.None
+        }
+        if needle.len == 0 {
+            return Option<i64>.Some(0)
+        }
+
+        let i: i64 = 0
+        while i <= self.data.len - needle.len {
+            let matches = true
+            let j: i64 = 0
+            while j < needle.len {
+                let c1 = unsafe { ptr_read<u8>(ptr_add<u8>(self.data.ptr, i + j)) }
+                let c2 = unsafe { ptr_read<u8>(ptr_add<u8>(needle.ptr, j)) }
+                if c1 != c2 {
+                    matches = false
+                    break
+                }
+                j = j + 1
+            }
+            if matches {
+                return Option<i64>.Some(i)
+            }
+            i = i + 1
+        }
+        return Option<i64>.None
+    }
+
+    // === Splitting ===
+
+    /// Split string by delimiter
+    pub fn split(&self, delim: &Slice<u8>) -> Array<String> {
+        let result = Array<u8>.new()
+        let bytes = self.as_bytes()
+        let start: i64 = 0
+        let i: i64 = 0
+
+        while i <= bytes.len - delim.len {
+            // Check for delimiter match
+            let matches = true
+            let j: i64 = 0
+            while j < delim.len {
+                let c1 = unsafe { ptr_read<u8>(ptr_add<u8>(bytes.ptr, i + j)) }
+                let c2 = unsafe { ptr_read<u8>(ptr_add<u8>(delim.ptr, j)) }
+                if c1 != c2 {
+                    matches = false
+                    break
+                }
+                j = j + 1
+            }
+
+            if matches {
+                // Add segment from start to i
+                let segment = String.with_capacity(i - start)
+                let k = start
+                while k < i {
+                    unsafe {
+                        segment.data.push(ptr_read<u8>(ptr_add<u8>(bytes.ptr, k)))
+                    }
+                    k = k + 1
+                }
+                result.push(segment)
+                start = i + delim.len
+                i = start
+            } else {
+                i = i + 1
+            }
+        }
+
+        // Add final segment
+        let segment = String.with_capacity(bytes.len - start)
+        let k = start
+        while k < bytes.len {
+            unsafe {
+                segment.data.push(ptr_read<u8>(ptr_add<u8>(bytes.ptr, k)))
+            }
+            k = k + 1
+        }
+        result.push(segment)
+
+        return result
+    }
+
+    /// Split string into lines (by \n)
+    pub fn lines(&self) -> Array<String> {
+        return self.split("\n")
+    }
+
+    // === Static Methods ===
+
+    /// Join array of strings with delimiter
+    pub fn join(parts: &Array<String>, delim: &Slice<u8>) -> String {
+        if parts.len == 0 {
+            return String.new()
+        }
+
+        // Calculate total length
+        let total_len: i64 = 0
+        let i: i64 = 0
+        while i < parts.len {
+            match parts.get(i) {
+                Option.Some(part) => {
+                    total_len = total_len + part.len()
+                }
+                Option.None => {}
+            }
+            if i < parts.len - 1 {
+                total_len = total_len + delim.len
+            }
+            i = i + 1
+        }
+
+        let result = String.with_capacity(total_len)
+        i = 0
+        while i < parts.len {
+            match parts.get(i) {
+                Option.Some(part) => {
+                    let bytes = part.as_bytes()
+                    let j: i64 = 0
+                    while j < bytes.len {
+                        unsafe {
+                            result.data.push(ptr_read<u8>(ptr_add<u8>(bytes.ptr, j)))
+                        }
+                        j = j + 1
+                    }
+                }
+                Option.None => {}
+            }
+            if i < parts.len - 1 {
+                let j: i64 = 0
+                while j < delim.len {
+                    unsafe {
+                        result.data.push(ptr_read<u8>(ptr_add<u8>(delim.ptr, j)))
+                    }
+                    j = j + 1
+                }
+            }
+            i = i + 1
+        }
+
+        return result
+    }
+}

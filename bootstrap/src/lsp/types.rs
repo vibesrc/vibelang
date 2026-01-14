@@ -31,6 +31,31 @@ pub struct SymbolTable {
     pub variables: Vec<VariableInfo>,
     /// Methods: type_name -> [method_info]
     pub methods: HashMap<String, Vec<MethodInfo>>,
+    /// Imported items: item_name -> ImportedItem
+    pub imports: HashMap<String, ImportedItem>,
+    /// Module namespace aliases: alias_name -> module symbol table
+    /// e.g., `use std.fs` makes "fs" -> SymbolTable of fs module
+    pub module_aliases: HashMap<String, Box<SymbolTable>>,
+}
+
+/// Information about an imported item
+#[derive(Debug, Clone)]
+pub struct ImportedItem {
+    /// The original name of the item
+    pub name: String,
+    /// The alias (if any)
+    pub alias: Option<String>,
+    /// The module path it was imported from (e.g., "std.types")
+    pub module_path: String,
+    /// The kind of item (struct, enum, fn)
+    pub kind: ImportedItemKind,
+}
+
+#[derive(Debug, Clone)]
+pub enum ImportedItemKind {
+    Struct(StructInfo),
+    Enum(EnumInfo),
+    Function(FunctionInfo),
 }
 
 #[derive(Debug, Clone)]

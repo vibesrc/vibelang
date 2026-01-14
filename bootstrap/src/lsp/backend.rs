@@ -9,7 +9,7 @@ use crate::ast::Type;
 use crate::lexer::{Lexer, LexError, Span};
 use crate::parser::{ParseError, Parser};
 
-use crate::lsp::types::{DocumentInfo, SymbolTable};
+use crate::lsp::types::{DocumentInfo, SymbolTable, EnumInfo, StructInfo, VariantData, VariantFieldsData};
 
 pub struct Backend {
     pub client: Client,
@@ -36,6 +36,7 @@ impl Backend {
                 match parser.parse_program() {
                     Ok(program) => {
                         self.extract_symbols(&program, &mut symbols);
+                        self.inject_prelude_symbols(&mut symbols);
                         self.analyze_semantics(&program, &symbols, &mut diagnostics);
                         ast = Some(program);
                     }
@@ -183,5 +184,65 @@ impl Backend {
             offset += line.len() + 1;
         }
         text.len()
+    }
+
+    /// Inject prelude symbols (Option, Result, Error) into the symbol table
+    pub fn inject_prelude_symbols(&self, symbols: &mut SymbolTable) {
+        let prelude_span = Span { start: 0, end: 0, line: 0, column: 0 };
+
+        // Option<T> enum
+        if !symbols.enums.contains_key("Option") {
+            symbols.enums.insert("Option".to_string(), EnumInfo {
+                name: "Option".to_string(),
+                variants: vec![
+                    VariantData {
+                        name: "Some".to_string(),
+                        fields: VariantFieldsData::Tuple(vec!["T".to_string()]),
+                        span: prelude_span,
+                    },
+                    VariantData {
+                        name: "None".to_string(),
+                        fields: VariantFieldsData::Unit,
+                        span: prelude_span,
+                    },
+                ],
+                generics: vec!["T".to_string()],
+                span: prelude_span,
+                is_pub: true,
+            });
+        }
+
+        // Result<T, E> enum
+        if !symbols.enums.contains_key("Result") {
+            symbols.enums.insert("Result".to_string(), EnumInfo {
+                name: "Result".to_string(),
+                variants: vec![
+                    VariantData {
+                        name: "Ok".to_string(),
+                        fields: VariantFieldsData::Tuple(vec!["T".to_string()]),
+                        span: prelude_span,
+                    },
+                    VariantData {
+                        name: "Err".to_string(),
+                        fields: VariantFieldsData::Tuple(vec!["E".to_string()]),
+                        span: prelude_span,
+                    },
+                ],
+                generics: vec!["T".to_string(), "E".to_string()],
+                span: prelude_span,
+                is_pub: true,
+            });
+        }
+
+        // Error struct
+        if !symbols.structs.contains_key("Error") {
+            symbols.structs.insert("Error".to_string(), StructInfo {
+                name: "Error".to_string(),
+                fields: vec![("message".to_string(), "Slice<u8>".to_string(), true)],
+                generics: vec![],
+                span: prelude_span,
+                is_pub: true,
+            });
+        }
     }
 }

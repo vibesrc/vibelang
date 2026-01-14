@@ -1,12 +1,14 @@
 //! Symbol extraction and semantic analysis for the Vibelang LSP
 
 use std::collections::HashMap;
+use std::path::PathBuf;
 use tower_lsp_server::ls_types::{Diagnostic, DiagnosticSeverity};
-use crate::ast::{Block, BinOp, Expr, Item, Program, Stmt, Type, VariantFields, Pattern as AstPattern};
-use crate::lexer::Span;
+use crate::ast::{Block, BinOp, Expr, Item, Program, Stmt, Type, VariantFields, Pattern as AstPattern, ImportPrefix, ImportItems};
+use crate::lexer::{Lexer, Span};
+use crate::parser::Parser;
 
 use crate::lsp::types::{
-    BorrowState, EnumInfo, FunctionInfo, MethodInfo, StructInfo, SymbolTable, VariableInfo,
+    BorrowState, EnumInfo, FunctionInfo, ImportedItem, ImportedItemKind, MethodInfo, StructInfo, SymbolTable, VariableInfo,
     VariantData, VariantFieldsData,
 };
 use crate::lsp::utils::{is_builtin_function, is_builtin_type, is_prelude_type};
@@ -129,6 +131,9 @@ impl Backend {
 
                     symbols.methods.entry(type_name).or_default().extend(methods);
                 }
+                Item::Use(use_stmt) => {
+                    self.process_import(use_stmt, symbols);
+                }
                 _ => {}
             }
         }
@@ -188,15 +193,22 @@ impl Backend {
                     });
                     self.extract_variables_from_block(body, symbols, span.start, span.end);
                 }
-                Stmt::Match { arms, span, .. } => {
+                Stmt::Match { arms, .. } => {
                     for arm in arms {
+                        // Extract pattern bindings scoped to the arm
                         self.extract_variables_from_pattern(
                             &arm.pattern,
                             symbols,
-                            span.start,
-                            span.end,
+                            arm.span.start,
+                            arm.span.end,
                         );
+                        // Also extract variables from the arm body (which may be a block)
+                        self.extract_variables_from_expr(&arm.body, symbols, arm.span.start, arm.span.end);
                     }
+                }
+                Stmt::Expr(expr) => {
+                    // Expression statements may contain blocks with variables
+                    self.extract_variables_from_expr(expr, symbols, scope_start, scope_end);
                 }
                 _ => {}
             }
@@ -235,6 +247,28 @@ impl Backend {
                 for (_, field_pattern) in fields {
                     self.extract_variables_from_pattern(field_pattern, symbols, scope_start, scope_end);
                 }
+            }
+            _ => {}
+        }
+    }
+
+    /// Extract variables from an expression (especially blocks)
+    pub fn extract_variables_from_expr(
+        &self,
+        expr: &Expr,
+        symbols: &mut SymbolTable,
+        scope_start: usize,
+        scope_end: usize,
+    ) {
+        match expr {
+            Expr::Block(block) => {
+                // Block expressions contain statements that may define variables
+                self.extract_variables_from_block(block, symbols, scope_start, scope_end);
+            }
+            Expr::If { then_expr, else_expr, span, .. } => {
+                // If expressions - recurse into both branches
+                self.extract_variables_from_expr(then_expr, symbols, span.start, span.end);
+                self.extract_variables_from_expr(else_expr, symbols, span.start, span.end);
             }
             _ => {}
         }
@@ -679,5 +713,152 @@ impl Backend {
             }
             _ => {}
         }
+    }
+
+    /// Process an import statement and load symbols from the imported module
+    fn process_import(&self, use_stmt: &crate::ast::Use, symbols: &mut SymbolTable) {
+        // Only handle std imports for now
+        if use_stmt.prefix != ImportPrefix::Std {
+            return;
+        }
+
+        let module_path = format!("std.{}", use_stmt.path.join("."));
+
+        // Try to load the module file
+        if let Some(module_symbols) = self.load_std_module(&use_stmt.path) {
+            match &use_stmt.items {
+                ImportItems::Named(items) => {
+                    for item in items {
+                        let local_name = item.alias.clone().unwrap_or_else(|| item.name.clone());
+
+                        // Check if this item exists in the module
+                        if let Some(struct_info) = module_symbols.structs.get(&item.name) {
+                            if struct_info.is_pub {
+                                symbols.imports.insert(local_name.clone(), ImportedItem {
+                                    name: item.name.clone(),
+                                    alias: item.alias.clone(),
+                                    module_path: module_path.clone(),
+                                    kind: ImportedItemKind::Struct(struct_info.clone()),
+                                });
+                                // Also add to structs for type checking
+                                symbols.structs.insert(local_name.clone(), struct_info.clone());
+                            }
+                        } else if let Some(enum_info) = module_symbols.enums.get(&item.name) {
+                            if enum_info.is_pub {
+                                symbols.imports.insert(local_name.clone(), ImportedItem {
+                                    name: item.name.clone(),
+                                    alias: item.alias.clone(),
+                                    module_path: module_path.clone(),
+                                    kind: ImportedItemKind::Enum(enum_info.clone()),
+                                });
+                                // Also add to enums for type checking
+                                symbols.enums.insert(local_name.clone(), enum_info.clone());
+                            }
+                        } else if let Some(func_info) = module_symbols.functions.get(&item.name) {
+                            if func_info.is_pub {
+                                symbols.imports.insert(local_name.clone(), ImportedItem {
+                                    name: item.name.clone(),
+                                    alias: item.alias.clone(),
+                                    module_path: module_path.clone(),
+                                    kind: ImportedItemKind::Function(func_info.clone()),
+                                });
+                                // Also add to functions for call resolution
+                                symbols.functions.insert(local_name.clone(), func_info.clone());
+                            }
+                        }
+                    }
+                }
+                ImportItems::Glob => {
+                    // Import all public items
+                    for (name, struct_info) in &module_symbols.structs {
+                        if struct_info.is_pub {
+                            symbols.imports.insert(name.clone(), ImportedItem {
+                                name: name.clone(),
+                                alias: None,
+                                module_path: module_path.clone(),
+                                kind: ImportedItemKind::Struct(struct_info.clone()),
+                            });
+                            symbols.structs.insert(name.clone(), struct_info.clone());
+                        }
+                    }
+                    for (name, enum_info) in &module_symbols.enums {
+                        if enum_info.is_pub {
+                            symbols.imports.insert(name.clone(), ImportedItem {
+                                name: name.clone(),
+                                alias: None,
+                                module_path: module_path.clone(),
+                                kind: ImportedItemKind::Enum(enum_info.clone()),
+                            });
+                            symbols.enums.insert(name.clone(), enum_info.clone());
+                        }
+                    }
+                    for (name, func_info) in &module_symbols.functions {
+                        if func_info.is_pub {
+                            symbols.imports.insert(name.clone(), ImportedItem {
+                                name: name.clone(),
+                                alias: None,
+                                module_path: module_path.clone(),
+                                kind: ImportedItemKind::Function(func_info.clone()),
+                            });
+                            symbols.functions.insert(name.clone(), func_info.clone());
+                        }
+                    }
+                    // Also copy methods
+                    for (type_name, methods) in &module_symbols.methods {
+                        symbols.methods.entry(type_name.clone()).or_default().extend(methods.clone());
+                    }
+                }
+                ImportItems::Module => {
+                    // Import the module as a namespace (e.g., `use std.fs` allows `fs.File`)
+                    if let Some(module_name) = use_stmt.path.last() {
+                        // Store the module's symbol table under its name
+                        symbols.module_aliases.insert(module_name.clone(), Box::new(module_symbols.clone()));
+                    }
+                }
+            }
+        }
+    }
+
+    /// Load and parse a std library module, returning its symbol table
+    fn load_std_module(&self, path: &[String]) -> Option<SymbolTable> {
+        let std_path = self.get_std_library_path()?;
+
+        // Build the file path: std/src/module/mod.vibe
+        let mut file_path = std_path;
+        for component in path {
+            file_path.push(component);
+        }
+        file_path.push("mod.vibe");
+
+        // Read and parse the file
+        let content = std::fs::read_to_string(&file_path).ok()?;
+        let mut lexer = Lexer::new(&content);
+        let tokens = lexer.tokenize().ok()?;
+        let mut parser = Parser::new(tokens);
+        let program = parser.parse_program().ok()?;
+
+        // Extract symbols from the module
+        let mut module_symbols = SymbolTable::default();
+        self.extract_symbols(&program, &mut module_symbols);
+
+        Some(module_symbols)
+    }
+
+    /// Get the path to the std library
+    fn get_std_library_path(&self) -> Option<PathBuf> {
+        // Try to find the std library relative to the compiler or in common locations
+        let possible_paths = [
+            // Relative to vibelang project
+            PathBuf::from("/home/brenn/github/vibelang/std/src"),
+            // Could add other paths later for installed stdlib
+        ];
+
+        for path in &possible_paths {
+            if path.exists() {
+                return Some(path.clone());
+            }
+        }
+
+        None
     }
 }

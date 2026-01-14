@@ -1,0 +1,126 @@
+// Test File and String integration
+
+use std.fs.{File, OpenMode, OpenFlags, SeekFrom, read_file, write_file, exists}
+use std.string.{String}
+use std.types.{Result, Error, Option}
+
+fn main() {
+    println("=== File I/O Test ===")
+
+    // Test 1: Write to file
+    println("Writing to test.txt...")
+    let file = File.create("test.txt")
+    match file {
+        Result.Ok(f) => {
+            f.write_bytes("Hello, World!\n")
+            f.write_bytes("Line 2\n")
+            f.write_bytes("Line 3\n")
+            f.close()
+            println("Write successful!")
+        }
+        Result.Err(e) => {
+            println("Failed to create file")
+        }
+    }
+
+    // Test 2: Check exists
+    if exists("test.txt") {
+        println("test.txt exists!")
+    } else {
+        println("test.txt does not exist")
+    }
+
+    // Test 3: Read entire file
+    println("Reading test.txt...")
+    match read_file("test.txt") {
+        Result.Ok(content) => {
+            println("File contents:")
+            println(content.as_bytes())
+            println("Length: ${content.len()}")
+        }
+        Result.Err(e) => {
+            println("Failed to read file")
+        }
+    }
+
+    // Test 4: Read with File struct
+    println("Reading with File.read_all()...")
+    match File.read("test.txt") {
+        Result.Ok(f) => {
+            match f.read_all() {
+                Result.Ok(content) => {
+                    // Test String methods
+                    let lines = content.lines()
+                    println("Number of lines: ${lines.len}")
+
+                    let upper = content.to_uppercase()
+                    println("Uppercase:")
+                    println(upper.as_bytes())
+                }
+                Result.Err(e) => {
+                    println("read_all failed")
+                }
+            }
+            f.close()
+        }
+        Result.Err(e) => {
+            println("Failed to open file")
+        }
+    }
+
+    // Test 5: Append to file
+    println("Appending to test.txt...")
+    match File.append("test.txt") {
+        Result.Ok(f) => {
+            f.write_bytes("Appended line!\n")
+            f.close()
+            println("Append successful!")
+        }
+        Result.Err(e) => {
+            println("Failed to append")
+        }
+    }
+
+    // Test 6: Read appended content
+    match read_file("test.txt") {
+        Result.Ok(content) => {
+            println("After append:")
+            println(content.as_bytes())
+        }
+        Result.Err(e) => {}
+    }
+
+    // Test 7: Seek
+    println("Testing seek...")
+    match File.read("test.txt") {
+        Result.Ok(f) => {
+            // Seek to position 7 ("World" part)
+            f.seek(7, SeekFrom.Start)
+            match f.read_n(5) {
+                Result.Ok(bytes) => {
+                    println("Read 5 bytes from position 7:")
+                    // Should print "World"
+                    let s = String.new()
+                    let i: i64 = 0
+                    while i < bytes.len {
+                        match bytes.get(i) {
+                            Option.Some(b) => s.push(b)
+                            Option.None => {}
+                        }
+                        i = i + 1
+                    }
+                    println(s.as_bytes())
+                }
+                Result.Err(e) => {
+                    println("read_n failed")
+                }
+            }
+            f.close()
+        }
+        Result.Err(e) => {
+            println("Failed to open for seek test")
+        }
+    }
+
+    println("=== Test Complete ===")
+}

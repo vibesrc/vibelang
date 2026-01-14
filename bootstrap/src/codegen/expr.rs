@@ -21,12 +21,32 @@ impl<'ctx> Codegen<'ctx> {
                         format!("use of moved value: '{}'", name)
                     ));
                 }
-                let var_info = self
-                    .variables
-                    .get(name)
-                    .ok_or_else(|| CodegenError::UndefinedVariable(name.clone()))?;
-                let val = self.builder.build_load(var_info.ty, var_info.ptr, name).unwrap();
-                Ok(val)
+                // Check local variables first
+                if let Some(var_info) = self.variables.get(name) {
+                    let val = self.builder.build_load(var_info.ty, var_info.ptr, name).unwrap();
+                    return Ok(val);
+                }
+                // Check static (global) variables
+                if let Some(static_ptr) = self.static_vars.get(name) {
+                    // Get the type from the global value
+                    let global = self.module.get_global(name)
+                        .ok_or_else(|| CodegenError::UndefinedVariable(name.clone()))?;
+                    let any_ty = global.get_value_type();
+                    // Convert AnyTypeEnum to BasicTypeEnum
+                    let ty: inkwell::types::BasicTypeEnum = match any_ty {
+                        inkwell::types::AnyTypeEnum::IntType(t) => t.into(),
+                        inkwell::types::AnyTypeEnum::FloatType(t) => t.into(),
+                        inkwell::types::AnyTypeEnum::StructType(t) => t.into(),
+                        inkwell::types::AnyTypeEnum::PointerType(t) => t.into(),
+                        inkwell::types::AnyTypeEnum::ArrayType(t) => t.into(),
+                        _ => return Err(CodegenError::NotImplemented(
+                            format!("unsupported static variable type for '{}'", name)
+                        )),
+                    };
+                    let val = self.builder.build_load(ty, *static_ptr, name).unwrap();
+                    return Ok(val);
+                }
+                Err(CodegenError::UndefinedVariable(name.clone()))
             }
             Expr::Binary { op, left, right, .. } => {
                 self.compile_binary(*op, left, right)
@@ -44,6 +64,27 @@ impl<'ctx> Codegen<'ctx> {
                 self.compile_field_access(object, field)
             }
             Expr::MethodCall { receiver, method, args, .. } => {
+                // Check for generic struct static method call with explicit type args: Array<u8>.new()
+                if let Expr::StructInit { name, generics, fields, .. } = receiver.as_ref() {
+                    if fields.is_empty() && !generics.is_empty() {
+                        // This is a generic type with explicit type args
+                        // First check if it's a generic enum
+                        if self.generic_enums.contains_key(name) {
+                            let mono_name = self.ensure_monomorphized_enum(name, generics)?;
+                            let enum_info = self.enum_types.get(&mono_name).cloned()
+                                .ok_or_else(|| CodegenError::UndefinedType(mono_name.clone()))?;
+                            return self.compile_enum_variant_constructor(&enum_info, &mono_name, method, args);
+                        }
+                        // Check if it's a generic struct
+                        if self.generic_structs.contains_key(name) {
+                            let mono_name = self.ensure_monomorphized_struct(name, generics)?;
+                            // Ensure impl methods are also monomorphized
+                            self.ensure_monomorphized_impl(name, generics)?;
+                            return self.compile_static_method_call(&mono_name, method, args);
+                        }
+                    }
+                }
+
                 // Check if this is an enum variant constructor (e.g., Option.Some(42))
                 if let Expr::Ident(name, _) = receiver.as_ref() {
                     // Check concrete enum first
@@ -134,6 +175,18 @@ impl<'ctx> Codegen<'ctx> {
             Expr::InterpolatedString { parts, .. } => {
                 self.compile_interpolated_string(parts)
             }
+            Expr::Unsafe { block, .. } => {
+                // Compile unsafe block - same as regular block but marks unsafe context
+                let was_in_unsafe = self.in_unsafe;
+                self.in_unsafe = true;
+                self.compile_block(block)?;
+                self.in_unsafe = was_in_unsafe;
+                // Return a dummy value for blocks
+                Ok(self.context.i64_type().const_zero().into())
+            }
+            Expr::Cast { expr, ty, .. } => {
+                self.compile_cast(expr, ty)
+            }
             other => {
                 Err(CodegenError::NotImplemented(format!(
                     "unsupported expression type: {:?}. This expression may not be implemented yet", other
@@ -176,15 +229,20 @@ impl<'ctx> Codegen<'ctx> {
                 Ok(val.into())
             }
             Literal::String(s) => {
-                // Create string as &[u8] slice (fat pointer: {ptr, len})
+                // Create string as Slice<u8> (fat pointer: {ptr, len})
                 let global = self.builder.build_global_string_ptr(s, "str").unwrap();
                 let ptr = global.as_pointer_value();
                 let len = self.context.i64_type().const_int(s.len() as u64, false);
 
-                // Build slice struct type { ptr, len }
-                let ptr_type = self.context.ptr_type(AddressSpace::default());
-                let len_type = self.context.i64_type();
-                let slice_type = self.context.struct_type(&[ptr_type.into(), len_type.into()], false);
+                // Try to use the user-defined Slice_u8 struct type
+                let slice_type = if let Some(struct_info) = self.struct_types.get("Slice_u8") {
+                    struct_info.llvm_type
+                } else {
+                    // Fallback: create anonymous struct type (for bootstrapping)
+                    let ptr_type = self.context.ptr_type(AddressSpace::default());
+                    let len_type = self.context.i64_type();
+                    self.context.struct_type(&[ptr_type.into(), len_type.into()], false)
+                };
 
                 // Build the slice value
                 let slice_val = slice_type.const_named_struct(&[ptr.into(), len.into()]);
@@ -229,15 +287,63 @@ impl<'ctx> Codegen<'ctx> {
                 return Ok(rhs);
             }
 
+            // Handle dereference assignment (e.g., *ptr = val, *(ptr + offset) = val)
+            if let Expr::Deref { operand, .. } = left {
+                return self.compile_deref_assign(operand, rhs);
+            }
+
             return Err(CodegenError::InvalidAssignment);
         }
 
         let lhs = self.compile_expr(left)?;
         let rhs = self.compile_expr(right)?;
 
-        // Handle pointer comparisons
+        // Handle pointer operations (comparison and arithmetic)
         if lhs.is_pointer_value() || rhs.is_pointer_value() {
-            // Convert both to pointers for comparison (int 0 becomes null pointer)
+            // Pointer arithmetic: ptr + int, ptr - int
+            if lhs.is_pointer_value() && rhs.is_int_value() {
+                let ptr = lhs.into_pointer_value();
+                let offset = rhs.into_int_value();
+
+                // Extend offset to i64 if needed
+                let offset_i64 = if offset.get_type().get_bit_width() < 64 {
+                    self.builder.build_int_s_extend(offset, self.context.i64_type(), "offset_ext").unwrap()
+                } else {
+                    offset
+                };
+
+                match op {
+                    BinOp::Add => {
+                        // Use GEP for pointer arithmetic (type-aware)
+                        // Note: LLVM opaque pointers use i8 as the element type for byte offsets
+                        let result = unsafe {
+                            self.builder.build_gep(
+                                self.context.i8_type(),
+                                ptr,
+                                &[offset_i64],
+                                "ptr_add"
+                            ).unwrap()
+                        };
+                        return Ok(result.into());
+                    }
+                    BinOp::Sub => {
+                        // Subtract: ptr - offset = ptr + (-offset)
+                        let neg_offset = self.builder.build_int_neg(offset_i64, "neg_offset").unwrap();
+                        let result = unsafe {
+                            self.builder.build_gep(
+                                self.context.i8_type(),
+                                ptr,
+                                &[neg_offset],
+                                "ptr_sub"
+                            ).unwrap()
+                        };
+                        return Ok(result.into());
+                    }
+                    _ => {}
+                }
+            }
+
+            // Pointer comparisons
             let lhs_ptr = if lhs.is_pointer_value() {
                 lhs.into_pointer_value()
             } else {
@@ -265,7 +371,7 @@ impl<'ctx> Codegen<'ctx> {
                     "ne"
                 ).unwrap(),
                 _ => return Err(CodegenError::NotImplemented(format!(
-                    "pointer comparison only supports '==' and '!=', got '{:?}'", op
+                    "pointer operations only support +, -, ==, and !=; got '{:?}'", op
                 ))),
             };
 
@@ -1080,5 +1186,70 @@ impl<'ctx> Codegen<'ctx> {
         ]);
 
         Ok(phi.as_basic_value())
+    }
+
+    /// Compile a type cast expression (expr as Type)
+    pub(crate) fn compile_cast(&mut self, expr: &Expr, target_type: &Type) -> Result<BasicValueEnum<'ctx>, CodegenError> {
+        let val = self.compile_expr(expr)?;
+        let target_llvm_type = self.llvm_type(target_type)?;
+
+        // Handle different cast scenarios
+        match (val, target_llvm_type) {
+            // Pointer to pointer (reinterpret cast - no-op in LLVM with opaque pointers)
+            (BasicValueEnum::PointerValue(ptr), inkwell::types::BasicTypeEnum::PointerType(_)) => {
+                // No actual conversion needed with opaque pointers
+                Ok(ptr.into())
+            }
+            // Integer to pointer
+            (BasicValueEnum::IntValue(int_val), inkwell::types::BasicTypeEnum::PointerType(ptr_ty)) => {
+                let ptr = self.builder
+                    .build_int_to_ptr(int_val, ptr_ty, "int_to_ptr")
+                    .unwrap();
+                Ok(ptr.into())
+            }
+            // Pointer to integer
+            (BasicValueEnum::PointerValue(ptr), inkwell::types::BasicTypeEnum::IntType(int_ty)) => {
+                let int_val = self.builder
+                    .build_ptr_to_int(ptr, int_ty, "ptr_to_int")
+                    .unwrap();
+                Ok(int_val.into())
+            }
+            // Integer to integer (truncate or extend)
+            (BasicValueEnum::IntValue(int_val), inkwell::types::BasicTypeEnum::IntType(int_ty)) => {
+                let src_bits = int_val.get_type().get_bit_width();
+                let dst_bits = int_ty.get_bit_width();
+
+                let result = if src_bits == dst_bits {
+                    // Same size, no conversion needed
+                    int_val
+                } else if src_bits < dst_bits {
+                    // Zero extend to larger type
+                    self.builder.build_int_z_extend(int_val, int_ty, "zext").unwrap()
+                } else {
+                    // Truncate to smaller type
+                    self.builder.build_int_truncate(int_val, int_ty, "trunc").unwrap()
+                };
+                Ok(result.into())
+            }
+            // Float to integer
+            (BasicValueEnum::FloatValue(float_val), inkwell::types::BasicTypeEnum::IntType(int_ty)) => {
+                let result = self.builder
+                    .build_float_to_signed_int(float_val, int_ty, "fptosi")
+                    .unwrap();
+                Ok(result.into())
+            }
+            // Integer to float
+            (BasicValueEnum::IntValue(int_val), inkwell::types::BasicTypeEnum::FloatType(float_ty)) => {
+                let result = self.builder
+                    .build_signed_int_to_float(int_val, float_ty, "sitofp")
+                    .unwrap();
+                Ok(result.into())
+            }
+            _ => Err(CodegenError::NotImplemented(format!(
+                "cast from {:?} to {:?} not supported",
+                val.get_type(),
+                target_type
+            ))),
+        }
     }
 }

@@ -8,7 +8,16 @@ impl Parser {
     pub(crate) fn parse_block(&mut self) -> Result<Block, ParseError> {
         let start = self.current_span();
         self.expect(TokenKind::LBrace)?;
+        self.parse_block_inner_from(start)
+    }
 
+    /// Parse a block's contents after the opening brace has already been consumed
+    pub(crate) fn parse_block_inner(&mut self) -> Result<Block, ParseError> {
+        let start = self.current_span();
+        self.parse_block_inner_from(start)
+    }
+
+    fn parse_block_inner_from(&mut self, start: crate::lexer::Span) -> Result<Block, ParseError> {
         let mut stmts = Vec::new();
         while !self.check(TokenKind::RBrace) {
             stmts.push(self.parse_stmt()?);

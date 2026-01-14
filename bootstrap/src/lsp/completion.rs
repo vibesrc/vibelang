@@ -5,6 +5,7 @@ use tower_lsp_server::ls_types::{
 };
 
 use crate::lsp::types::{DocumentInfo, VariantFieldsData};
+use crate::lsp::utils::{std_modules, std_module_items};
 use crate::lsp::Backend;
 
 impl Backend {
@@ -114,6 +115,11 @@ impl Backend {
         // Check if we're inside a string interpolation ${...}
         if let Some(interp_prefix) = self.get_interpolation_context(line, column) {
             return self.get_expression_completions(doc, offset, &interp_prefix);
+        }
+
+        // Check if we're in a use statement - provide module completions
+        if let Some(use_completions) = self.get_use_completions(prefix) {
+            return use_completions;
         }
 
         // After dot: show struct fields, methods, enum variants
@@ -336,6 +342,35 @@ impl Backend {
                     });
                 }
 
+                // Prelude types (always available)
+                completions.push(CompletionItem {
+                    label: "Option".to_string(),
+                    kind: Some(CompletionItemKind::ENUM),
+                    detail: Some("enum Option<T> { Some(T), None }".to_string()),
+                    documentation: Some(tower_lsp_server::ls_types::Documentation::String(
+                        "Optional value type from prelude".to_string()
+                    )),
+                    ..Default::default()
+                });
+                completions.push(CompletionItem {
+                    label: "Result".to_string(),
+                    kind: Some(CompletionItemKind::ENUM),
+                    detail: Some("enum Result<T, E> { Ok(T), Err(E) }".to_string()),
+                    documentation: Some(tower_lsp_server::ls_types::Documentation::String(
+                        "Result type for error handling from prelude".to_string()
+                    )),
+                    ..Default::default()
+                });
+                completions.push(CompletionItem {
+                    label: "Error".to_string(),
+                    kind: Some(CompletionItemKind::STRUCT),
+                    detail: Some("struct Error { message: Slice<u8> }".to_string()),
+                    documentation: Some(tower_lsp_server::ls_types::Documentation::String(
+                        "Error type from prelude".to_string()
+                    )),
+                    ..Default::default()
+                });
+
                 // Keywords
                 for kw in &[
                     "let", "fn", "struct", "enum", "impl", "if", "else", "match", "while", "for",
@@ -410,5 +445,85 @@ impl Backend {
         }
 
         None
+    }
+
+    /// Get completions for use statements
+    /// Returns Some(completions) if we're in a use statement context, None otherwise
+    fn get_use_completions(&self, prefix: &str) -> Option<Vec<CompletionItem>> {
+        let trimmed = prefix.trim();
+
+        // Check if line starts with "use" or "pub use"
+        let use_part = if trimmed.starts_with("pub use ") {
+            &trimmed[8..]
+        } else if trimmed.starts_with("use ") {
+            &trimmed[4..]
+        } else {
+            return None;
+        };
+
+        let mut completions = Vec::new();
+
+        // "use " or "use s" - suggest prefixes
+        if use_part.is_empty() || (!use_part.contains('.') && !use_part.ends_with('.')) {
+            for prefix_name in &["std", "src", "lib", "dep"] {
+                completions.push(CompletionItem {
+                    label: prefix_name.to_string(),
+                    kind: Some(CompletionItemKind::MODULE),
+                    detail: Some(format!("{} module prefix", prefix_name)),
+                    insert_text: Some(format!("{}.", prefix_name)),
+                    ..Default::default()
+                });
+            }
+            return Some(completions);
+        }
+
+        // "use std." - suggest std modules
+        if use_part == "std." || use_part.starts_with("std.") {
+            let after_std = if use_part == "std." {
+                ""
+            } else {
+                &use_part[4..]
+            };
+
+            // If there's another dot, we're looking at module items
+            if let Some(dot_pos) = after_std.find('.') {
+                let module_name = &after_std[..dot_pos];
+                let after_module = &after_std[dot_pos + 1..];
+
+                // "use std.types." or "use std.types.{" - suggest items in module
+                if after_module.is_empty() || after_module == "{" || after_module.ends_with(", ") {
+                    for (item_name, item_kind) in std_module_items(module_name) {
+                        let kind = match item_kind {
+                            "enum" => CompletionItemKind::ENUM,
+                            "struct" => CompletionItemKind::STRUCT,
+                            "fn" => CompletionItemKind::FUNCTION,
+                            _ => CompletionItemKind::VALUE,
+                        };
+                        completions.push(CompletionItem {
+                            label: item_name.to_string(),
+                            kind: Some(kind),
+                            detail: Some(format!("{} from std.{}", item_kind, module_name)),
+                            ..Default::default()
+                        });
+                    }
+                }
+            } else {
+                // "use std." - suggest modules
+                for module in std_modules() {
+                    completions.push(CompletionItem {
+                        label: module.to_string(),
+                        kind: Some(CompletionItemKind::MODULE),
+                        detail: Some(format!("std.{} module", module)),
+                        insert_text: Some(format!("{}.", module)),
+                        ..Default::default()
+                    });
+                }
+            }
+            return Some(completions);
+        }
+
+        // For other prefixes (src., lib., dep.), we'd need file system access
+        // For now, just return empty to avoid blocking
+        Some(completions)
     }
 }

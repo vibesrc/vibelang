@@ -60,12 +60,46 @@ pub fn is_builtin_type(name: &str) -> bool {
 
 /// Types from the prelude that are always available
 pub fn is_prelude_type(name: &str) -> bool {
-    matches!(name, "Option" | "Result" | "Vec")
+    matches!(name, "Option" | "Result" | "Error")
 }
 
 pub fn is_builtin_function(name: &str) -> bool {
     matches!(
         name,
-        "print" | "println" | "panic" | "malloc" | "realloc" | "free" | "sizeof" | "memcpy" | "ptr_write_i64" | "ptr_read_i64"
+        "print" | "println" | "panic"
+        | "malloc" | "realloc" | "free" | "memcpy"
+        | "sizeof" | "null"
+        | "ptr_null" | "ptr_is_null" | "ptr_write" | "ptr_read" | "ptr_add"
+        | "ptr_write_i64" | "ptr_read_i64"
     )
+}
+
+/// Standard library modules available for import
+pub fn std_modules() -> Vec<&'static str> {
+    vec!["types", "mem", "collections", "string", "io", "fs"]
+}
+
+/// Get items available in a std module
+pub fn std_module_items(module: &str) -> Vec<(&'static str, &'static str)> {
+    match module {
+        "types" => vec![
+            ("Option", "enum"),
+            ("Result", "enum"),
+            ("Error", "struct"),
+        ],
+        "mem" => vec![
+            ("alloc", "fn"),
+            ("dealloc", "fn"),
+            ("resize", "fn"),
+            ("copy", "fn"),
+        ],
+        "collections" => vec![
+            ("Array", "struct"),
+        ],
+        "string" => vec![
+            ("String", "struct"),
+            ("StringBuilder", "struct"),
+        ],
+        _ => vec![],
+    }
 }

@@ -1,0 +1,30 @@
+// Test that prelude types are automatically available without explicit import
+
+fn main() -> i64 {
+    // Use Option without defining it (should come from prelude)
+    let x = Option.Some(42)
+    match x {
+        Option.Some(val) => {
+            if val != 42 {
+                return 1
+            }
+        }
+        Option.None => {
+            return 2
+        }
+    }
+
+    // Use Option.None with explicit type
+    let y = Option<i64>.None
+    match y {
+        Option.Some(val) => {
+            return 3
+        }
+        Option.None => {
+            // This is expected
+        }
+    }
+
+    println("Prelude test passed!")
+    return 0
+}

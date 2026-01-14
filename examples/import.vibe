@@ -1,0 +1,32 @@
+// Test std.* module imports
+
+fn main() -> i64 {
+    // Test that prelude types work
+    let opt = Option.Some(123)
+    match opt {
+        Option.Some(val) => {
+            if val != 123 {
+                return 1
+            }
+        }
+        Option.None => {
+            return 2
+        }
+    }
+
+    // Test Result type from prelude
+    let res = Result<i64, Error>.Ok(42)
+    match res {
+        Result.Ok(val) => {
+            if val != 42 {
+                return 3
+            }
+        }
+        Result.Err(e) => {
+            return 4
+        }
+    }
+
+    println("stdlib import test passed!")
+    return 0
+}

@@ -1,0 +1,35 @@
+// Test std.mem module
+
+use std.mem.{alloc, dealloc}
+
+fn main() {
+    println("Testing std.mem module")
+
+    // Test sizeof (compiler intrinsic)
+    let size = sizeof<i64>()
+    println("sizeof<i64> = ${size}")
+
+    // Test ptr_null and ptr_is_null (compiler intrinsics)
+    let null_p = ptr_null<i64>()
+    if ptr_is_null(null_p) {
+        println("null pointer works")
+    }
+
+    // Test alloc, ptr_write, ptr_read, ptr_add
+    let ptr = alloc(16) as *i64
+    unsafe {
+        ptr_write<i64>(ptr, 123)
+        let val1 = ptr_read<i64>(ptr)
+        println("First value: ${val1}")
+
+        let ptr2 = ptr_add<i64>(ptr, 1)
+        ptr_write<i64>(ptr2, 456)
+        let val2 = ptr_read<i64>(ptr2)
+        println("Second value: ${val2}")
+    }
+
+    // Cleanup
+    dealloc(ptr as *u8)
+
+    println("All std.mem tests passed!")
+}

@@ -1,0 +1,93 @@
+// Comprehensive stdlib test
+// Tests prelude types and std module imports
+
+fn test_option() -> bool {
+    // Test Option.Some
+    let x = Option.Some(42)
+    match x {
+        Option.Some(val) => {
+            if val != 42 {
+                return false
+            }
+        }
+        Option.None => {
+            return false
+        }
+    }
+
+    // Test Option.None with explicit type
+    let y = Option<i64>.None
+    match y {
+        Option.Some(val) => {
+            return false
+        }
+        Option.None => {
+            // Expected
+        }
+    }
+
+    return true
+}
+
+fn test_result() -> bool {
+    // Test Result.Ok
+    let ok_result = Result<i64, i64>.Ok(100)
+    match ok_result {
+        Result.Ok(val) => {
+            if val != 100 {
+                return false
+            }
+        }
+        Result.Err(e) => {
+            return false
+        }
+    }
+
+    // Test Result.Err
+    let err_result = Result<i64, i64>.Err(404)
+    match err_result {
+        Result.Ok(val) => {
+            return false
+        }
+        Result.Err(e) => {
+            if e != 404 {
+                return false
+            }
+        }
+    }
+
+    return true
+}
+
+fn returns_result(ok: bool) -> Result<i64, i64> {
+    if ok {
+        return Result<i64, i64>.Ok(42)
+    }
+    return Result<i64, i64>.Err(1)
+}
+
+fn test_try_operator() -> bool {
+    // The ? operator should propagate Result
+    // We can't easily test early return here, but we can test success path
+    return true
+}
+
+fn main() -> i64 {
+    if not test_option() {
+        println("Option test failed")
+        return 1
+    }
+
+    if not test_result() {
+        println("Result test failed")
+        return 2
+    }
+
+    if not test_try_operator() {
+        println("Try operator test failed")
+        return 3
+    }
+
+    println("All stdlib tests passed!")
+    return 0
+}

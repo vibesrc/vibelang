@@ -1,0 +1,7 @@
+// std.types.option - Option type
+
+/// Option type for nullable values
+pub enum Option<T> {
+    Some(T)
+    None
+}

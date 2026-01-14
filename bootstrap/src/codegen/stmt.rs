@@ -44,10 +44,21 @@ impl<'ctx> Codegen<'ctx> {
                         }
                     }
                     // Handle static method calls like IntArray.new() or enum constructors like Color.Red
+                    // Also handles instance method calls like self.as_bytes()
                     Expr::MethodCall { receiver, method, args, .. } => {
                         if let Expr::Ident(type_name, _) = receiver.as_ref() {
                             // Check if receiver is a struct type (static method call) or enum type (variant constructor)
-                            if self.struct_types.contains_key(type_name) || self.enum_types.contains_key(type_name) {
+                            if self.struct_types.contains_key(type_name) {
+                                // Static method call on a struct - look up method return type
+                                let mangled_method = format!("{}_{}", type_name, method);
+                                let struct_name = self.function_return_types
+                                    .get(&mangled_method)
+                                    .and_then(|ret_ty| ret_ty.as_ref())
+                                    .and_then(|ret_ty| self.get_struct_name_for_type(ret_ty))
+                                    .or_else(|| Some(type_name.clone())); // fallback to type name if method not found
+                                (struct_name, None)
+                            } else if self.enum_types.contains_key(type_name) {
+                                // Enum variant constructor - the result is the enum type
                                 (Some(type_name.clone()), None)
                             } else if let Some(generic_enum) = self.generic_enums.get(type_name).cloned() {
                                 // Generic enum variant constructor - infer type args to get mangled name
@@ -55,6 +66,74 @@ impl<'ctx> Codegen<'ctx> {
                                     if let Ok(Some(inferred_types)) = self.infer_enum_type_args(&generic_enum, variant, args) {
                                         let mangled = self.mangle_name(type_name, &inferred_types);
                                         (Some(mangled), None)
+                                    } else {
+                                        (ty.as_ref().and_then(|t| self.get_struct_name_for_type(t)), None)
+                                    }
+                                } else {
+                                    (ty.as_ref().and_then(|t| self.get_struct_name_for_type(t)), None)
+                                }
+                            } else if let Some(var_info) = self.variables.get(type_name) {
+                                // Instance method call - look up method return type
+                                if let Some(ref receiver_struct) = var_info.struct_name {
+                                    // Look up the method for this struct type
+                                    if let Some(methods) = self.type_methods.get(receiver_struct) {
+                                        if let Some(mangled_method) = methods.get(method) {
+                                            // Get return type from the mangled method
+                                            let struct_name = self.function_return_types
+                                                .get(mangled_method)
+                                                .and_then(|ret_ty| ret_ty.as_ref())
+                                                .and_then(|ret_ty| self.get_struct_name_for_type(ret_ty));
+                                            (struct_name, None)
+                                        } else {
+                                            (ty.as_ref().and_then(|t| self.get_struct_name_for_type(t)), None)
+                                        }
+                                    } else {
+                                        (ty.as_ref().and_then(|t| self.get_struct_name_for_type(t)), None)
+                                    }
+                                } else if var_info.ref_struct_name.is_some() {
+                                    // Reference to a struct - look up method on the referenced struct
+                                    let ref_struct = var_info.ref_struct_name.as_ref().unwrap();
+                                    if let Some(methods) = self.type_methods.get(ref_struct) {
+                                        if let Some(mangled_method) = methods.get(method) {
+                                            let struct_name = self.function_return_types
+                                                .get(mangled_method)
+                                                .and_then(|ret_ty| ret_ty.as_ref())
+                                                .and_then(|ret_ty| self.get_struct_name_for_type(ret_ty));
+                                            (struct_name, None)
+                                        } else {
+                                            (ty.as_ref().and_then(|t| self.get_struct_name_for_type(t)), None)
+                                        }
+                                    } else {
+                                        (ty.as_ref().and_then(|t| self.get_struct_name_for_type(t)), None)
+                                    }
+                                } else {
+                                    (ty.as_ref().and_then(|t| self.get_struct_name_for_type(t)), None)
+                                }
+                            } else {
+                                (ty.as_ref().and_then(|t| self.get_struct_name_for_type(t)), None)
+                            }
+                        } else if let Expr::Field { object, field: type_name, .. } = receiver.as_ref() {
+                            // Check for module-qualified static method call: fs.File.read()
+                            // Pattern: MethodCall { receiver: Field { object: Ident(module), field: TypeName }, method, ... }
+                            if let Expr::Ident(module_name, _) = object.as_ref() {
+                                if self.module_aliases.contains_key(module_name) {
+                                    // Resolve the type: fs_File -> File
+                                    let qualified_type = format!("{}_{}", module_name, type_name);
+                                    let resolved_type = self.imports.get(&qualified_type)
+                                        .cloned()
+                                        .unwrap_or(type_name.clone());
+
+                                    // Look up the method return type
+                                    if let Some(methods) = self.type_methods.get(&resolved_type) {
+                                        if let Some(mangled_method) = methods.get(method) {
+                                            let struct_name = self.function_return_types
+                                                .get(mangled_method)
+                                                .and_then(|ret_ty| ret_ty.as_ref())
+                                                .and_then(|ret_ty| self.get_struct_name_for_type(ret_ty));
+                                            (struct_name, None)
+                                        } else {
+                                            (ty.as_ref().and_then(|t| self.get_struct_name_for_type(t)), None)
+                                        }
                                     } else {
                                         (ty.as_ref().and_then(|t| self.get_struct_name_for_type(t)), None)
                                     }
@@ -70,7 +149,66 @@ impl<'ctx> Codegen<'ctx> {
                     }
                     // Handle regular Call expressions that might return structs
                     Expr::Call { func, args, type_args, .. } => {
-                        if let Expr::Ident(fn_name, _) = func.as_ref() {
+                        // Handle generic struct static method call like Array<i64>.new()
+                        if let Expr::Field { object, field, .. } = func.as_ref() {
+                            if let Expr::StructInit { name: type_name, generics, fields, .. } = object.as_ref() {
+                                if fields.is_empty() && !generics.is_empty() {
+                                    // This is a generic type static method call
+                                    let mono_name = self.mangle_name(type_name, generics);
+                                    // Look up the return type of this method
+                                    if let Some(methods) = self.type_methods.get(&mono_name) {
+                                        if let Some(mangled_method) = methods.get(field) {
+                                            let struct_name = self.function_return_types
+                                                .get(mangled_method)
+                                                .and_then(|ret_ty| ret_ty.as_ref())
+                                                .and_then(|ret_ty| self.get_struct_name_for_type(ret_ty));
+                                            (struct_name, None)
+                                        } else {
+                                            // Fallback: assume it returns Self type
+                                            (Some(mono_name), None)
+                                        }
+                                    } else {
+                                        // Methods not yet compiled, assume returns Self
+                                        (Some(mono_name), None)
+                                    }
+                                } else {
+                                    (ty.as_ref().and_then(|t| self.get_struct_name_for_type(t)), None)
+                                }
+                            } else if let Expr::Field { object: inner_obj, field: type_name, .. } = object.as_ref() {
+                                // Check for module-qualified static method call: fs.File.read()
+                                // Pattern: Field { object: Field { object: Ident(module), field: TypeName }, field: method }
+                                if let Expr::Ident(module_name, _) = inner_obj.as_ref() {
+                                    if self.module_aliases.contains_key(module_name) {
+                                        // Resolve the type: fs_File -> File
+                                        let qualified_type = format!("{}_{}", module_name, type_name);
+                                        let resolved_type = self.imports.get(&qualified_type)
+                                            .cloned()
+                                            .unwrap_or(type_name.clone());
+
+                                        // Look up the method return type
+                                        if let Some(methods) = self.type_methods.get(&resolved_type) {
+                                            if let Some(mangled_method) = methods.get(field) {
+                                                let struct_name = self.function_return_types
+                                                    .get(mangled_method)
+                                                    .and_then(|ret_ty| ret_ty.as_ref())
+                                                    .and_then(|ret_ty| self.get_struct_name_for_type(ret_ty));
+                                                (struct_name, None)
+                                            } else {
+                                                (ty.as_ref().and_then(|t| self.get_struct_name_for_type(t)), None)
+                                            }
+                                        } else {
+                                            (ty.as_ref().and_then(|t| self.get_struct_name_for_type(t)), None)
+                                        }
+                                    } else {
+                                        (ty.as_ref().and_then(|t| self.get_struct_name_for_type(t)), None)
+                                    }
+                                } else {
+                                    (ty.as_ref().and_then(|t| self.get_struct_name_for_type(t)), None)
+                                }
+                            } else {
+                                (ty.as_ref().and_then(|t| self.get_struct_name_for_type(t)), None)
+                            }
+                        } else if let Expr::Ident(fn_name, _) = func.as_ref() {
                             // First check explicit type annotation
                             if let Some(t) = ty.as_ref() {
                                 (self.get_struct_name_for_type(t), None)
@@ -106,6 +244,54 @@ impl<'ctx> Codegen<'ctx> {
                         } else {
                             (ty.as_ref().and_then(|t| self.get_struct_name_for_type(t)), None)
                         }
+                    }
+                    // Handle Try expressions (? operator): let file = File.read(path)?
+                    Expr::Try { operand, .. } => {
+                        // Need to get the payload type from the Result/Option
+                        // The operand returns Result<T, E> or Option<T>, and ? unwraps to T
+                        let inner_struct_name = match operand.as_ref() {
+                            Expr::MethodCall { receiver, method, .. } => {
+                                if let Expr::Ident(name, _) = receiver.as_ref() {
+                                    // Check if this is a static method call (File.read)
+                                    if self.struct_types.contains_key(name) {
+                                        let mangled_method = format!("{}_{}", name, method);
+                                        self.function_return_types
+                                            .get(&mangled_method)
+                                            .and_then(|ret_ty| ret_ty.as_ref())
+                                            .and_then(|ret_ty| self.get_result_ok_type(ret_ty))
+                                            .and_then(|ok_ty| self.get_struct_name_for_type(&ok_ty))
+                                    } else if let Some(var_info) = self.variables.get(name) {
+                                        // Instance method call (file.read_all)
+                                        let struct_name = var_info.struct_name.as_ref()
+                                            .or(var_info.ref_struct_name.as_ref());
+                                        if let Some(struct_name) = struct_name {
+                                            // Look up method return type
+                                            if let Some(methods) = self.type_methods.get(struct_name) {
+                                                if let Some(mangled_method) = methods.get(method) {
+                                                    self.function_return_types
+                                                        .get(mangled_method)
+                                                        .and_then(|ret_ty| ret_ty.as_ref())
+                                                        .and_then(|ret_ty| self.get_result_ok_type(ret_ty))
+                                                        .and_then(|ok_ty| self.get_struct_name_for_type(&ok_ty))
+                                                } else {
+                                                    None
+                                                }
+                                            } else {
+                                                None
+                                            }
+                                        } else {
+                                            None
+                                        }
+                                    } else {
+                                        None
+                                    }
+                                } else {
+                                    None
+                                }
+                            }
+                            _ => None,
+                        };
+                        (inner_struct_name, None)
                     }
                     // Handle field access for unit enum variants like Color.Red or Option<i32>.None
                     Expr::Field { object, .. } => {

@@ -1,0 +1,31 @@
+// Test module-as-namespace imports
+use std.fs
+use std.types.{Error}
+
+fn main() {
+    // Use module-qualified function call
+    let result = fs.read_file("test.txt")
+
+    match result {
+        Result.Ok(content) => {
+            println("File content:")
+            println("${content}")
+        }
+        Result.Err(e) => {
+            println("Failed to open file: ${e.message}")
+        }
+    }
+
+    // Also test module-qualified struct access
+    let file = fs.File.read("test.txt")
+
+    match file {
+        Result.Ok(f) => {
+            println("File opened via fs.File.read")
+            f.close()
+        }
+        Result.Err(e) => {
+            println("File error: ${e.message}")
+        }
+    }
+}

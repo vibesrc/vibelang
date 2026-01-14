@@ -342,6 +342,15 @@ impl Parser {
                     operand: Box::new(expr),
                     span,
                 };
+            } else if self.match_keyword(Keyword::As) {
+                // Type cast: expr as Type
+                let ty = self.parse_type()?;
+                let span = self.span_from(expr.span());
+                expr = Expr::Cast {
+                    expr: Box::new(expr),
+                    ty,
+                    span,
+                };
             } else {
                 break;
             }
@@ -498,6 +507,16 @@ impl Parser {
                 // 'self' used as an expression (e.g., self.field in methods)
                 self.advance();
                 Ok(Expr::Ident("self".to_string(), span))
+            }
+            Some(TokenKind::Keyword(Keyword::Unsafe)) => {
+                // unsafe { ... } block
+                self.advance();
+                self.expect(TokenKind::LBrace)?;
+                let block = self.parse_block_inner()?;
+                Ok(Expr::Unsafe {
+                    block,
+                    span: self.span_from(span),
+                })
             }
             _ => Err(self.error("expected expression")),
         }
@@ -670,6 +689,7 @@ impl Expr {
             Expr::Cast { span, .. } => *span,
             Expr::Range { span, .. } => *span,
             Expr::InterpolatedString { span, .. } => *span,
+            Expr::Unsafe { span, .. } => *span,
         }
     }
 }

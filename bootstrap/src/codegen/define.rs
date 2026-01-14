@@ -42,6 +42,7 @@ impl<'ctx> Codegen<'ctx> {
     pub(crate) fn define_enum(&mut self, e: &Enum) -> Result<(), CodegenError> {
         let mut variant_tags = HashMap::new();
         let mut variant_payloads: HashMap<String, Vec<inkwell::types::BasicTypeEnum<'ctx>>> = HashMap::new();
+        let mut ast_variant_payloads: HashMap<String, Vec<Type>> = HashMap::new();
         let mut max_payload_fields: Vec<inkwell::types::BasicTypeEnum<'ctx>> = Vec::new();
         let mut variant_names = Vec::new();
 
@@ -50,17 +51,21 @@ impl<'ctx> Codegen<'ctx> {
             variant_names.push(variant.name.clone());
 
             // Get payload types for this variant
-            let payload_types: Vec<inkwell::types::BasicTypeEnum<'ctx>> = match &variant.fields {
-                VariantFields::Unit => Vec::new(),
+            let (payload_types, ast_types): (Vec<_>, Vec<_>) = match &variant.fields {
+                VariantFields::Unit => (Vec::new(), Vec::new()),
                 VariantFields::Tuple(types) => {
-                    types.iter()
+                    let llvm_types: Vec<inkwell::types::BasicTypeEnum<'ctx>> = types.iter()
                         .map(|t| self.llvm_type(t))
-                        .collect::<Result<_, _>>()?
+                        .collect::<Result<_, _>>()?;
+                    let ast_types = types.clone();
+                    (llvm_types, ast_types)
                 }
                 VariantFields::Struct(fields) => {
-                    fields.iter()
+                    let llvm_types: Vec<inkwell::types::BasicTypeEnum<'ctx>> = fields.iter()
                         .map(|f| self.llvm_type(&f.ty))
-                        .collect::<Result<_, _>>()?
+                        .collect::<Result<_, _>>()?;
+                    let ast_types = fields.iter().map(|f| f.ty.clone()).collect();
+                    (llvm_types, ast_types)
                 }
             };
 
@@ -70,6 +75,7 @@ impl<'ctx> Codegen<'ctx> {
             }
 
             variant_payloads.insert(variant.name.clone(), payload_types);
+            ast_variant_payloads.insert(variant.name.clone(), ast_types);
         }
 
         // Create LLVM type: { i32 tag, payload... }
@@ -89,6 +95,7 @@ impl<'ctx> Codegen<'ctx> {
                 llvm_type,
                 variant_tags,
                 variant_payloads,
+                ast_variant_payloads,
                 payload_size: max_payload_fields.len() as u32,
                 variant_names,
                 name: e.name.clone(),
@@ -124,6 +131,10 @@ impl<'ctx> Codegen<'ctx> {
 
         // Store return type for later inference
         self.function_return_types.insert(func.name.clone(), func.return_type.clone());
+
+        // Store parameter types for argument coercion
+        let ast_param_types: Vec<Type> = func.params.iter().map(|p| p.ty.clone()).collect();
+        self.function_param_types.insert(func.name.clone(), ast_param_types);
 
         Ok(fn_value)
     }
@@ -191,6 +202,15 @@ impl<'ctx> Codegen<'ctx> {
 
     /// Declare methods from an impl block
     pub(crate) fn declare_impl_methods(&mut self, impl_block: &Impl) -> Result<(), CodegenError> {
+        // Check if this is a generic impl block (e.g., impl Array<T>)
+        if self.is_generic_impl(&impl_block.target) {
+            // Store for later monomorphization
+            if let Type::Named { name, .. } = &impl_block.target {
+                self.generic_impls.insert(name.clone(), impl_block.clone());
+            }
+            return Ok(());
+        }
+
         let type_name = self.get_type_name(&impl_block.target)
             .ok_or_else(|| CodegenError::UndefinedType("impl target must be a named type".to_string()))?;
 
@@ -240,6 +260,11 @@ impl<'ctx> Codegen<'ctx> {
 
     /// Compile methods from an impl block
     pub(crate) fn compile_impl_methods(&mut self, impl_block: &Impl) -> Result<(), CodegenError> {
+        // Skip generic impl blocks - they're compiled during monomorphization
+        if self.is_generic_impl(&impl_block.target) {
+            return Ok(());
+        }
+
         let type_name = self.get_type_name(&impl_block.target)
             .ok_or_else(|| CodegenError::UndefinedType("impl target must be a named type".to_string()))?;
 

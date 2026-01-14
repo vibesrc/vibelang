@@ -235,6 +235,7 @@ impl Parser {
 
         // Parse the prefix and first path segment
         let (prefix, mut path) = self.parse_use_prefix()?;
+        let initial_path_len = path.len();
 
         // Parse remaining path segments (after prefix)
         // e.g., for "use src.utils.format.{x}", path becomes ["utils", "format"]
@@ -282,6 +283,11 @@ impl Parser {
             self.parse_use_group()?
         } else if path.is_empty() {
             return Err(self.error("use statement requires at least one path segment"));
+        } else if path.len() == initial_path_len {
+            // Module import: use std.fs (import module as namespace)
+            // No additional segments were added after the initial path from prefix parsing
+            // This allows: use std.fs, then use fs.File, fs.read_file(), etc.
+            ImportItems::Module
         } else {
             // Single import: use src.foo.bar or use src.foo.bar as b
             // The last path segment is the item to import

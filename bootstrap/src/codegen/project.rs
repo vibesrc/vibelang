@@ -194,28 +194,42 @@ fn parse_dep_value(value: &str) -> DepConfig {
 
 /// Find the stdlib path
 fn find_stdlib() -> Option<PathBuf> {
-    // Try relative to current executable
-    if let Ok(exe) = std::env::current_exe() {
-        if let Some(exe_dir) = exe.parent() {
-            // Check ../stdlib (installed layout)
-            let stdlib = exe_dir.join("../stdlib");
-            if stdlib.exists() {
-                return Some(stdlib.canonicalize().ok()?);
-            }
-
-            // Check ../../stdlib (dev layout)
-            let stdlib = exe_dir.join("../../stdlib");
-            if stdlib.exists() {
-                return Some(stdlib.canonicalize().ok()?);
-            }
+    // First, check environment variable (highest priority)
+    if let Ok(path) = std::env::var("VIBELANG_STD") {
+        let path = PathBuf::from(path);
+        if path.exists() {
+            return Some(path);
         }
     }
 
-    // Check environment variable
+    // Also check legacy VIBELANG_STDLIB for backwards compatibility
     if let Ok(path) = std::env::var("VIBELANG_STDLIB") {
         let path = PathBuf::from(path);
         if path.exists() {
             return Some(path);
+        }
+    }
+
+    // Try relative to current executable
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(exe_dir) = exe.parent() {
+            // Check ../std (installed layout)
+            let stdlib = exe_dir.join("../std");
+            if stdlib.exists() {
+                return Some(stdlib.canonicalize().ok()?);
+            }
+
+            // Check ../../std (dev layout - from bootstrap/target/release)
+            let stdlib = exe_dir.join("../../std");
+            if stdlib.exists() {
+                return Some(stdlib.canonicalize().ok()?);
+            }
+
+            // Check ../../../std (dev layout - from bootstrap/target/debug or release)
+            let stdlib = exe_dir.join("../../../std");
+            if stdlib.exists() {
+                return Some(stdlib.canonicalize().ok()?);
+            }
         }
     }
 

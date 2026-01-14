@@ -102,14 +102,48 @@ impl<'ctx> Codegen<'ctx> {
     }
 
     /// Resolve a std.* import (standard library)
+    /// std.X resolves to <std_root>/src/X/mod.vibe
+    /// std.X.Y resolves to <std_root>/src/X/Y.vibe or <std_root>/src/X/Y/mod.vibe
     fn resolve_std_import(&self, path: &[String]) -> Result<PathBuf, CodegenError> {
+        if path.is_empty() {
+            return Err(CodegenError::NotImplemented(
+                "std. import requires a module name".to_string()
+            ));
+        }
+
         let stdlib_path = self.project.stdlib_path.clone().ok_or_else(|| {
             CodegenError::NotImplemented(
-                "stdlib not found. Set VIBELANG_STDLIB environment variable".to_string()
+                "stdlib not found. Set VIBELANG_STD environment variable".to_string()
             )
         })?;
 
-        self.find_module_file(&stdlib_path, path)
+        // std is a package with src/ directory
+        let src_dir = stdlib_path.join("src");
+
+        let mod_name = &path[0];
+        let mod_dir = src_dir.join(mod_name);
+
+        // Check if module directory exists (std/src/X/)
+        if mod_dir.exists() && mod_dir.is_dir() {
+            let remaining_path = &path[1..];
+
+            if remaining_path.is_empty() {
+                // Import from root of module - look for mod.vibe
+                let mod_vibe = mod_dir.join("mod.vibe");
+                if mod_vibe.exists() {
+                    return Ok(mod_vibe);
+                }
+            } else {
+                // Look for specific file within the module directory
+                let result = self.find_module_file(&mod_dir, remaining_path);
+                if result.is_ok() {
+                    return result;
+                }
+            }
+        }
+
+        // Fallback to flat file: std/src/X.vibe
+        self.find_module_file(&src_dir, path)
     }
 
     /// Resolve a dep.* import (vendored external dependencies)
@@ -303,6 +337,22 @@ impl<'ctx> Codegen<'ctx> {
                         format!("{}_{}", qualified_prefix, item_name)
                     };
                     self.imports.insert(item_name.clone(), qualified_name);
+                }
+            }
+            ImportItems::Module => {
+                // Import the module as a namespace
+                // e.g., `use std.fs` allows `fs.File`, `fs.read_file()`, etc.
+                if let Some(module_name) = use_decl.path.last() {
+                    // Store the module alias -> qualified prefix mapping
+                    self.module_aliases.insert(module_name.clone(), qualified_prefix.clone());
+
+                    // Register all public items: fs_exists -> exists
+                    // This maps the namespace-qualified lookup name to the actual function name
+                    for item_name in &public_items {
+                        let prefixed_name = format!("{}_{}", module_name, item_name);
+                        // The actual function is declared with just its name, not prefixed
+                        self.imports.insert(prefixed_name, item_name.clone());
+                    }
                 }
             }
         }
