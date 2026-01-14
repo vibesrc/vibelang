@@ -59,10 +59,7 @@ impl Parser {
             Some(TokenKind::Keyword(Keyword::Use)) => {
                 Ok(Item::Use(self.parse_use(is_pub)?))
             }
-            Some(TokenKind::Keyword(Keyword::Mod)) => {
-                Ok(Item::Mod(self.parse_mod(is_pub)?))
-            }
-            _ => Err(self.error("expected item (fn, struct, enum, impl, static, use, mod)")),
+            _ => Err(self.error("expected item (fn, struct, enum, impl, static, use)")),
         }
     }
 }

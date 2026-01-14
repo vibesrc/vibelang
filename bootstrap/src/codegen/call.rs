@@ -126,46 +126,6 @@ impl<'ctx> Codegen<'ctx> {
         }
     }
 
-    /// Compile a module function call (e.g., math.add(1, 2))
-    pub(crate) fn compile_module_function_call(
-        &mut self,
-        module_name: &str,
-        func_name: &str,
-        args: &[Expr],
-    ) -> Result<BasicValueEnum<'ctx>, CodegenError> {
-        // Get the function - module functions are defined with their simple name
-        let fn_value = self.module
-            .get_function(func_name)
-            .ok_or_else(|| CodegenError::UndefinedFunction(
-                format!("function '{}' not found in module '{}'", func_name, module_name)
-            ))?;
-
-        // Save borrow state - temporary borrows in function arguments should be released after the call
-        let borrows_before = self.borrowed_vars.clone();
-
-        // Compile the arguments
-        let compiled_args: Vec<BasicValueEnum> = args
-            .iter()
-            .map(|a| self.compile_expr(a))
-            .collect::<Result<_, _>>()?;
-
-        let args_meta: Vec<_> = compiled_args.iter().map(|a| (*a).into()).collect();
-
-        let call_site = self.builder
-            .build_call(fn_value, &args_meta, "module_call")
-            .unwrap();
-
-        // Restore borrow state
-        self.borrowed_vars = borrows_before;
-
-        match call_site.try_as_basic_value() {
-            inkwell::values::ValueKind::Basic(val) => Ok(val),
-            inkwell::values::ValueKind::Instruction(_) => {
-                Ok(self.context.i64_type().const_zero().into())
-            }
-        }
-    }
-
     /// Compile a static method call (Type.method(args))
     pub(crate) fn compile_static_method_call(
         &mut self,

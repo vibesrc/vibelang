@@ -15,7 +15,6 @@ pub enum Item {
     Impl(Impl),
     Static(Static),
     Use(Use),
-    Mod(Mod),
 }
 
 #[derive(Debug, Clone)]
@@ -133,13 +132,6 @@ pub struct Use {
     /// The items to import from the module
     pub items: ImportItems,
     /// Whether this is a re-export (pub use)
-    pub is_pub: bool,
-    pub span: Span,
-}
-
-#[derive(Debug, Clone)]
-pub struct Mod {
-    pub name: String,
     pub is_pub: bool,
     pub span: Span,
 }

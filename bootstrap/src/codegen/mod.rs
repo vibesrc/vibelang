@@ -59,7 +59,6 @@ pub struct Codegen<'ctx> {
     pub(crate) current_file_path: Option<PathBuf>,          // Path to the current source file being compiled
     pub(crate) loaded_modules: HashSet<String>,             // Modules already loaded (prevent duplicates)
     pub(crate) imports: HashMap<String, String>,            // Name aliases from 'use' (short_name -> qualified_name)
-    pub(crate) module_items: HashMap<String, Vec<String>>,  // Items exported by each module (module_path -> item_names)
     pub(crate) module_public_items: HashMap<String, HashSet<String>>, // Public items per module for visibility checking
     // Project context
     pub(crate) project: ProjectContext,                     // Project configuration and paths
@@ -126,7 +125,6 @@ impl<'ctx> Codegen<'ctx> {
             current_file_path: None,
             loaded_modules: HashSet::new(),
             imports: HashMap::new(),
-            module_items: HashMap::new(),
             module_public_items: HashMap::new(),
             project: ProjectContext::discover(std::path::Path::new(".")),
             function_return_types: HashMap::new(),
@@ -169,7 +167,6 @@ impl<'ctx> Codegen<'ctx> {
             current_file_path: Some(source_path.to_path_buf()),
             loaded_modules: HashSet::new(),
             imports: HashMap::new(),
-            module_items: HashMap::new(),
             module_public_items: HashMap::new(),
             project,
             function_return_types: HashMap::new(),
@@ -229,16 +226,10 @@ impl<'ctx> Codegen<'ctx> {
     }
 
     pub fn compile(&mut self, program: &Program) -> Result<(), CodegenError> {
-        // Pass 0: Process module and use declarations first
+        // Pass 0: Process use declarations first
         for item in &program.items {
-            match item {
-                Item::Mod(m) => {
-                    self.load_module(&m.name, m.is_pub)?;
-                }
-                Item::Use(u) => {
-                    self.process_use(u)?;
-                }
-                _ => {}
+            if let Item::Use(u) = item {
+                self.process_use(u)?;
             }
         }
 

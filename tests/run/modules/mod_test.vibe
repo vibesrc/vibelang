@@ -1,9 +1,0 @@
-// Test module system - main file
-mod math
-
-fn main() -> i64 {
-    let sum = math.add(10, 20)   // 30
-    let diff = math.sub(30, 5)   // 25
-    let result = math.add(sum, diff)  // 55
-    return result
-}

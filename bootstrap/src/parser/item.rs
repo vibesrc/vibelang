@@ -378,18 +378,6 @@ impl Parser {
         Ok(ImportItems::Named(items))
     }
 
-    pub(crate) fn parse_mod(&mut self, is_pub: bool) -> Result<Mod, ParseError> {
-        let start = self.current_span();
-        self.expect_keyword(Keyword::Mod)?;
-        let name = self.expect_ident()?;
-
-        Ok(Mod {
-            name,
-            is_pub,
-            span: self.span_from(start),
-        })
-    }
-
     pub(crate) fn parse_generics(&mut self) -> Result<Vec<String>, ParseError> {
         if !self.match_token(TokenKind::Lt) {
             return Ok(Vec::new());

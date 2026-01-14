@@ -1,9 +1,0 @@
-// Test nested module access
-mod utils
-
-fn main() -> i64 {
-    let doubled = utils.double(50)  // 100
-    // utils.string_utils.get_length would need nested module support
-    // For now just test the main module
-    return doubled
-}

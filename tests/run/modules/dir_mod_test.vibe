@@ -1,7 +1,0 @@
-// Test directory modules
-mod utils
-
-fn main() -> i64 {
-    let x = utils.double(21)  // 42
-    return x
-}

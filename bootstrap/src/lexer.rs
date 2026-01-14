@@ -93,7 +93,6 @@ pub enum Keyword {
     SelfType,  // Self
     Pub,
     Use,
-    Mod,
     As,
     Defer,
 }
@@ -633,7 +632,6 @@ impl<'a> Lexer<'a> {
             "Self" => TokenKind::Keyword(Keyword::SelfType),
             "pub" => TokenKind::Keyword(Keyword::Pub),
             "use" => TokenKind::Keyword(Keyword::Use),
-            "mod" => TokenKind::Keyword(Keyword::Mod),
             "as" => TokenKind::Keyword(Keyword::As),
             "defer" => TokenKind::Keyword(Keyword::Defer),
             _ => TokenKind::Ident(ident),

@@ -66,11 +66,6 @@ impl<'ctx> Codegen<'ctx> {
                         }
                     }
 
-                    // Check if this is a module function call (e.g., math.add())
-                    if self.module_items.contains_key(name) {
-                        return self.compile_module_function_call(name, method, args);
-                    }
-
                     // Check if this is a static method call on a struct type (e.g., IntArray.new())
                     if self.struct_types.contains_key(name) || self.type_methods.contains_key(name) {
                         return self.compile_static_method_call(name, method, args);

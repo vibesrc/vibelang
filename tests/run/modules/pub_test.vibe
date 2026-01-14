@@ -1,7 +1,0 @@
-// Test pub visibility
-mod math
-
-fn main() -> i64 {
-    let prod = math.mul(6, 7)
-    return prod
-}
