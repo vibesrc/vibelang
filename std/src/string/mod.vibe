@@ -58,6 +58,11 @@ impl String {
         return Slice<u8> { ptr: self.data.ptr, len: self.data.len }
     }
 
+    /// Convert to string slice (for interpolation)
+    pub fn to_string(&self) -> Slice<u8> {
+        return self.as_bytes()
+    }
+
     // === Mutation (returns String for chaining) ===
 
     /// Append a single byte
@@ -355,7 +360,7 @@ impl String {
 
     /// Split string by delimiter
     pub fn split(&self, delim: &Slice<u8>) -> Array<String> {
-        let result = Array<u8>.new()
+        let result = Array<String>.new()
         let bytes = self.as_bytes()
         let start: i64 = 0
         let i: i64 = 0

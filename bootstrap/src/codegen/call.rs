@@ -211,10 +211,41 @@ impl<'ctx> Codegen<'ctx> {
         // Save borrow state - temporary borrows in function arguments should be released after the call
         let borrows_before = self.borrowed_vars.clone();
 
-        let compiled_args: Vec<BasicValueEnum> = args
-            .iter()
-            .map(|a| self.compile_expr(a))
-            .collect::<Result<_, _>>()?;
+        // Get parameter types for reference coercion
+        let param_types = self.function_param_types.get(&mono_name).cloned();
+
+        // Compile the arguments with type coercion for references
+        let mut compiled_args: Vec<BasicValueEnum> = Vec::new();
+        for (i, arg) in args.iter().enumerate() {
+            let arg_val = self.compile_expr(arg)?;
+
+            // Check if we need to coerce value to reference
+            let coerced_val = if let Some(ref params) = param_types {
+                if i < params.len() {
+                    match &params[i] {
+                        Type::Ref(_) | Type::RefMut(_) => {
+                            // Parameter expects a reference but we have a value
+                            // Check if arg_val is a struct value (not a pointer)
+                            if arg_val.is_struct_value() {
+                                // Create temporary storage and pass pointer
+                                let temp = self.builder.build_alloca(arg_val.get_type(), "ref_temp").unwrap();
+                                self.builder.build_store(temp, arg_val).unwrap();
+                                temp.into()
+                            } else {
+                                arg_val
+                            }
+                        }
+                        _ => arg_val,
+                    }
+                } else {
+                    arg_val
+                }
+            } else {
+                arg_val
+            };
+
+            compiled_args.push(coerced_val);
+        }
 
         // Track moves: if an argument is a struct variable passed by value, mark it as moved
         for arg in args {
@@ -271,11 +302,41 @@ impl<'ctx> Codegen<'ctx> {
         // Save borrow state
         let borrows_before = self.borrowed_vars.clone();
 
-        // Compile the arguments (no receiver for static methods)
-        let compiled_args: Vec<BasicValueEnum> = args
-            .iter()
-            .map(|a| self.compile_expr(a))
-            .collect::<Result<_, _>>()?;
+        // Get parameter types for reference coercion
+        let param_types = self.function_param_types.get(&mangled_name).cloned();
+
+        // Compile the arguments with type coercion for references
+        let mut compiled_args: Vec<BasicValueEnum> = Vec::new();
+        for (i, arg) in args.iter().enumerate() {
+            let arg_val = self.compile_expr(arg)?;
+
+            // Check if we need to coerce value to reference
+            let coerced_val = if let Some(ref params) = param_types {
+                if i < params.len() {
+                    match &params[i] {
+                        Type::Ref(_) | Type::RefMut(_) => {
+                            // Parameter expects a reference but we have a value
+                            // Check if arg_val is a struct value (not a pointer)
+                            if arg_val.is_struct_value() {
+                                // Create temporary storage and pass pointer
+                                let temp = self.builder.build_alloca(arg_val.get_type(), "ref_temp").unwrap();
+                                self.builder.build_store(temp, arg_val).unwrap();
+                                temp.into()
+                            } else {
+                                arg_val
+                            }
+                        }
+                        _ => arg_val,
+                    }
+                } else {
+                    arg_val
+                }
+            } else {
+                arg_val
+            };
+
+            compiled_args.push(coerced_val);
+        }
 
         let args_meta: Vec<_> = compiled_args.iter().map(|a| (*a).into()).collect();
 

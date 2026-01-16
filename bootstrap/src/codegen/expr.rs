@@ -179,10 +179,10 @@ impl<'ctx> Codegen<'ctx> {
                 // Compile unsafe block - same as regular block but marks unsafe context
                 let was_in_unsafe = self.in_unsafe;
                 self.in_unsafe = true;
-                self.compile_block(block)?;
+                let result = self.compile_block(block)?;
                 self.in_unsafe = was_in_unsafe;
-                // Return a dummy value for blocks
-                Ok(self.context.i64_type().const_zero().into())
+                // Return the block's result, or a dummy value if no result
+                Ok(result.unwrap_or_else(|| self.context.i64_type().const_zero().into()))
             }
             Expr::Cast { expr, ty, .. } => {
                 self.compile_cast(expr, ty)
@@ -937,13 +937,20 @@ impl<'ctx> Codegen<'ctx> {
             crate::ast::Type::F32 | crate::ast::Type::F64 => {
                 self.float_to_string(val.into_float_value())
             }
-            crate::ast::Type::Named { name, .. } => {
+            crate::ast::Type::Named { name, generics } => {
+                // For generic types, use the mangled name
+                let lookup_name = if generics.is_empty() {
+                    name.clone()
+                } else {
+                    self.mangle_name(name, generics)
+                };
+
                 // Check if it's a struct
-                if let Some(struct_info) = self.struct_types.get(name).cloned() {
+                if let Some(struct_info) = self.struct_types.get(&lookup_name).cloned() {
                     return self.struct_to_string(val, &struct_info);
                 }
                 // Check if it's an enum
-                if let Some(enum_info) = self.enum_types.get(name).cloned() {
+                if let Some(enum_info) = self.enum_types.get(&lookup_name).cloned() {
                     return self.enum_to_string(val, &enum_info);
                 }
                 // Unknown type
