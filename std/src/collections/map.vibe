@@ -1,0 +1,216 @@
+// std.collections.map - Hash map with separate chaining
+
+use std.mem.{alloc, dealloc}
+use std.collections.vec.{Vec}
+
+// Default number of buckets
+static DEFAULT_CAPACITY: i64 = 16
+
+/// Entry in the hash map
+struct Entry<K, V> {
+    key: K
+    value: V
+    hash: i64
+}
+
+/// Map<K, V> - hash map using separate chaining
+///
+/// Since Vibelang doesn't have traits yet, you must provide the hash
+/// when inserting/looking up. Use functions from std.hash:
+///   map.insert(key, value, hash_i64(key))
+///   map.get(key, hash_i64(key))
+pub struct Map<K, V> {
+    buckets: *Vec<Entry<K, V> >
+    num_buckets: i64
+    len: i64
+}
+
+impl Map<K, V> {
+    /// Create a new empty map
+    pub fn new() -> Map<K, V> {
+        return Map<K, V>.with_capacity(DEFAULT_CAPACITY)
+    }
+
+    /// Create a map with specified bucket count
+    pub fn with_capacity(num_buckets: i64) -> Map<K, V> {
+        let entry_vec_size = sizeof<Vec<Entry<K, V> > >()
+        let buckets = alloc(num_buckets * entry_vec_size) as *Vec<Entry<K, V> >
+
+        // Initialize each bucket as empty Vec
+        let i: i64 = 0
+        while i < num_buckets {
+            unsafe {
+                let bucket_ptr = ptr_add<Vec<Entry<K, V> > >(buckets, i)
+                ptr_write<Vec<Entry<K, V> > >(bucket_ptr, Vec<Entry<K, V> >.new())
+            }
+            i = i + 1
+        }
+
+        return Map<K, V> {
+            buckets: buckets,
+            num_buckets: num_buckets,
+            len: 0
+        }
+    }
+
+    /// Number of entries in the map
+    pub fn len(&self) -> i64 {
+        return self.len
+    }
+
+    /// Check if map is empty
+    pub fn is_empty(&self) -> bool {
+        return self.len == 0
+    }
+
+    /// Insert a key-value pair. Provide hash from std.hash functions.
+    /// Returns the old value if key already existed.
+    pub fn insert(~self, key: K, value: V, hash: i64) -> Option<V> {
+        let bucket_idx = self.bucket_index(hash)
+
+        unsafe {
+            let bucket_ptr = ptr_add<Vec<Entry<K, V> > >(self.buckets, bucket_idx)
+            let bucket = ptr_read<Vec<Entry<K, V> > >(bucket_ptr)
+
+            // Check if key already exists
+            let i: i64 = 0
+            while i < bucket.len() {
+                match bucket.get(i) {
+                    Option.Some(entry) => {
+                        if entry.hash == hash and entry.key == key {
+                            // Replace existing value
+                            let old_value = entry.value
+                            bucket.set(i, Entry<K, V> { key: key, value: value, hash: hash })
+                            ptr_write<Vec<Entry<K, V> > >(bucket_ptr, bucket)
+                            return Option<V>.Some(old_value)
+                        }
+                    }
+                    Option.None => {}
+                }
+                i = i + 1
+            }
+
+            // Key not found, insert new entry
+            bucket.push(Entry<K, V> { key: key, value: value, hash: hash })
+            ptr_write<Vec<Entry<K, V> > >(bucket_ptr, bucket)
+            self.len = self.len + 1
+            return Option<V>.None
+        }
+    }
+
+    /// Get a value by key. Provide hash from std.hash functions.
+    pub fn get(&self, key: K, hash: i64) -> Option<V> {
+        let bucket_idx = self.bucket_index(hash)
+
+        unsafe {
+            let bucket_ptr = ptr_add<Vec<Entry<K, V> > >(self.buckets, bucket_idx)
+            let bucket = ptr_read<Vec<Entry<K, V> > >(bucket_ptr)
+
+            let i: i64 = 0
+            while i < bucket.len() {
+                match bucket.get(i) {
+                    Option.Some(entry) => {
+                        if entry.hash == hash and entry.key == key {
+                            return Option<V>.Some(entry.value)
+                        }
+                    }
+                    Option.None => {}
+                }
+                i = i + 1
+            }
+
+            return Option<V>.None
+        }
+    }
+
+    /// Check if map contains a key. Provide hash from std.hash functions.
+    pub fn contains(&self, key: K, hash: i64) -> bool {
+        match self.get(key, hash) {
+            Option.Some(_) => { return true }
+            Option.None => { return false }
+        }
+    }
+
+    /// Remove a key from the map. Provide hash from std.hash functions.
+    /// Returns the removed value if key existed.
+    pub fn remove(~self, key: K, hash: i64) -> Option<V> {
+        let bucket_idx = self.bucket_index(hash)
+
+        unsafe {
+            let bucket_ptr = ptr_add<Vec<Entry<K, V> > >(self.buckets, bucket_idx)
+            let bucket = ptr_read<Vec<Entry<K, V> > >(bucket_ptr)
+
+            let i: i64 = 0
+            while i < bucket.len() {
+                match bucket.get(i) {
+                    Option.Some(entry) => {
+                        if entry.hash == hash and entry.key == key {
+                            // Found it - remove by swapping with last and popping
+                            let removed_value = entry.value
+                            let last_idx = bucket.len() - 1
+                            if i != last_idx {
+                                match bucket.get(last_idx) {
+                                    Option.Some(last_entry) => {
+                                        bucket.set(i, last_entry)
+                                    }
+                                    Option.None => {}
+                                }
+                            }
+                            bucket.pop()
+                            ptr_write<Vec<Entry<K, V> > >(bucket_ptr, bucket)
+                            self.len = self.len - 1
+                            return Option<V>.Some(removed_value)
+                        }
+                    }
+                    Option.None => {}
+                }
+                i = i + 1
+            }
+
+            return Option<V>.None
+        }
+    }
+
+    /// Clear all entries from the map
+    pub fn clear(~self) {
+        let i: i64 = 0
+        while i < self.num_buckets {
+            unsafe {
+                let bucket_ptr = ptr_add<Vec<Entry<K, V> > >(self.buckets, i)
+                let bucket = ptr_read<Vec<Entry<K, V> > >(bucket_ptr)
+                bucket.clear()
+                ptr_write<Vec<Entry<K, V> > >(bucket_ptr, bucket)
+            }
+            i = i + 1
+        }
+        self.len = 0
+    }
+
+    /// Free all memory used by the map
+    pub fn free(~self) {
+        let i: i64 = 0
+        while i < self.num_buckets {
+            unsafe {
+                let bucket_ptr = ptr_add<Vec<Entry<K, V> > >(self.buckets, i)
+                let bucket = ptr_read<Vec<Entry<K, V> > >(bucket_ptr)
+                bucket.free()
+            }
+            i = i + 1
+        }
+        dealloc(self.buckets as *u8)
+        self.buckets = ptr_null<Vec<Entry<K, V> > >()
+        self.num_buckets = 0
+        self.len = 0
+    }
+
+    // === Private helpers ===
+
+    fn bucket_index(&self, hash: i64) -> i64 {
+        // Use absolute value and modulo
+        let h = hash
+        if h < 0 {
+            h = 0 - h
+        }
+        return h % self.num_buckets
+    }
+}

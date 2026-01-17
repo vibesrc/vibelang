@@ -212,6 +212,9 @@ impl<'ctx> Codegen<'ctx> {
                             // First check explicit type annotation
                             if let Some(t) = ty.as_ref() {
                                 (self.get_struct_name_for_type(t), None)
+                            } else if fn_name == "ptr_read" && !type_args.is_empty() {
+                                // ptr_read<T>() returns T - extract struct name from type arg
+                                (self.get_struct_name_for_type(&type_args[0]), None)
                             } else if let Some(generic_func) = self.generic_functions.get(fn_name).cloned() {
                                 // Generic function - infer return type with substituted type params
                                 let inferred_types = if !type_args.is_empty() {

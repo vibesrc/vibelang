@@ -1,0 +1,61 @@
+// Test Map and Set
+
+use std.collections.map.{Map}
+use std.collections.set.{Set}
+use std.hash.{hash_i64}
+
+fn main() -> i32 {
+    // Test Map
+    let map = Map<i64, i64>.new()
+
+    // Insert some values
+    map.insert(1, 100, hash_i64(1))
+    map.insert(2, 200, hash_i64(2))
+    map.insert(3, 300, hash_i64(3))
+
+    println("Map length: ${map.len()}")
+
+    // Get values
+    match map.get(2, hash_i64(2)) {
+        Option.Some(v) => { println("map[2] = ${v}") }
+        Option.None => { println("map[2] not found") }
+    }
+
+    // Update existing key
+    map.insert(2, 222, hash_i64(2))
+    match map.get(2, hash_i64(2)) {
+        Option.Some(v) => { println("map[2] after update = ${v}") }
+        Option.None => { println("map[2] not found") }
+    }
+
+    // Remove
+    map.remove(1, hash_i64(1))
+    println("Map length after remove: ${map.len()}")
+
+    // Test Set
+    let set = Set<i64>.new()
+
+    set.insert(10, hash_i64(10))
+    set.insert(20, hash_i64(20))
+    set.insert(10, hash_i64(10))  // duplicate, should not increase len
+
+    println("Set length: ${set.len()}")
+
+    if set.contains(10, hash_i64(10)) {
+        println("Set contains 10")
+    }
+
+    if not set.contains(30, hash_i64(30)) {
+        println("Set does not contain 30")
+    }
+
+    set.remove(10, hash_i64(10))
+    println("Set length after remove: ${set.len()}")
+
+    // Cleanup
+    map.free()
+    set.free()
+
+    println("All tests passed!")
+    return 0
+}

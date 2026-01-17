@@ -405,6 +405,48 @@ impl<'ctx> Codegen<'ctx> {
                 block: self.substitute_block(block, type_map),
                 span: *span,
             },
+            Expr::Block(block) => Expr::Block(self.substitute_block(block, type_map)),
+            Expr::MethodCall { receiver, method, args, span } => Expr::MethodCall {
+                receiver: Box::new(self.substitute_expr(receiver, type_map)),
+                method: method.clone(),
+                args: args.iter().map(|a| self.substitute_expr(a, type_map)).collect(),
+                span: *span,
+            },
+            Expr::Unary { op, operand, span } => Expr::Unary {
+                op: *op,
+                operand: Box::new(self.substitute_expr(operand, type_map)),
+                span: *span,
+            },
+            Expr::Index { array, index, span } => Expr::Index {
+                array: Box::new(self.substitute_expr(array, type_map)),
+                index: Box::new(self.substitute_expr(index, type_map)),
+                span: *span,
+            },
+            Expr::Deref { operand, span } => Expr::Deref {
+                operand: Box::new(self.substitute_expr(operand, type_map)),
+                span: *span,
+            },
+            Expr::ArrayInit { elements, span } => Expr::ArrayInit {
+                elements: elements.iter().map(|e| self.substitute_expr(e, type_map)).collect(),
+                span: *span,
+            },
+            Expr::ArrayRepeat { value, count, span } => Expr::ArrayRepeat {
+                value: Box::new(self.substitute_expr(value, type_map)),
+                count: *count,
+                span: *span,
+            },
+            Expr::Try { operand, span } => Expr::Try {
+                operand: Box::new(self.substitute_expr(operand, type_map)),
+                span: *span,
+            },
+            Expr::InterpolatedString { parts, span } => Expr::InterpolatedString {
+                parts: parts.iter().map(|part| match part {
+                    StringPart::Literal(s) => StringPart::Literal(s.clone()),
+                    StringPart::Expr(e) => StringPart::Expr(Box::new(self.substitute_expr(e, type_map))),
+                }).collect(),
+                span: *span,
+            },
+            // Ident and Literal don't need substitution
             _ => expr.clone(),
         }
     }

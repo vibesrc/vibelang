@@ -1,0 +1,23 @@
+// Simple hash test
+
+use std.hash.{hash_i64}
+
+fn main() -> i32 {
+    let h1 = hash_i64(42)
+    let h2 = hash_i64(42)
+    let h3 = hash_i64(100)
+
+    println("hash(42) = ${h1}")
+    println("hash(42) again = ${h2}")
+    println("hash(100) = ${h3}")
+
+    if h1 == h2 {
+        println("Same input gives same hash: OK")
+    }
+
+    if h1 != h3 {
+        println("Different input gives different hash: OK")
+    }
+
+    return 0
+}

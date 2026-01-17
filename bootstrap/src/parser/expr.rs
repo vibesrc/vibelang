@@ -152,21 +152,41 @@ impl Parser {
     }
 
     fn parse_bitwise_and(&mut self) -> Result<Expr, ParseError> {
+        let mut left = self.parse_shift()?;
+
+        // Note: & is ambiguous with borrow - treat as bitwise AND when in binary context
+        // (i.e., when we have a left operand and & is followed by an expression)
+        while self.check(TokenKind::Amp) {
+            // In binary context (after an expression), & should be bitwise AND
+            // We've already parsed a left expression, so this is binary context
+            self.advance();
+            let right = self.parse_shift()?;
+            let span = self.span_from(left.span());
+            left = Expr::Binary {
+                op: BinOp::BitAnd,
+                left: Box::new(left),
+                right: Box::new(right),
+                span,
+            };
+        }
+
+        Ok(left)
+    }
+
+    fn parse_shift(&mut self) -> Result<Expr, ParseError> {
         let mut left = self.parse_term()?;
 
-        // Note: & is ambiguous with borrow - only treat as bitwise in binary context
-        while self.check(TokenKind::Amp) {
-            // Look ahead to disambiguate
-            let next = self.tokens.get(self.pos + 1);
-            if matches!(next.map(|t| &t.kind), Some(TokenKind::Ident(_)) | Some(TokenKind::Int(_, _))) {
-                // Could be bitwise AND, but let's be conservative
-                break;
-            }
+        loop {
+            let op = match self.peek_kind() {
+                Some(TokenKind::Shl) => BinOp::Shl,
+                Some(TokenKind::Shr) => BinOp::Shr,
+                _ => break,
+            };
             self.advance();
             let right = self.parse_term()?;
             let span = self.span_from(left.span());
             left = Expr::Binary {
-                op: BinOp::BitAnd,
+                op,
                 left: Box::new(left),
                 right: Box::new(right),
                 span,

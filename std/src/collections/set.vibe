@@ -1,0 +1,202 @@
+// std.collections.set - Hash set with separate chaining
+
+use std.mem.{alloc, dealloc}
+use std.collections.vec.{Vec}
+
+// Default number of buckets
+static DEFAULT_CAPACITY: i64 = 16
+
+/// Entry in the hash set
+struct SetEntry<T> {
+    value: T
+    hash: i64
+}
+
+/// Set<T> - hash set using separate chaining
+///
+/// Since Vibelang doesn't have traits yet, you must provide the hash
+/// when inserting/checking. Use functions from std.hash:
+///   set.insert(value, hash_i64(value))
+///   set.contains(value, hash_i64(value))
+pub struct Set<T> {
+    buckets: *Vec<SetEntry<T> >
+    num_buckets: i64
+    len: i64
+}
+
+impl Set<T> {
+    /// Create a new empty set
+    pub fn new() -> Set<T> {
+        return Set<T>.with_capacity(DEFAULT_CAPACITY)
+    }
+
+    /// Create a set with specified bucket count
+    pub fn with_capacity(num_buckets: i64) -> Set<T> {
+        let entry_vec_size = sizeof<Vec<SetEntry<T> > >()
+        let buckets = alloc(num_buckets * entry_vec_size) as *Vec<SetEntry<T> >
+
+        // Initialize each bucket as empty Vec
+        let i: i64 = 0
+        while i < num_buckets {
+            unsafe {
+                let bucket_ptr = ptr_add<Vec<SetEntry<T> > >(buckets, i)
+                ptr_write<Vec<SetEntry<T> > >(bucket_ptr, Vec<SetEntry<T> >.new())
+            }
+            i = i + 1
+        }
+
+        return Set<T> {
+            buckets: buckets,
+            num_buckets: num_buckets,
+            len: 0
+        }
+    }
+
+    /// Number of elements in the set
+    pub fn len(&self) -> i64 {
+        return self.len
+    }
+
+    /// Check if set is empty
+    pub fn is_empty(&self) -> bool {
+        return self.len == 0
+    }
+
+    /// Insert a value. Provide hash from std.hash functions.
+    /// Returns true if value was newly inserted, false if already present.
+    pub fn insert(~self, value: T, hash: i64) -> bool {
+        let bucket_idx = self.bucket_index(hash)
+
+        unsafe {
+            let bucket_ptr = ptr_add<Vec<SetEntry<T> > >(self.buckets, bucket_idx)
+            let bucket = ptr_read<Vec<SetEntry<T> > >(bucket_ptr)
+
+            // Check if value already exists
+            let i: i64 = 0
+            while i < bucket.len() {
+                match bucket.get(i) {
+                    Option.Some(entry) => {
+                        if entry.hash == hash and entry.value == value {
+                            // Already present
+                            return false
+                        }
+                    }
+                    Option.None => {}
+                }
+                i = i + 1
+            }
+
+            // Not found, insert new entry
+            bucket.push(SetEntry<T> { value: value, hash: hash })
+            ptr_write<Vec<SetEntry<T> > >(bucket_ptr, bucket)
+            self.len = self.len + 1
+            return true
+        }
+    }
+
+    /// Check if set contains a value. Provide hash from std.hash functions.
+    pub fn contains(&self, value: T, hash: i64) -> bool {
+        let bucket_idx = self.bucket_index(hash)
+
+        unsafe {
+            let bucket_ptr = ptr_add<Vec<SetEntry<T> > >(self.buckets, bucket_idx)
+            let bucket = ptr_read<Vec<SetEntry<T> > >(bucket_ptr)
+
+            let i: i64 = 0
+            while i < bucket.len() {
+                match bucket.get(i) {
+                    Option.Some(entry) => {
+                        if entry.hash == hash and entry.value == value {
+                            return true
+                        }
+                    }
+                    Option.None => {}
+                }
+                i = i + 1
+            }
+
+            return false
+        }
+    }
+
+    /// Remove a value from the set. Provide hash from std.hash functions.
+    /// Returns true if value was present and removed.
+    pub fn remove(~self, value: T, hash: i64) -> bool {
+        let bucket_idx = self.bucket_index(hash)
+
+        unsafe {
+            let bucket_ptr = ptr_add<Vec<SetEntry<T> > >(self.buckets, bucket_idx)
+            let bucket = ptr_read<Vec<SetEntry<T> > >(bucket_ptr)
+
+            let i: i64 = 0
+            while i < bucket.len() {
+                match bucket.get(i) {
+                    Option.Some(entry) => {
+                        if entry.hash == hash and entry.value == value {
+                            // Found it - remove by swapping with last and popping
+                            let last_idx = bucket.len() - 1
+                            if i != last_idx {
+                                match bucket.get(last_idx) {
+                                    Option.Some(last_entry) => {
+                                        bucket.set(i, last_entry)
+                                    }
+                                    Option.None => {}
+                                }
+                            }
+                            bucket.pop()
+                            ptr_write<Vec<SetEntry<T> > >(bucket_ptr, bucket)
+                            self.len = self.len - 1
+                            return true
+                        }
+                    }
+                    Option.None => {}
+                }
+                i = i + 1
+            }
+
+            return false
+        }
+    }
+
+    /// Clear all elements from the set
+    pub fn clear(~self) {
+        let i: i64 = 0
+        while i < self.num_buckets {
+            unsafe {
+                let bucket_ptr = ptr_add<Vec<SetEntry<T> > >(self.buckets, i)
+                let bucket = ptr_read<Vec<SetEntry<T> > >(bucket_ptr)
+                bucket.clear()
+                ptr_write<Vec<SetEntry<T> > >(bucket_ptr, bucket)
+            }
+            i = i + 1
+        }
+        self.len = 0
+    }
+
+    /// Free all memory used by the set
+    pub fn free(~self) {
+        let i: i64 = 0
+        while i < self.num_buckets {
+            unsafe {
+                let bucket_ptr = ptr_add<Vec<SetEntry<T> > >(self.buckets, i)
+                let bucket = ptr_read<Vec<SetEntry<T> > >(bucket_ptr)
+                bucket.free()
+            }
+            i = i + 1
+        }
+        dealloc(self.buckets as *u8)
+        self.buckets = ptr_null<Vec<SetEntry<T> > >()
+        self.num_buckets = 0
+        self.len = 0
+    }
+
+    // === Private helpers ===
+
+    fn bucket_index(&self, hash: i64) -> i64 {
+        let h = hash
+        if h < 0 {
+            h = 0 - h
+        }
+        return h % self.num_buckets
+    }
+}

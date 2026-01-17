@@ -1,0 +1,13 @@
+// Test shift operators
+
+fn main() -> i32 {
+    let x: i64 = 256
+
+    let a = x >> 4
+    let b = x << 2
+
+    println("256 >> 4 = ${a}")
+    println("256 << 2 = ${b}")
+
+    return 0
+}

@@ -60,6 +60,8 @@ pub enum TokenKind {
     LtEq,
     Gt,
     GtEq,
+    Shl,        // <<
+    Shr,        // >>
     Arrow,      // ->
     FatArrow,   // =>
     Question,   // ?
@@ -253,6 +255,9 @@ impl<'a> Lexer<'a> {
                     if self.peek_char() == Some('=') {
                         self.advance();
                         TokenKind::LtEq
+                    } else if self.peek_char() == Some('<') {
+                        self.advance();
+                        TokenKind::Shl
                     } else {
                         TokenKind::Lt
                     }
@@ -261,6 +266,9 @@ impl<'a> Lexer<'a> {
                     if self.peek_char() == Some('=') {
                         self.advance();
                         TokenKind::GtEq
+                    } else if self.peek_char() == Some('>') {
+                        self.advance();
+                        TokenKind::Shr
                     } else {
                         TokenKind::Gt
                     }

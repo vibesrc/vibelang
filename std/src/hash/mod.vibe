@@ -1,0 +1,114 @@
+// std.hash - Hash functions using FNV-1a algorithm
+//
+// FNV-1a is a fast, non-cryptographic hash function with good distribution.
+// These functions are used by Map and Set for bucket indexing.
+
+// FNV-1a constants for 64-bit hash
+// Offset basis: 0xcbf29ce484222325 (as signed i64)
+// Prime: 0x00000100000001b3
+static FNV_OFFSET_BASIS: i64 = -3750763034362895579
+static FNV_PRIME: i64 = 1099511628211
+
+/// Hash a single byte
+pub fn hash_u8(value: u8) -> i64 {
+    let h = FNV_OFFSET_BASIS
+    let v = value as i64
+    h = h ^ v
+    h = h * FNV_PRIME
+    return h
+}
+
+/// Hash a 32-bit integer
+pub fn hash_i32(value: i32) -> i64 {
+    let v = value as i64
+    let h = FNV_OFFSET_BASIS
+
+    let b0 = v & 255
+    h = h ^ b0
+    h = h * FNV_PRIME
+
+    let s1 = v >> 8
+    let b1 = s1 & 255
+    h = h ^ b1
+    h = h * FNV_PRIME
+
+    let s2 = v >> 16
+    let b2 = s2 & 255
+    h = h ^ b2
+    h = h * FNV_PRIME
+
+    let s3 = v >> 24
+    let b3 = s3 & 255
+    h = h ^ b3
+    h = h * FNV_PRIME
+
+    return h
+}
+
+/// Hash a 64-bit integer
+pub fn hash_i64(value: i64) -> i64 {
+    let h = FNV_OFFSET_BASIS
+
+    let b0 = value & 255
+    h = h ^ b0
+    h = h * FNV_PRIME
+
+    let s1 = value >> 8
+    let b1 = s1 & 255
+    h = h ^ b1
+    h = h * FNV_PRIME
+
+    let s2 = value >> 16
+    let b2 = s2 & 255
+    h = h ^ b2
+    h = h * FNV_PRIME
+
+    let s3 = value >> 24
+    let b3 = s3 & 255
+    h = h ^ b3
+    h = h * FNV_PRIME
+
+    let s4 = value >> 32
+    let b4 = s4 & 255
+    h = h ^ b4
+    h = h * FNV_PRIME
+
+    let s5 = value >> 40
+    let b5 = s5 & 255
+    h = h ^ b5
+    h = h * FNV_PRIME
+
+    let s6 = value >> 48
+    let b6 = s6 & 255
+    h = h ^ b6
+    h = h * FNV_PRIME
+
+    let s7 = value >> 56
+    let b7 = s7 & 255
+    h = h ^ b7
+    h = h * FNV_PRIME
+
+    return h
+}
+
+/// Hash a byte slice (works for strings too)
+pub fn hash_bytes(data: &Slice<u8>) -> i64 {
+    let h = FNV_OFFSET_BASIS
+    let i: i64 = 0
+    while i < data.len {
+        unsafe {
+            let byte = ptr_read<u8>(ptr_add<u8>(data.ptr, i))
+            let b = byte as i64
+            h = h ^ b
+            h = h * FNV_PRIME
+        }
+        i = i + 1
+    }
+    return h
+}
+
+/// Combine two hashes (for hashing structs with multiple fields)
+pub fn hash_combine(h1: i64, h2: i64) -> i64 {
+    let h = h1 ^ h2
+    return h * FNV_PRIME
+}
