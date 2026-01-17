@@ -669,6 +669,7 @@ pub enum CodegenError {
     NotImplemented(String),
     IoError(String),
     TargetError(String),
+    UnsafeRequired(String),
 }
 
 impl std::fmt::Display for CodegenError {
@@ -684,6 +685,7 @@ impl std::fmt::Display for CodegenError {
             CodegenError::NotImplemented(what) => write!(f, "not implemented: {}", what),
             CodegenError::IoError(msg) => write!(f, "IO error: {}", msg),
             CodegenError::TargetError(msg) => write!(f, "target error: {}", msg),
+            CodegenError::UnsafeRequired(func) => write!(f, "'{}' requires unsafe block", func),
         }
     }
 }

@@ -1,0 +1,44 @@
+// std.process - Process management
+// Safe wrappers around process-related syscalls
+
+/// Get the current process ID
+/// This is safe because it just returns information about the current process
+pub fn pid() -> i32 {
+    let result: i32 = 0
+    unsafe {
+        result = sys_getpid()
+    }
+    return result
+}
+
+/// Get the parent process ID
+/// This is safe because it just returns information
+pub fn parent_pid() -> i32 {
+    let result: i32 = 0
+    unsafe {
+        result = sys_getppid()
+    }
+    return result
+}
+
+/// Exit the current process with the given status code
+/// This is arguably safe - it terminates the process cleanly
+pub fn exit(status: i32) {
+    unsafe {
+        sys_exit(status)
+    }
+}
+
+// Note: The following syscalls remain unsafe-only due to their dangerous nature:
+//   sys_fork()     - Creates a child process (complex resource management)
+//   sys_execve()   - Replaces current process (destructive)
+//   sys_kill()     - Sends signals to processes (can terminate other processes)
+//   sys_waitpid()  - Requires raw pointer for status
+//
+// For process spawning, use std.process.Command (TODO: implement)
+
+// Environment variable access is also kept unsafe-only because:
+//   sys_getenv()   - Returns raw pointer to process memory
+//   sys_setenv()   - Requires null-terminated strings
+//
+// For safe environment access, use std.env (TODO: implement)

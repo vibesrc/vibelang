@@ -1,4 +1,4 @@
-// Test process syscalls
+// Test process syscalls (raw unsafe API)
 
 use std.mem.{alloc, dealloc}
 
@@ -6,11 +6,17 @@ fn main() -> i32 {
     print("Testing process syscalls...")
 
     // Test sys_getpid
-    let pid = sys_getpid()
+    let pid: i32 = 0
+    unsafe {
+        pid = sys_getpid()
+    }
     print("sys_getpid succeeded")
 
     // Test sys_getppid
-    let ppid = sys_getppid()
+    let ppid: i32 = 0
+    unsafe {
+        ppid = sys_getppid()
+    }
     print("sys_getppid succeeded")
 
     // Verify PIDs are positive
@@ -32,7 +38,10 @@ fn main() -> i32 {
         return 3
     }
 
-    let cwd_result = sys_getcwd(buf, 4096)
+    let cwd_result: *u8 = ptr_null<u8>()
+    unsafe {
+        cwd_result = sys_getcwd(buf, 4096)
+    }
     if ptr_is_null(cwd_result) {
         print("ERROR: getcwd failed")
         dealloc(buf)
@@ -57,7 +66,10 @@ fn main() -> i32 {
         ptr_write<u8>(ptr_add<u8>(home_str, 4), 0)   // null terminator
     }
 
-    let home_val = sys_getenv(home_str)
+    let home_val: *u8 = ptr_null<u8>()
+    unsafe {
+        home_val = sys_getenv(home_str)
+    }
     if ptr_is_null(home_val) {
         print("WARNING: HOME environment variable not set")
     } else {
@@ -96,7 +108,10 @@ fn main() -> i32 {
         ptr_write<u8>(ptr_add<u8>(test_val, 5), 0)    // null
     }
 
-    let setenv_result = sys_setenv(test_name, test_val, 1)
+    let setenv_result: i32 = 0
+    unsafe {
+        setenv_result = sys_setenv(test_name, test_val, 1)
+    }
     if setenv_result != 0 {
         print("ERROR: setenv failed")
         dealloc(buf)
@@ -107,7 +122,10 @@ fn main() -> i32 {
     }
 
     // Verify it was set
-    let check_val = sys_getenv(test_name)
+    let check_val: *u8 = ptr_null<u8>()
+    unsafe {
+        check_val = sys_getenv(test_name)
+    }
     if ptr_is_null(check_val) {
         print("ERROR: Environment variable not set after setenv")
         dealloc(buf)

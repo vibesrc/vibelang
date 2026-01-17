@@ -16,6 +16,15 @@ impl<'ctx> Codegen<'ctx> {
         }
     }
 
+    /// Helper to require unsafe context for dangerous operations
+    fn require_unsafe(&self, func_name: &str) -> Result<(), CodegenError> {
+        if !self.in_unsafe {
+            Err(CodegenError::UnsafeRequired(func_name.to_string()))
+        } else {
+            Ok(())
+        }
+    }
+
     /// print(s) - print string without newline
     pub(crate) fn compile_print_call(&mut self, args: &[Expr]) -> Result<BasicValueEnum<'ctx>, CodegenError> {
         if args.is_empty() {
@@ -483,6 +492,8 @@ impl<'ctx> Codegen<'ctx> {
 
     /// ptr_write<T>(ptr: *T, value: T) - write value through typed pointer
     pub(crate) fn compile_ptr_write_call(&mut self, type_args: &[Type], args: &[Expr]) -> Result<BasicValueEnum<'ctx>, CodegenError> {
+        self.require_unsafe("ptr_write")?;
+
         if args.len() != 2 {
             return Err(CodegenError::InvalidArguments(
                 "ptr_write requires 2 arguments (ptr, value)".to_string()
@@ -511,6 +522,8 @@ impl<'ctx> Codegen<'ctx> {
 
     /// ptr_read<T>(ptr: *T) -> T - read value through typed pointer
     pub(crate) fn compile_ptr_read_call(&mut self, type_args: &[Type], args: &[Expr]) -> Result<BasicValueEnum<'ctx>, CodegenError> {
+        self.require_unsafe("ptr_read")?;
+
         if args.len() != 1 {
             return Err(CodegenError::InvalidArguments(
                 "ptr_read requires 1 argument (ptr)".to_string()
@@ -542,6 +555,8 @@ impl<'ctx> Codegen<'ctx> {
 
     /// ptr_add<T>(ptr: *T, offset: i64) -> *T - add offset to typed pointer
     pub(crate) fn compile_ptr_add_call(&mut self, type_args: &[Type], args: &[Expr]) -> Result<BasicValueEnum<'ctx>, CodegenError> {
+        self.require_unsafe("ptr_add")?;
+
         if args.len() != 2 {
             return Err(CodegenError::InvalidArguments(
                 "ptr_add requires 2 arguments (ptr, offset)".to_string()
@@ -587,6 +602,8 @@ impl<'ctx> Codegen<'ctx> {
     /// sys_open(path: *u8, flags: i32, mode: i32) -> i32
     /// Wrapper around Unix open() syscall
     pub(crate) fn compile_sys_open_call(&mut self, args: &[Expr]) -> Result<BasicValueEnum<'ctx>, CodegenError> {
+        self.require_unsafe("sys_open")?;
+
         if args.len() != 3 {
             return Err(CodegenError::InvalidArguments(
                 "sys_open requires 3 arguments (path, flags, mode)".to_string()
@@ -634,6 +651,8 @@ impl<'ctx> Codegen<'ctx> {
     /// sys_close(fd: i32) -> i32
     /// Wrapper around Unix close() syscall
     pub(crate) fn compile_sys_close_call(&mut self, args: &[Expr]) -> Result<BasicValueEnum<'ctx>, CodegenError> {
+        self.require_unsafe("sys_close")?;
+
         if args.len() != 1 {
             return Err(CodegenError::InvalidArguments(
                 "sys_close requires 1 argument (fd)".to_string()
@@ -666,6 +685,8 @@ impl<'ctx> Codegen<'ctx> {
     /// sys_read(fd: i32, buf: *u8, count: i64) -> i64
     /// Wrapper around Unix read() syscall
     pub(crate) fn compile_sys_read_call(&mut self, args: &[Expr]) -> Result<BasicValueEnum<'ctx>, CodegenError> {
+        self.require_unsafe("sys_read")?;
+
         if args.len() != 3 {
             return Err(CodegenError::InvalidArguments(
                 "sys_read requires 3 arguments (fd, buf, count)".to_string()
@@ -717,6 +738,8 @@ impl<'ctx> Codegen<'ctx> {
     /// sys_write(fd: i32, buf: *u8, count: i64) -> i64
     /// Wrapper around Unix write() syscall
     pub(crate) fn compile_sys_write_call(&mut self, args: &[Expr]) -> Result<BasicValueEnum<'ctx>, CodegenError> {
+        self.require_unsafe("sys_write")?;
+
         if args.len() != 3 {
             return Err(CodegenError::InvalidArguments(
                 "sys_write requires 3 arguments (fd, buf, count)".to_string()
@@ -772,6 +795,8 @@ impl<'ctx> Codegen<'ctx> {
     /// sys_lseek(fd: i32, offset: i64, whence: i32) -> i64
     /// Wrapper around Unix lseek() syscall
     pub(crate) fn compile_sys_lseek_call(&mut self, args: &[Expr]) -> Result<BasicValueEnum<'ctx>, CodegenError> {
+        self.require_unsafe("sys_lseek")?;
+
         if args.len() != 3 {
             return Err(CodegenError::InvalidArguments(
                 "sys_lseek requires 3 arguments (fd, offset, whence)".to_string()
@@ -825,6 +850,8 @@ impl<'ctx> Codegen<'ctx> {
     /// clockid: 0 = CLOCK_REALTIME, 1 = CLOCK_MONOTONIC
     /// timespec_ptr: pointer to 16-byte buffer for {tv_sec: i64, tv_nsec: i64}
     pub(crate) fn compile_sys_clock_gettime_call(&mut self, args: &[Expr]) -> Result<BasicValueEnum<'ctx>, CodegenError> {
+        self.require_unsafe("sys_clock_gettime")?;
+
         if args.len() != 2 {
             return Err(CodegenError::InvalidArguments(
                 "sys_clock_gettime requires 2 arguments (clockid, timespec_ptr)".to_string()
@@ -868,6 +895,8 @@ impl<'ctx> Codegen<'ctx> {
     /// req_ptr: pointer to 16-byte timespec {tv_sec: i64, tv_nsec: i64} for requested sleep time
     /// rem_ptr: pointer to 16-byte buffer for remaining time (can be null)
     pub(crate) fn compile_sys_nanosleep_call(&mut self, args: &[Expr]) -> Result<BasicValueEnum<'ctx>, CodegenError> {
+        self.require_unsafe("sys_nanosleep")?;
+
         if args.len() != 2 {
             return Err(CodegenError::InvalidArguments(
                 "sys_nanosleep requires 2 arguments (req_ptr, rem_ptr)".to_string()
@@ -912,6 +941,8 @@ impl<'ctx> Codegen<'ctx> {
     /// sys_getpid() -> i32
     /// Get the current process ID
     pub(crate) fn compile_sys_getpid_call(&mut self, args: &[Expr]) -> Result<BasicValueEnum<'ctx>, CodegenError> {
+        self.require_unsafe("sys_getpid")?;
+
         if !args.is_empty() {
             return Err(CodegenError::InvalidArguments(
                 "sys_getpid takes no arguments".to_string()
@@ -934,6 +965,8 @@ impl<'ctx> Codegen<'ctx> {
     /// sys_getppid() -> i32
     /// Get the parent process ID
     pub(crate) fn compile_sys_getppid_call(&mut self, args: &[Expr]) -> Result<BasicValueEnum<'ctx>, CodegenError> {
+        self.require_unsafe("sys_getppid")?;
+
         if !args.is_empty() {
             return Err(CodegenError::InvalidArguments(
                 "sys_getppid takes no arguments".to_string()
@@ -956,6 +989,8 @@ impl<'ctx> Codegen<'ctx> {
     /// sys_exit(status: i32) -> !
     /// Exit the process with the given status code
     pub(crate) fn compile_sys_exit_call(&mut self, args: &[Expr]) -> Result<BasicValueEnum<'ctx>, CodegenError> {
+        self.require_unsafe("sys_exit")?;
+
         if args.len() != 1 {
             return Err(CodegenError::InvalidArguments(
                 "sys_exit requires 1 argument (status)".to_string()
@@ -994,6 +1029,8 @@ impl<'ctx> Codegen<'ctx> {
     /// sys_getcwd(buf: *u8, size: i64) -> *u8
     /// Get the current working directory
     pub(crate) fn compile_sys_getcwd_call(&mut self, args: &[Expr]) -> Result<BasicValueEnum<'ctx>, CodegenError> {
+        self.require_unsafe("sys_getcwd")?;
+
         if args.len() != 2 {
             return Err(CodegenError::InvalidArguments(
                 "sys_getcwd requires 2 arguments (buf, size)".to_string()
@@ -1042,6 +1079,7 @@ impl<'ctx> Codegen<'ctx> {
     /// sys_chdir(path: *u8) -> i32
     /// Change the current working directory
     pub(crate) fn compile_sys_chdir_call(&mut self, args: &[Expr]) -> Result<BasicValueEnum<'ctx>, CodegenError> {
+        self.require_unsafe("sys_chdir")?;
         if args.len() != 1 {
             return Err(CodegenError::InvalidArguments(
                 "sys_chdir requires 1 argument (path)".to_string()
@@ -1074,6 +1112,8 @@ impl<'ctx> Codegen<'ctx> {
     /// sys_getenv(name: *u8) -> *u8
     /// Get an environment variable (returns null if not found)
     pub(crate) fn compile_sys_getenv_call(&mut self, args: &[Expr]) -> Result<BasicValueEnum<'ctx>, CodegenError> {
+        self.require_unsafe("sys_getenv")?;
+
         if args.len() != 1 {
             return Err(CodegenError::InvalidArguments(
                 "sys_getenv requires 1 argument (name)".to_string()
@@ -1106,6 +1146,8 @@ impl<'ctx> Codegen<'ctx> {
     /// sys_setenv(name: *u8, value: *u8, overwrite: i32) -> i32
     /// Set an environment variable
     pub(crate) fn compile_sys_setenv_call(&mut self, args: &[Expr]) -> Result<BasicValueEnum<'ctx>, CodegenError> {
+        self.require_unsafe("sys_setenv")?;
+
         if args.len() != 3 {
             return Err(CodegenError::InvalidArguments(
                 "sys_setenv requires 3 arguments (name, value, overwrite)".to_string()
@@ -1163,6 +1205,8 @@ impl<'ctx> Codegen<'ctx> {
     /// sys_fork() -> i32
     /// Fork the current process
     pub(crate) fn compile_sys_fork_call(&mut self, args: &[Expr]) -> Result<BasicValueEnum<'ctx>, CodegenError> {
+        self.require_unsafe("sys_fork")?;
+
         if !args.is_empty() {
             return Err(CodegenError::InvalidArguments(
                 "sys_fork takes no arguments".to_string()
@@ -1185,6 +1229,8 @@ impl<'ctx> Codegen<'ctx> {
     /// sys_execve(pathname: *u8, argv: **u8, envp: **u8) -> i32
     /// Execute a program (replaces current process)
     pub(crate) fn compile_sys_execve_call(&mut self, args: &[Expr]) -> Result<BasicValueEnum<'ctx>, CodegenError> {
+        self.require_unsafe("sys_execve")?;
+
         if args.len() != 3 {
             return Err(CodegenError::InvalidArguments(
                 "sys_execve requires 3 arguments (pathname, argv, envp)".to_string()
@@ -1235,6 +1281,8 @@ impl<'ctx> Codegen<'ctx> {
     /// sys_waitpid(pid: i32, status: *i32, options: i32) -> i32
     /// Wait for a child process
     pub(crate) fn compile_sys_waitpid_call(&mut self, args: &[Expr]) -> Result<BasicValueEnum<'ctx>, CodegenError> {
+        self.require_unsafe("sys_waitpid")?;
+
         if args.len() != 3 {
             return Err(CodegenError::InvalidArguments(
                 "sys_waitpid requires 3 arguments (pid, status, options)".to_string()
@@ -1299,6 +1347,8 @@ impl<'ctx> Codegen<'ctx> {
     /// sys_kill(pid: i32, sig: i32) -> i32
     /// Send a signal to a process
     pub(crate) fn compile_sys_kill_call(&mut self, args: &[Expr]) -> Result<BasicValueEnum<'ctx>, CodegenError> {
+        self.require_unsafe("sys_kill")?;
+
         if args.len() != 2 {
             return Err(CodegenError::InvalidArguments(
                 "sys_kill requires 2 arguments (pid, sig)".to_string()
@@ -1355,6 +1405,8 @@ impl<'ctx> Codegen<'ctx> {
 
     /// Map memory: sys_mmap(addr: *u8, length: i64, prot: i32, flags: i32, fd: i32, offset: i64) -> *u8
     pub(crate) fn compile_sys_mmap_call(&mut self, args: &[Expr]) -> Result<BasicValueEnum<'ctx>, CodegenError> {
+        self.require_unsafe("sys_mmap")?;
+
         if args.len() != 6 {
             return Err(CodegenError::InvalidArguments(
                 "sys_mmap requires 6 arguments (addr, length, prot, flags, fd, offset)".to_string()
@@ -1481,6 +1533,8 @@ impl<'ctx> Codegen<'ctx> {
 
     /// Unmap memory: sys_munmap(addr: *u8, length: i64) -> i32
     pub(crate) fn compile_sys_munmap_call(&mut self, args: &[Expr]) -> Result<BasicValueEnum<'ctx>, CodegenError> {
+        self.require_unsafe("sys_munmap")?;
+
         if args.len() != 2 {
             return Err(CodegenError::InvalidArguments(
                 "sys_munmap requires 2 arguments (addr, length)".to_string()
@@ -1530,6 +1584,8 @@ impl<'ctx> Codegen<'ctx> {
 
     /// Change memory protection: sys_mprotect(addr: *u8, len: i64, prot: i32) -> i32
     pub(crate) fn compile_sys_mprotect_call(&mut self, args: &[Expr]) -> Result<BasicValueEnum<'ctx>, CodegenError> {
+        self.require_unsafe("sys_mprotect")?;
+
         if args.len() != 3 {
             return Err(CodegenError::InvalidArguments(
                 "sys_mprotect requires 3 arguments (addr, len, prot)".to_string()
@@ -1596,6 +1652,8 @@ impl<'ctx> Codegen<'ctx> {
 
     /// Give advice about memory usage: sys_madvise(addr: *u8, length: i64, advice: i32) -> i32
     pub(crate) fn compile_sys_madvise_call(&mut self, args: &[Expr]) -> Result<BasicValueEnum<'ctx>, CodegenError> {
+        self.require_unsafe("sys_madvise")?;
+
         if args.len() != 3 {
             return Err(CodegenError::InvalidArguments(
                 "sys_madvise requires 3 arguments (addr, length, advice)".to_string()

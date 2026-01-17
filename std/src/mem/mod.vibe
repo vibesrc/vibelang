@@ -44,3 +44,93 @@ pub fn copy(dest: *u8, src: *u8, count: i64) {
 //   ptr_write<T>(ptr, value) - write value through pointer (unsafe)
 //   ptr_read<T>(ptr) -> T    - read value through pointer (unsafe)
 //   ptr_add<T>(ptr, offset) -> *T - add offset to pointer (unsafe)
+
+// Memory protection flags for mmap/mprotect
+static PROT_NONE: i32 = 0
+static PROT_READ: i32 = 1
+static PROT_WRITE: i32 = 2
+static PROT_EXEC: i32 = 4
+
+// mmap flags
+static MAP_PRIVATE: i32 = 2
+static MAP_ANONYMOUS: i32 = 32  // 0x20 on Linux
+
+/// MappedMemory - RAII wrapper for memory-mapped regions
+/// Automatically unmaps memory when dropped (via defer)
+pub struct MappedMemory {
+    ptr: *u8
+    len: i64
+}
+
+impl MappedMemory {
+    /// Map anonymous memory with read/write access
+    /// This is the safe way to allocate a memory region via mmap
+    pub fn map(size: i64) -> MappedMemory {
+        let null_ptr = ptr_null<u8>()
+        // PROT_READ | PROT_WRITE = 3
+        let prot: i32 = 3
+        // MAP_PRIVATE | MAP_ANONYMOUS = 34
+        let flags: i32 = 34
+
+        let addr: *u8 = null_ptr
+        unsafe {
+            addr = sys_mmap(null_ptr, size, prot, flags, -1, 0)
+        }
+
+        return MappedMemory { ptr: addr, len: size }
+    }
+
+    /// Check if the mapping is valid
+    pub fn is_valid(&self) -> bool {
+        // MAP_FAILED is typically (void*)-1
+        return not ptr_is_null(self.ptr)
+    }
+
+    /// Get pointer to the mapped memory
+    /// Safety: Caller must ensure mapping is valid
+    pub fn as_ptr(&self) -> *u8 {
+        return self.ptr
+    }
+
+    /// Get the size of the mapping
+    pub fn len(&self) -> i64 {
+        return self.len
+    }
+
+    /// Change protection flags
+    /// Returns true on success
+    pub fn protect(&self, read: bool, write: bool, exec: bool) -> bool {
+        let prot: i32 = 0
+        if read {
+            prot = prot + PROT_READ
+        }
+        if write {
+            prot = prot + PROT_WRITE
+        }
+        if exec {
+            prot = prot + PROT_EXEC
+        }
+
+        let result: i32 = 0
+        unsafe {
+            result = sys_mprotect(self.ptr, self.len, prot)
+        }
+        return result == 0
+    }
+
+    /// Unmap the memory region
+    /// After calling this, the mapping becomes invalid
+    pub fn unmap(~self) -> bool {
+        if ptr_is_null(self.ptr) {
+            return true  // Already unmapped
+        }
+
+        let result: i32 = 0
+        unsafe {
+            result = sys_munmap(self.ptr, self.len)
+        }
+        self.ptr = ptr_null<u8>()
+        self.len = 0
+        return result == 0
+    }
+}

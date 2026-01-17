@@ -158,7 +158,10 @@ impl Instant {
             return Result<Instant, Error>.Err(Error { message: "allocation failed" })
         }
 
-        let result = sys_clock_gettime(CLOCK_MONOTONIC, buf)
+        let result: i32 = 0
+        unsafe {
+            result = sys_clock_gettime(CLOCK_MONOTONIC, buf)
+        }
         if result != 0 {
             dealloc(buf)
             return Result<Instant, Error>.Err(Error { message: "clock_gettime failed" })
@@ -220,7 +223,10 @@ pub fn sleep(duration: &Duration) -> Result<i32, Error> {
         ptr_write<i64>(ptr_add<u8>(req_buf, 8), duration.nanos)
     }
 
-    let result = sys_nanosleep(req_buf, rem_buf)
+    let result: i32 = 0
+    unsafe {
+        result = sys_nanosleep(req_buf, rem_buf)
+    }
 
     dealloc(req_buf)
     dealloc(rem_buf)

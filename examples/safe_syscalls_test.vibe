@@ -1,0 +1,71 @@
+// Test safe syscall wrappers
+
+use std.process.{pid, parent_pid}
+use std.mem.MappedMemory
+
+fn main() -> i32 {
+    print("Testing safe syscall wrappers...")
+
+    // Test std.process.pid() - safe wrapper for sys_getpid
+    print("Testing process.pid()...")
+    let my_pid = pid()
+    if my_pid <= 0 {
+        print("ERROR: Invalid PID from pid()")
+        return 1
+    }
+    print("Got valid PID from safe wrapper")
+
+    // Test std.process.parent_pid() - safe wrapper for sys_getppid
+    print("Testing process.parent_pid()...")
+    let ppid = parent_pid()
+    if ppid <= 0 {
+        print("ERROR: Invalid parent PID")
+        return 2
+    }
+    print("Got valid parent PID from safe wrapper")
+
+    // Test std.mem.MappedMemory - safe wrapper for mmap/munmap
+    print("Testing MappedMemory...")
+    let mem = MappedMemory.map(4096)
+    if not mem.is_valid() {
+        print("ERROR: MappedMemory.map() failed")
+        return 3
+    }
+    print("MappedMemory.map() succeeded")
+
+    // Write some data
+    let ptr = mem.as_ptr()
+    unsafe {
+        ptr_write<u8>(ptr, 42)
+    }
+
+    // Read it back
+    let val: u8 = 0
+    unsafe {
+        val = ptr_read<u8>(ptr)
+    }
+    if val != 42 {
+        print("ERROR: Memory read/write mismatch")
+        return 4
+    }
+    print("Memory read/write verified")
+
+    // Test protect
+    let protected = mem.protect(true, false, false)  // read-only
+    if not protected {
+        print("ERROR: protect() failed")
+        return 5
+    }
+    print("protect() succeeded")
+
+    // Unmap
+    let unmapped = mem.unmap()
+    if not unmapped {
+        print("ERROR: unmap() failed")
+        return 6
+    }
+    print("unmap() succeeded")
+
+    print("All safe wrapper tests passed!")
+    return 0
+}

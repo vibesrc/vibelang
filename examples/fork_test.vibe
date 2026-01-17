@@ -1,11 +1,14 @@
-// Test fork and waitpid syscalls
+// Test fork and waitpid syscalls (raw unsafe API)
 
 use std.mem.{alloc, dealloc}
 
 fn main() -> i32 {
     print("Testing fork syscall...")
 
-    let pid = sys_fork()
+    let pid: i32 = 0
+    unsafe {
+        pid = sys_fork()
+    }
 
     if pid < 0 {
         print("ERROR: fork failed")
@@ -15,13 +18,16 @@ fn main() -> i32 {
     if pid == 0 {
         // Child process
         print("Child: Hello from child process!")
-        let child_pid = sys_getpid()
+        let child_pid: i32 = 0
+        unsafe {
+            child_pid = sys_getpid()
+        }
         if child_pid <= 0 {
             print("Child: ERROR: Invalid child PID")
-            sys_exit(1)
+            unsafe { sys_exit(1) }
         }
         print("Child: exiting with code 42")
-        sys_exit(42)
+        unsafe { sys_exit(42) }
     }
 
     // Parent process
@@ -36,7 +42,10 @@ fn main() -> i32 {
     }
 
     // Wait for child
-    let wait_result = sys_waitpid(pid, status_buf, 0)
+    let wait_result: i32 = 0
+    unsafe {
+        wait_result = sys_waitpid(pid, status_buf, 0)
+    }
     if wait_result < 0 {
         print("Parent: ERROR: waitpid failed")
         dealloc(status_buf)
