@@ -146,6 +146,7 @@ impl<'ctx> Codegen<'ctx> {
             .ok_or_else(|| CodegenError::UndefinedFunction(func.name.clone()))?;
 
         self.current_function = Some(fn_value);
+        self.current_function_return_type = func.return_type.clone();
 
         let entry = self.context.append_basic_block(fn_value, "entry");
         self.builder.position_at_end(entry);

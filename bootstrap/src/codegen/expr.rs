@@ -52,7 +52,7 @@ impl<'ctx> Codegen<'ctx> {
                 self.compile_binary(*op, left, right)
             }
             Expr::Unary { op, operand, .. } => {
-                self.compile_unary(*op, operand)
+                self.compile_unary_with_type(*op, operand, expected_type)
             }
             Expr::Call { func, type_args, args, .. } => {
                 self.compile_call(func, type_args, args)
@@ -496,7 +496,12 @@ impl<'ctx> Codegen<'ctx> {
     }
 
     pub(crate) fn compile_unary(&mut self, op: UnaryOp, operand: &Expr) -> Result<BasicValueEnum<'ctx>, CodegenError> {
-        let val = self.compile_expr(operand)?;
+        self.compile_unary_with_type(op, operand, None)
+    }
+
+    pub(crate) fn compile_unary_with_type(&mut self, op: UnaryOp, operand: &Expr, expected_type: Option<&Type>) -> Result<BasicValueEnum<'ctx>, CodegenError> {
+        // For negation, pass the expected type to the operand so -1 becomes the right type
+        let val = self.compile_expr_with_type(operand, expected_type)?;
 
         match op {
             UnaryOp::Neg => {

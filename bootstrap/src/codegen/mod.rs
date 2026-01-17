@@ -37,6 +37,7 @@ pub struct Codegen<'ctx> {
     pub(crate) builder: Builder<'ctx>,
     pub(crate) variables: HashMap<String, VarInfo<'ctx>>,
     pub(crate) current_function: Option<FunctionValue<'ctx>>,
+    pub(crate) current_function_return_type: Option<Type>,
     pub(crate) struct_types: HashMap<String, StructTypeInfo<'ctx>>,
     pub(crate) enum_types: HashMap<String, EnumTypeInfo<'ctx>>,
     // Ownership tracking
@@ -118,6 +119,7 @@ impl<'ctx> Codegen<'ctx> {
             builder,
             variables: HashMap::new(),
             current_function: None,
+            current_function_return_type: None,
             struct_types: HashMap::new(),
             enum_types: HashMap::new(),
             moved_vars: HashSet::new(),
@@ -165,6 +167,7 @@ impl<'ctx> Codegen<'ctx> {
             builder,
             variables: HashMap::new(),
             current_function: None,
+            current_function_return_type: None,
             struct_types: HashMap::new(),
             enum_types: HashMap::new(),
             moved_vars: HashSet::new(),

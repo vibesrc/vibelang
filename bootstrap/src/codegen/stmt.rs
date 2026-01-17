@@ -415,7 +415,9 @@ impl<'ctx> Codegen<'ctx> {
 
                 match value {
                     Some(expr) => {
-                        let ret_val = self.compile_expr(expr)?;
+                        // Compile return value with expected return type for proper coercion
+                        let expected_type = self.current_function_return_type.clone();
+                        let ret_val = self.compile_expr_with_type(expr, expected_type.as_ref())?;
                         self.builder.build_return(Some(&ret_val)).unwrap();
                     }
                     None => {

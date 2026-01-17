@@ -56,11 +56,17 @@ impl<'ctx> Codegen<'ctx> {
                             format!("'{}' not found in module '{}'", field, enum_name)
                         ))?;
 
-                    // Compile arguments
-                    let compiled_args: Vec<BasicValueEnum> = args
-                        .iter()
-                        .map(|a| self.compile_expr(a))
-                        .collect::<Result<_, _>>()?;
+                    // Get parameter types for proper coercion
+                    let param_types = self.function_param_types.get(&resolved_name).cloned();
+
+                    // Compile arguments with expected types
+                    let mut compiled_args: Vec<BasicValueEnum> = Vec::new();
+                    for (i, arg) in args.iter().enumerate() {
+                        let expected_type = param_types.as_ref()
+                            .and_then(|types| types.get(i))
+                            .cloned();
+                        compiled_args.push(self.compile_expr_with_type(arg, expected_type.as_ref())?);
+                    }
 
                     let args_meta: Vec<_> = compiled_args.iter().map(|a| (*a).into()).collect();
 
@@ -217,7 +223,11 @@ impl<'ctx> Codegen<'ctx> {
         // Compile the arguments with type coercion for references
         let mut compiled_args: Vec<BasicValueEnum> = Vec::new();
         for (i, arg) in args.iter().enumerate() {
-            let arg_val = self.compile_expr(arg)?;
+            // Get expected type for this argument to enable proper type coercion
+            let expected_type = param_types.as_ref()
+                .and_then(|types| types.get(i))
+                .cloned();
+            let arg_val = self.compile_expr_with_type(arg, expected_type.as_ref())?;
 
             // Check if we need to coerce value to reference
             let coerced_val = if let Some(ref params) = param_types {
@@ -325,7 +335,11 @@ impl<'ctx> Codegen<'ctx> {
         // Compile the arguments with type coercion for references
         let mut compiled_args: Vec<BasicValueEnum> = Vec::new();
         for (i, arg) in args.iter().enumerate() {
-            let arg_val = self.compile_expr(arg)?;
+            // Get expected type for this argument to enable proper type coercion
+            let expected_type = param_types.as_ref()
+                .and_then(|types| types.get(i))
+                .cloned();
+            let arg_val = self.compile_expr_with_type(arg, expected_type.as_ref())?;
 
             // Check if we need to coerce value to reference
             let coerced_val = if let Some(ref params) = param_types {
@@ -413,11 +427,17 @@ impl<'ctx> Codegen<'ctx> {
                         format!("'{}' not found in module '{}' (looking for '{}')", method, name, resolved_name)
                     ))?;
 
-                // Compile arguments
-                let compiled_args: Vec<BasicValueEnum> = args
-                    .iter()
-                    .map(|a| self.compile_expr(a))
-                    .collect::<Result<_, _>>()?;
+                // Get parameter types for proper coercion
+                let param_types = self.function_param_types.get(&resolved_name).cloned();
+
+                // Compile arguments with expected types
+                let mut compiled_args: Vec<BasicValueEnum> = Vec::new();
+                for (i, arg) in args.iter().enumerate() {
+                    let expected_type = param_types.as_ref()
+                        .and_then(|types| types.get(i))
+                        .cloned();
+                    compiled_args.push(self.compile_expr_with_type(arg, expected_type.as_ref())?);
+                }
 
                 let args_meta: Vec<_> = compiled_args.iter().map(|a| (*a).into()).collect();
 
@@ -534,7 +554,11 @@ impl<'ctx> Codegen<'ctx> {
         let param_types = self.function_param_types.get(&mangled_name).cloned();
 
         for (i, arg) in args.iter().enumerate() {
-            let arg_val = self.compile_expr(arg)?;
+            // Get expected type for this argument (param_types index is i+1 because index 0 is self)
+            let expected_type = param_types.as_ref()
+                .and_then(|types| types.get(i + 1))
+                .cloned();
+            let arg_val = self.compile_expr_with_type(arg, expected_type.as_ref())?;
 
             // Check if we need to coerce value to reference
             // param_types index is i+1 because index 0 is self
