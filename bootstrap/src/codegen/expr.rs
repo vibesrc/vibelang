@@ -1259,7 +1259,15 @@ impl<'ctx> Codegen<'ctx> {
 
         // Compile left side
         let lhs = self.compile_expr(left)?;
-        let lhs_bool = lhs.into_int_value();
+        let lhs_int = lhs.into_int_value();
+        // Ensure condition is i1 for branching (handles ptr_is_null returning i64)
+        let lhs_bool = if lhs_int.get_type().get_bit_width() != 1 {
+            self.builder.build_int_compare(
+                inkwell::IntPredicate::NE, lhs_int, lhs_int.get_type().const_zero(), "lhs_bool"
+            ).unwrap()
+        } else {
+            lhs_int
+        };
 
         // Save the block we're coming from for the phi
         let lhs_block = self.builder.get_insert_block().unwrap();
@@ -1270,7 +1278,15 @@ impl<'ctx> Codegen<'ctx> {
         // Compile right side
         self.builder.position_at_end(rhs_block);
         let rhs = self.compile_expr(right)?;
-        let rhs_bool = rhs.into_int_value();
+        let rhs_int = rhs.into_int_value();
+        // Ensure rhs is i1 for phi node
+        let rhs_bool = if rhs_int.get_type().get_bit_width() != 1 {
+            self.builder.build_int_compare(
+                inkwell::IntPredicate::NE, rhs_int, rhs_int.get_type().const_zero(), "rhs_bool"
+            ).unwrap()
+        } else {
+            rhs_int
+        };
         let rhs_final_block = self.builder.get_insert_block().unwrap();
         self.builder.build_unconditional_branch(merge_block).unwrap();
 
@@ -1300,7 +1316,15 @@ impl<'ctx> Codegen<'ctx> {
 
         // Compile left side
         let lhs = self.compile_expr(left)?;
-        let lhs_bool = lhs.into_int_value();
+        let lhs_int = lhs.into_int_value();
+        // Ensure condition is i1 for branching (handles ptr_is_null returning i64)
+        let lhs_bool = if lhs_int.get_type().get_bit_width() != 1 {
+            self.builder.build_int_compare(
+                inkwell::IntPredicate::NE, lhs_int, lhs_int.get_type().const_zero(), "lhs_bool"
+            ).unwrap()
+        } else {
+            lhs_int
+        };
 
         // Save the block we're coming from for the phi
         let lhs_block = self.builder.get_insert_block().unwrap();
@@ -1311,7 +1335,15 @@ impl<'ctx> Codegen<'ctx> {
         // Compile right side
         self.builder.position_at_end(rhs_block);
         let rhs = self.compile_expr(right)?;
-        let rhs_bool = rhs.into_int_value();
+        let rhs_int = rhs.into_int_value();
+        // Ensure rhs is i1 for phi node
+        let rhs_bool = if rhs_int.get_type().get_bit_width() != 1 {
+            self.builder.build_int_compare(
+                inkwell::IntPredicate::NE, rhs_int, rhs_int.get_type().const_zero(), "rhs_bool"
+            ).unwrap()
+        } else {
+            rhs_int
+        };
         let rhs_final_block = self.builder.get_insert_block().unwrap();
         self.builder.build_unconditional_branch(merge_block).unwrap();
 

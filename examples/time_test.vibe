@@ -10,6 +10,10 @@ fn main() -> i64 {
 
     // Allocate buffer for timespec (16 bytes: i64 + i64)
     let buf = alloc(16)
+    if ptr_is_null(buf) {
+        print("Allocation failed")
+        return 1
+    }
 
     // Call clock_gettime
     print("Calling sys_clock_gettime...")
@@ -35,6 +39,11 @@ fn main() -> i64 {
 
     let req_buf = alloc(16)
     let rem_buf = alloc(16)
+    if ptr_is_null(req_buf) or ptr_is_null(rem_buf) {
+        print("Allocation failed")
+        dealloc(buf)
+        return 3
+    }
 
     // Set up 50ms sleep: 0 seconds, 50000000 nanoseconds
     unsafe {
