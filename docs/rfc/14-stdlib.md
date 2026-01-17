@@ -693,3 +693,303 @@ fn process(kind: TokenKind) {
     }
 }
 ```
+
+## 14.8 Networking (std.net)
+
+Safe wrappers around socket syscalls with RAII semantics.
+
+### Address Types
+
+```vibelang
+/// IPv4 address (stored in network byte order)
+struct Ipv4Addr {
+    octets: u32
+}
+
+impl Ipv4Addr {
+    /// Create from four octets
+    fn new(a: u8, b: u8, c: u8, d: u8) -> Ipv4Addr
+
+    /// Localhost (127.0.0.1)
+    fn localhost() -> Ipv4Addr
+
+    /// Unspecified (0.0.0.0) - binds to all interfaces
+    fn unspecified() -> Ipv4Addr
+
+    /// Get raw bits in network order
+    fn to_bits(self: &Ipv4Addr) -> u32
+}
+
+/// IPv4 socket address (IP + port)
+struct SocketAddrV4 {
+    addr: Ipv4Addr
+    port: u16
+}
+
+impl SocketAddrV4 {
+    fn new(addr: Ipv4Addr, port: u16) -> SocketAddrV4
+    fn ip(self: &SocketAddrV4) -> Ipv4Addr
+    fn port(self: &SocketAddrV4) -> u16
+}
+```
+
+### TCP
+
+```vibelang
+/// TCP listener for accepting connections
+struct TcpListener {
+    fd: i32
+}
+
+impl TcpListener {
+    /// Bind to address and start listening
+    fn bind(addr: SocketAddrV4) -> TcpListener
+
+    /// Check if listener is valid
+    fn is_valid(self: &TcpListener) -> bool
+
+    /// Accept incoming connection
+    fn accept(self: &TcpListener) -> TcpStream
+
+    /// Close the listener
+    fn close(self: ~TcpListener)
+}
+
+/// Connected TCP stream
+struct TcpStream {
+    fd: i32
+}
+
+impl TcpStream {
+    /// Connect to remote address
+    fn connect(addr: SocketAddrV4) -> TcpStream
+
+    /// Check if stream is valid
+    fn is_valid(self: &TcpStream) -> bool
+
+    /// Read into buffer, returns bytes read
+    fn read(self: &TcpStream, buf: *u8, len: i64) -> i64
+
+    /// Write from buffer, returns bytes written
+    fn write(self: &TcpStream, buf: *u8, len: i64) -> i64
+
+    /// Write string slice
+    fn write_str(self: &TcpStream, s: Slice<u8>) -> i64
+
+    /// Shutdown (SHUT_RD, SHUT_WR, or SHUT_RDWR)
+    fn shutdown(self: &TcpStream, how: i32) -> bool
+
+    /// Close the stream
+    fn close(self: ~TcpStream)
+}
+```
+
+### UDP
+
+```vibelang
+/// UDP socket for datagrams
+struct UdpSocket {
+    fd: i32
+}
+
+impl UdpSocket {
+    /// Bind to local address
+    fn bind(addr: SocketAddrV4) -> UdpSocket
+
+    /// Create unbound socket
+    fn unbound() -> UdpSocket
+
+    /// Check if socket is valid
+    fn is_valid(self: &UdpSocket) -> bool
+
+    /// Receive datagram
+    fn recv(self: &UdpSocket, buf: *u8, len: i64) -> i64
+
+    /// Send datagram to address
+    fn send_to(self: &UdpSocket, buf: *u8, len: i64, addr: SocketAddrV4) -> i64
+
+    /// Close the socket
+    fn close(self: ~UdpSocket)
+}
+```
+
+#### Networking Usage
+
+```vibelang
+use std.net.{Ipv4Addr, SocketAddrV4, TcpListener, TcpStream}
+
+fn main() -> i32 {
+    let addr = SocketAddrV4.new(Ipv4Addr.localhost(), 8080)
+    let listener = TcpListener.bind(addr)
+
+    if listener.is_valid() {
+        let client = listener.accept()
+        if client.is_valid() {
+            client.write_str("Hello!\n")
+            client.close()
+        }
+        listener.close()
+    }
+    return 0
+}
+```
+
+## 14.9 Process Control (std.process)
+
+Safe wrappers around process syscalls.
+
+```vibelang
+/// Get current process ID
+fn getpid() -> i32
+
+/// Get parent process ID
+fn getppid() -> i32
+
+/// Exit process with status code
+fn exit(code: i32) -> !
+
+/// Get current working directory
+fn getcwd() -> Option<Slice<u8>>
+
+/// Change working directory
+fn chdir(path: Slice<u8>) -> bool
+
+/// Get environment variable
+fn getenv(name: Slice<u8>) -> Option<Slice<u8>>
+
+/// Set environment variable
+fn setenv(name: Slice<u8>, value: Slice<u8>) -> bool
+
+/// Fork process (returns 0 in child, child PID in parent, -1 on error)
+fn fork() -> i32
+
+/// Execute program (replaces current process)
+fn execve(path: Slice<u8>, args: *Slice<u8>, envp: *Slice<u8>) -> i32
+
+/// Wait for child process
+fn waitpid(pid: i32, options: i32) -> (i32, i32)  // (pid, status)
+
+/// Send signal to process
+fn kill(pid: i32, sig: i32) -> i32
+```
+
+### Signal Constants
+
+```vibelang
+pub static SIGTERM: i32 = 15
+pub static SIGKILL: i32 = 9
+pub static SIGINT: i32 = 2
+pub static SIGHUP: i32 = 1
+```
+
+## 14.10 Memory Management (std.mem)
+
+Low-level memory allocation and virtual memory control.
+
+```vibelang
+/// Allocate heap memory
+fn alloc(size: i64) -> *u8
+
+/// Resize allocation
+fn resize(ptr: *u8, new_size: i64) -> *u8
+
+/// Free heap memory
+fn dealloc(ptr: *u8)
+
+/// Map virtual memory (wrapper around mmap)
+fn mmap(addr: *u8, length: i64, prot: i32, flags: i32, fd: i32, offset: i64) -> *u8
+
+/// Unmap virtual memory
+fn munmap(addr: *u8, length: i64) -> i32
+
+/// Change memory protection
+fn mprotect(addr: *u8, length: i64, prot: i32) -> i32
+
+/// Advise kernel about memory usage
+fn madvise(addr: *u8, length: i64, advice: i32) -> i32
+```
+
+### Memory Protection Constants
+
+```vibelang
+pub static PROT_NONE: i32 = 0
+pub static PROT_READ: i32 = 1
+pub static PROT_WRITE: i32 = 2
+pub static PROT_EXEC: i32 = 4
+
+pub static MAP_SHARED: i32 = 1
+pub static MAP_PRIVATE: i32 = 2
+pub static MAP_ANONYMOUS: i32 = 32
+pub static MAP_FIXED: i32 = 16
+```
+
+## 14.11 Time (std.time)
+
+Time measurement and sleeping.
+
+```vibelang
+/// A point in time (monotonic clock)
+struct Instant {
+    secs: i64
+    nanos: i64
+}
+
+impl Instant {
+    /// Get current time
+    fn now() -> Instant
+
+    /// Duration since another instant
+    fn duration_since(self: &Instant, earlier: &Instant) -> Duration
+
+    /// Time elapsed since this instant
+    fn elapsed(self: &Instant) -> Duration
+}
+
+/// A duration of time
+struct Duration {
+    secs: i64
+    nanos: i64
+}
+
+impl Duration {
+    /// Create from seconds
+    fn from_secs(secs: i64) -> Duration
+
+    /// Create from milliseconds
+    fn from_millis(millis: i64) -> Duration
+
+    /// Create from nanoseconds
+    fn from_nanos(nanos: i64) -> Duration
+
+    /// Total seconds (truncated)
+    fn as_secs(self: &Duration) -> i64
+
+    /// Total milliseconds
+    fn as_millis(self: &Duration) -> i64
+
+    /// Total nanoseconds
+    fn as_nanos(self: &Duration) -> i64
+}
+
+/// Sleep for duration
+fn sleep(duration: Duration)
+
+/// Sleep for milliseconds
+fn sleep_ms(ms: i64)
+```
+
+#### Time Usage
+
+```vibelang
+use std.time.{Instant, Duration, sleep_ms}
+
+fn main() {
+    let start = Instant.now()
+
+    // Do some work
+    sleep_ms(100)
+
+    let elapsed = start.elapsed()
+    print("Took ${elapsed.as_millis()} ms\n")
+}
+```

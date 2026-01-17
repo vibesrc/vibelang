@@ -8,9 +8,9 @@
 - Networking syscalls with `std.net` (TcpListener, TcpStream, UdpSocket, Ipv4Addr, SocketAddrV4)
 - Process control syscalls with `std.process` (fork, execve, waitpid, kill, exit, getpid, getenv, setenv)
 - Memory syscalls with `std.mem` (mmap, munmap, mprotect, madvise, alloc, resize, dealloc)
+- Tuple types `(T1, T2, ...)` with `.0`, `.1` access and destructuring in `let`
 
 ## In Progress
 
 ## Planned
-- Tuple types `(T1, T2, ...)` with `.0`, `.1` access and destructuring in `let`
 - Fieldsets and struct tagging
