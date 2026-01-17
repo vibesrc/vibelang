@@ -1,0 +1,76 @@
+// Test fork and waitpid syscalls
+
+use std.mem.{alloc, dealloc}
+
+fn main() -> i32 {
+    print("Testing fork syscall...")
+
+    let pid = sys_fork()
+
+    if pid < 0 {
+        print("ERROR: fork failed")
+        return 1
+    }
+
+    if pid == 0 {
+        // Child process
+        print("Child: Hello from child process!")
+        let child_pid = sys_getpid()
+        if child_pid <= 0 {
+            print("Child: ERROR: Invalid child PID")
+            sys_exit(1)
+        }
+        print("Child: exiting with code 42")
+        sys_exit(42)
+    }
+
+    // Parent process
+    print("Parent: Fork succeeded, child PID created")
+    print("Parent: Waiting for child...")
+
+    // Allocate status buffer
+    let status_buf = alloc(4)
+    if ptr_is_null(status_buf) {
+        print("Parent: ERROR: Allocation failed")
+        return 2
+    }
+
+    // Wait for child
+    let wait_result = sys_waitpid(pid, status_buf, 0)
+    if wait_result < 0 {
+        print("Parent: ERROR: waitpid failed")
+        dealloc(status_buf)
+        return 3
+    }
+
+    print("Parent: Child exited")
+
+    // Read the status
+    let status: i32 = 0
+    unsafe {
+        status = ptr_read<i32>(status_buf)
+    }
+
+    // Check if child exited normally (WIFEXITED)
+    // On Linux, WIFEXITED(status) = ((status) & 0x7f) == 0
+    // and WEXITSTATUS(status) = ((status) & 0xff00) >> 8
+    let exited_normally = (status & 127) == 0
+    if exited_normally {
+        let exit_code = (status & 65280) / 256  // 0xff00 = 65280, shift right by 8 = divide by 256
+        if exit_code == 42 {
+            print("Parent: Child exited with expected code 42")
+        } else {
+            print("Parent: Child exited with unexpected code")
+            dealloc(status_buf)
+            return 4
+        }
+    } else {
+        print("Parent: Child did not exit normally")
+        dealloc(status_buf)
+        return 5
+    }
+
+    dealloc(status_buf)
+    print("Fork test passed!")
+    return 0
+}

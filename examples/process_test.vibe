@@ -1,0 +1,129 @@
+// Test process syscalls
+
+use std.mem.{alloc, dealloc}
+
+fn main() -> i32 {
+    print("Testing process syscalls...")
+
+    // Test sys_getpid
+    let pid = sys_getpid()
+    print("sys_getpid succeeded")
+
+    // Test sys_getppid
+    let ppid = sys_getppid()
+    print("sys_getppid succeeded")
+
+    // Verify PIDs are positive
+    if pid <= 0 {
+        print("ERROR: Invalid PID")
+        return 1
+    }
+    if ppid <= 0 {
+        print("ERROR: Invalid parent PID")
+        return 2
+    }
+    print("PIDs are valid")
+
+    // Test sys_getcwd
+    print("Testing getcwd...")
+    let buf = alloc(4096)
+    if ptr_is_null(buf) {
+        print("ERROR: Allocation failed")
+        return 3
+    }
+
+    let cwd_result = sys_getcwd(buf, 4096)
+    if ptr_is_null(cwd_result) {
+        print("ERROR: getcwd failed")
+        dealloc(buf)
+        return 4
+    }
+    print("Current working directory retrieved successfully")
+
+    // Test sys_getenv
+    print("Testing getenv...")
+    // Create null-terminated string for "HOME"
+    let home_str = alloc(5)
+    if ptr_is_null(home_str) {
+        print("ERROR: Allocation failed")
+        dealloc(buf)
+        return 5
+    }
+    unsafe {
+        ptr_write<u8>(home_str, 72)  // 'H'
+        ptr_write<u8>(ptr_add<u8>(home_str, 1), 79)  // 'O'
+        ptr_write<u8>(ptr_add<u8>(home_str, 2), 77)  // 'M'
+        ptr_write<u8>(ptr_add<u8>(home_str, 3), 69)  // 'E'
+        ptr_write<u8>(ptr_add<u8>(home_str, 4), 0)   // null terminator
+    }
+
+    let home_val = sys_getenv(home_str)
+    if ptr_is_null(home_val) {
+        print("WARNING: HOME environment variable not set")
+    } else {
+        print("HOME environment variable found")
+    }
+
+    // Test sys_setenv
+    print("Testing setenv...")
+    // Create null-terminated string for "VIBE_TEST"
+    let test_name = alloc(10)
+    let test_val = alloc(6)
+    if ptr_is_null(test_name) or ptr_is_null(test_val) {
+        print("ERROR: Allocation failed")
+        dealloc(buf)
+        dealloc(home_str)
+        return 6
+    }
+    unsafe {
+        // "VIBE_TEST"
+        ptr_write<u8>(test_name, 86)  // 'V'
+        ptr_write<u8>(ptr_add<u8>(test_name, 1), 73)  // 'I'
+        ptr_write<u8>(ptr_add<u8>(test_name, 2), 66)  // 'B'
+        ptr_write<u8>(ptr_add<u8>(test_name, 3), 69)  // 'E'
+        ptr_write<u8>(ptr_add<u8>(test_name, 4), 95)  // '_'
+        ptr_write<u8>(ptr_add<u8>(test_name, 5), 84)  // 'T'
+        ptr_write<u8>(ptr_add<u8>(test_name, 6), 69)  // 'E'
+        ptr_write<u8>(ptr_add<u8>(test_name, 7), 83)  // 'S'
+        ptr_write<u8>(ptr_add<u8>(test_name, 8), 84)  // 'T'
+        ptr_write<u8>(ptr_add<u8>(test_name, 9), 0)   // null
+        // "hello"
+        ptr_write<u8>(test_val, 104)  // 'h'
+        ptr_write<u8>(ptr_add<u8>(test_val, 1), 101)  // 'e'
+        ptr_write<u8>(ptr_add<u8>(test_val, 2), 108)  // 'l'
+        ptr_write<u8>(ptr_add<u8>(test_val, 3), 108)  // 'l'
+        ptr_write<u8>(ptr_add<u8>(test_val, 4), 111)  // 'o'
+        ptr_write<u8>(ptr_add<u8>(test_val, 5), 0)    // null
+    }
+
+    let setenv_result = sys_setenv(test_name, test_val, 1)
+    if setenv_result != 0 {
+        print("ERROR: setenv failed")
+        dealloc(buf)
+        dealloc(home_str)
+        dealloc(test_name)
+        dealloc(test_val)
+        return 7
+    }
+
+    // Verify it was set
+    let check_val = sys_getenv(test_name)
+    if ptr_is_null(check_val) {
+        print("ERROR: Environment variable not set after setenv")
+        dealloc(buf)
+        dealloc(home_str)
+        dealloc(test_name)
+        dealloc(test_val)
+        return 8
+    }
+    print("setenv succeeded")
+
+    // Clean up
+    dealloc(buf)
+    dealloc(home_str)
+    dealloc(test_name)
+    dealloc(test_val)
+
+    print("All process syscall tests passed!")
+    return 0
+}

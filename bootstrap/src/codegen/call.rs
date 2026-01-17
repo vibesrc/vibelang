@@ -201,6 +201,41 @@ impl<'ctx> Codegen<'ctx> {
             return self.compile_sys_nanosleep_call(args);
         }
 
+        // Process syscalls
+        if name == "sys_getpid" {
+            return self.compile_sys_getpid_call(args);
+        }
+        if name == "sys_getppid" {
+            return self.compile_sys_getppid_call(args);
+        }
+        if name == "sys_exit" {
+            return self.compile_sys_exit_call(args);
+        }
+        if name == "sys_getcwd" {
+            return self.compile_sys_getcwd_call(args);
+        }
+        if name == "sys_chdir" {
+            return self.compile_sys_chdir_call(args);
+        }
+        if name == "sys_getenv" {
+            return self.compile_sys_getenv_call(args);
+        }
+        if name == "sys_setenv" {
+            return self.compile_sys_setenv_call(args);
+        }
+        if name == "sys_fork" {
+            return self.compile_sys_fork_call(args);
+        }
+        if name == "sys_execve" {
+            return self.compile_sys_execve_call(args);
+        }
+        if name == "sys_waitpid" {
+            return self.compile_sys_waitpid_call(args);
+        }
+        if name == "sys_kill" {
+            return self.compile_sys_kill_call(args);
+        }
+
         // Generate monomorphized function if type args are present
         let mono_name = if !type_args.is_empty() {
             // Explicit type arguments provided

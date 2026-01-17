@@ -270,6 +270,51 @@ impl<'ctx> Codegen<'ctx> {
         // int nanosleep(const struct timespec *req, struct timespec *rem)
         let nanosleep_type = i32_type.fn_type(&[ptr_type.into(), ptr_type.into()], false);
         self.module.add_function("nanosleep", nanosleep_type, None);
+
+        // Process syscalls
+        // pid_t getpid(void)
+        let getpid_type = i32_type.fn_type(&[], false);
+        self.module.add_function("getpid", getpid_type, None);
+
+        // pid_t getppid(void)
+        let getppid_type = i32_type.fn_type(&[], false);
+        self.module.add_function("getppid", getppid_type, None);
+
+        // void exit(int status) - noreturn
+        let exit_type = self.context.void_type().fn_type(&[i32_type.into()], false);
+        self.module.add_function("exit", exit_type, None);
+
+        // char *getcwd(char *buf, size_t size)
+        let getcwd_type = ptr_type.fn_type(&[ptr_type.into(), i64_type.into()], false);
+        self.module.add_function("getcwd", getcwd_type, None);
+
+        // int chdir(const char *path)
+        let chdir_type = i32_type.fn_type(&[ptr_type.into()], false);
+        self.module.add_function("chdir", chdir_type, None);
+
+        // char *getenv(const char *name)
+        let getenv_type = ptr_type.fn_type(&[ptr_type.into()], false);
+        self.module.add_function("getenv", getenv_type, None);
+
+        // int setenv(const char *name, const char *value, int overwrite)
+        let setenv_type = i32_type.fn_type(&[ptr_type.into(), ptr_type.into(), i32_type.into()], false);
+        self.module.add_function("setenv", setenv_type, None);
+
+        // pid_t fork(void)
+        let fork_type = i32_type.fn_type(&[], false);
+        self.module.add_function("fork", fork_type, None);
+
+        // int execve(const char *pathname, char *const argv[], char *const envp[])
+        let execve_type = i32_type.fn_type(&[ptr_type.into(), ptr_type.into(), ptr_type.into()], false);
+        self.module.add_function("execve", execve_type, None);
+
+        // pid_t waitpid(pid_t pid, int *status, int options)
+        let waitpid_type = i32_type.fn_type(&[i32_type.into(), ptr_type.into(), i32_type.into()], false);
+        self.module.add_function("waitpid", waitpid_type, None);
+
+        // int kill(pid_t pid, int sig)
+        let kill_type = i32_type.fn_type(&[i32_type.into(), i32_type.into()], false);
+        self.module.add_function("kill", kill_type, None);
     }
 
     /// Set the source directory for module resolution
