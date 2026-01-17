@@ -327,7 +327,52 @@ match n {
 }
 ```
 
-## 11.9 If Let
+## 11.9 Let Destructuring
+
+Patterns can be used in let bindings to extract values from compound types.
+
+### Tuple Destructuring
+
+```vibelang
+let point = (10, 20)
+let (x, y) = point
+// x = 10, y = 20
+
+let (first, _, third) = (1, 2, 3)
+// first = 1, third = 3, middle value ignored
+```
+
+### Struct Destructuring
+
+```vibelang
+struct Point {
+    x: i32
+    y: i32
+}
+
+let p = Point { x: 10, y: 20 }
+
+// Basic destructuring - field names become variable names
+let {x, y} = p
+// x = 10, y = 20
+
+// Rename fields during destructuring
+let {x: px, y: py} = p
+// px = 10, py = 20
+
+// Partial destructuring - only extract some fields
+struct Rect {
+    origin: Point
+    width: i32
+    height: i32
+}
+
+let rect = Rect { origin: Point { x: 0, y: 0 }, width: 100, height: 200 }
+let {width, height} = rect
+// width = 100, height = 200 (origin ignored)
+```
+
+## 11.10 If Let
 
 Shorthand for single-pattern match:
 
@@ -351,7 +396,7 @@ if let Option.Some(x) = opt {
 }
 ```
 
-## 11.10 While Let
+## 11.11 While Let
 
 Loop while pattern matches:
 
@@ -365,7 +410,7 @@ while let Result.Ok(line) = reader.read_line() {
 }
 ```
 
-## 11.11 Let Else
+## 11.12 Let Else
 
 Destructure or else diverge:
 
@@ -381,7 +426,7 @@ let Result.Ok(data) = fetch() else {
 // data is now in scope
 ```
 
-## 11.12 Pattern Matching in Function Parameters
+## 11.13 Pattern Matching in Function Parameters
 
 ```vibelang
 fn handle_point(Point { x, y }: Point) {
@@ -393,7 +438,7 @@ fn process_pair((first, second): (i32, i32)) {
 }
 ```
 
-## 11.13 @ Bindings
+## 11.14 @ Bindings
 
 Bind a value while also testing its structure:
 
@@ -418,7 +463,7 @@ match n {
 }
 ```
 
-## 11.14 Common Patterns
+## 11.15 Common Patterns
 
 ### Option Handling
 
@@ -497,7 +542,7 @@ fn dispatch(cmd: Command) {
 }
 ```
 
-## 11.15 Pattern Match Compilation
+## 11.16 Pattern Match Compilation
 
 The compiler transforms pattern matching into efficient code:
 
