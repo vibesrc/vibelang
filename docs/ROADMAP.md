@@ -9,6 +9,7 @@
 - Process control syscalls with `std.process` (fork, execve, waitpid, kill, exit, getpid, getenv, setenv)
 - Memory syscalls with `std.mem` (mmap, munmap, mprotect, madvise, alloc, resize, dealloc)
 - Tuple types `(T1, T2, ...)` with `.0`, `.1` access and destructuring in `let`
+- Struct destructuring: `let {x, y} = point`, `let {x: px, y: py} = point`
 
 ## In Progress
 
