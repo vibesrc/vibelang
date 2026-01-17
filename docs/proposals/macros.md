@@ -444,6 +444,242 @@ Rejected: Ambiguous whether attribute applies to struct or first field. Before-d
 ### `#` for macros instead of `!`
 Rejected: `!` is familiar from Rust and clearly marks macro invocation.
 
+## Field Attribute Behavior
+
+Field attributes are metadata - they have no effect unless a derive macro reads them:
+
+```vibe
+// No @derive(JsonCodec) - @json attributes are just stored metadata
+struct Packet {
+    @json(name="deviceId")  // no effect without derive
+    id: u32
+}
+```
+
+**Behavior:**
+- Attributes are always parsed and stored in the AST
+- Derive macros read field attributes via `field.get_attr("json", "name")`
+- Unused field attributes trigger a warning:
+  ```
+  warning: @json attribute on field 'id' has no effect without @derive(JsonCodec)
+  ```
+
+**No implicit derives** - all code generation must be explicitly requested at the struct level. This keeps behavior predictable and visible.
+
+## LSP Integration
+
+The language server must fully support attributes and macros for a good developer experience.
+
+### Syntax Highlighting
+
+| Element | Scope | Color (typical) |
+|---------|-------|-----------------|
+| `@` | `punctuation.definition.attribute` | Yellow/Gold |
+| `derive`, `test`, `cfg` | `entity.name.attribute` | Yellow/Gold |
+| `Copy`, `Clone`, `Debug` | `entity.name.type.derive` | Cyan/Type color |
+| `name=`, `offset=` | `variable.parameter.attribute` | Orange/Parameter |
+| `"deviceId"` | `string.quoted` | Green/String |
+| `!` in `println!` | `punctuation.definition.macro` | Yellow/Gold |
+| `println`, `vec` | `entity.name.function.macro` | Yellow/Gold |
+
+**TextMate grammar additions:**
+```json
+{
+  "patterns": [
+    {
+      "name": "meta.attribute.vibe",
+      "begin": "@",
+      "end": "(?=\\s|$|\\{|fn|struct|enum|let)",
+      "patterns": [
+        {
+          "name": "entity.name.attribute.vibe",
+          "match": "\\b(derive|test|cfg|repr|inline|deprecated|must_use)\\b"
+        },
+        {
+          "name": "entity.name.type.derive.vibe",
+          "match": "\\b(Copy|Clone|Debug|Default|Eq|Hash)\\b"
+        }
+      ]
+    },
+    {
+      "name": "entity.name.function.macro.vibe",
+      "match": "\\b([a-z_][a-z0-9_]*)!"
+    }
+  ]
+}
+```
+
+### Autocomplete
+
+**Struct-level attributes:**
+```
+@  →  @derive(...)
+      @repr(...)
+      @cfg(...)
+      @deprecated
+```
+
+**Inside @derive():**
+```
+@derive(  →  Copy
+             Clone
+             Debug
+             Default
+             Eq
+             Hash
+             JsonCodec  (if available)
+```
+
+**Field-level attributes:**
+```
+@  →  @json(...)
+      @protocol(...)
+      @db(...)
+      (context-aware based on struct derives)
+```
+
+**Inside @json():**
+```
+@json(  →  name="..."
+           skip=true
+           skip_if_none=true
+           flatten=true
+           default="..."
+```
+
+**Macro invocations:**
+```
+println  →  println!(...)
+vec      →  vec![...]
+format   →  format!(...)
+assert   →  assert!(...)
+```
+
+### Hover Information
+
+**On @derive:**
+```
+@derive(Clone)
+────────────────
+Generates a `clone` method that creates a deep copy of the struct.
+
+Generated method:
+  fn clone(&self) -> Self
+```
+
+**On field attribute:**
+```
+@json(name="deviceId")
+────────────────────────
+JSON serialization options for this field.
+
+• name: Field name in JSON output (default: field name)
+• skip: Exclude from serialization (default: false)
+• skip_if_none: Omit if Option::None (default: false)
+```
+
+**On macro invocation:**
+```
+println!("Hello, {}!", name)
+────────────────────────────
+Prints formatted text to stdout with newline.
+
+Arguments:
+  format: Format string with {} placeholders
+  args: Values to interpolate
+
+Expands to:
+  print(format!("Hello, {}!\n", name))
+```
+
+### Go to Definition
+
+| Element | Jumps to |
+|---------|----------|
+| `@derive(JsonCodec)` | `@macro_derive(JsonCodec)` function |
+| `println!` | `@macro fn println(...)` definition |
+| `@test` | `@macro_attribute(test)` function |
+| Built-in derives | Documentation / compiler intrinsic |
+
+### Diagnostics
+
+**Error: Invalid attribute:**
+```
+error[E0401]: unknown attribute `@jsn`
+ --> src/main.vibe:5:5
+  |
+5 |     @jsn(name="id")
+  |     ^^^^ did you mean `@json`?
+```
+
+**Warning: Unused attribute:**
+```
+warning[W0201]: unused attribute `@json`
+ --> src/main.vibe:5:5
+  |
+5 |     @json(name="deviceId")
+  |     ^^^^^^^^^^^^^^^^^^^^^^ this attribute has no effect
+  |
+  = help: add `@derive(JsonCodec)` to the struct
+```
+
+**Error: Invalid derive for type:**
+```
+error[E0402]: cannot derive `Copy` for `Buffer`
+ --> src/main.vibe:1:10
+  |
+1 | @derive(Copy)
+  |         ^^^^ `Copy` requires all fields to be `Copy`
+  |
+3 |     data: Array<u8>
+  |     --------------- `Array<u8>` is not `Copy`
+```
+
+**Error: Missing required attribute argument:**
+```
+error[E0403]: missing required argument `offset` for `@protocol`
+ --> src/main.vibe:5:5
+  |
+5 |     @protocol(endian=Big)
+  |     ^^^^^^^^^^^^^^^^^^^^^ missing `offset`
+```
+
+### Code Actions
+
+**Add missing derive:**
+```
+@json(name="deviceId")  // warning: unused without derive
+id: u32
+
+Quick fix: Add @derive(JsonCodec) to struct
+```
+
+**Generate derive implementation:**
+```
+@derive(Clone)
+struct Point { ... }
+
+Code action: Expand derive to explicit impl
+→ Generates:
+  impl Point {
+      fn clone(&self) -> Point {
+          Point { x: self.x, y: self.y }
+      }
+  }
+```
+
+### Semantic Tokens
+
+Provide semantic token types for enhanced highlighting:
+
+| Token | Semantic Type | Modifiers |
+|-------|--------------|-----------|
+| `@derive` | `decorator` | `declaration` |
+| `Copy` | `type` | `defaultLibrary` |
+| `@json` | `decorator` | - |
+| `name` in `name=` | `parameter` | - |
+| `println!` | `macro` | - |
+
 ## Open Questions
 
 1. **Macro hygiene**: How do we handle identifier hygiene in generated code?
@@ -451,3 +687,4 @@ Rejected: `!` is familiar from Rust and clearly marks macro invocation.
 3. **Error messages**: How do we provide good error messages for macro-generated code?
 4. **Macro ordering**: Can macros depend on other macros? How to handle ordering?
 5. **Reflection**: Should field attributes be available at runtime via reflection?
+6. **LSP macro expansion**: Should the LSP show expanded macro code on hover/go-to-definition?
