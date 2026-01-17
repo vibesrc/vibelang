@@ -182,12 +182,41 @@ impl<'ctx> Codegen<'ctx> {
                 ));
             }
 
-            // Otherwise it's a struct field access
+            // Otherwise it's a struct or tuple field access
             let var_info = self
                 .variables
                 .get(name)
                 .ok_or_else(|| CodegenError::UndefinedVariable(name.clone()))?
                 .clone();
+
+            // Check for tuple field access: tuple.0, tuple.1, etc.
+            if let Ok(field_idx) = field.parse::<u32>() {
+                if let Some(Type::Tuple(types)) = &var_info.ast_type {
+                    if (field_idx as usize) < types.len() {
+                        // Get the tuple type
+                        let field_types: Vec<_> = types.iter()
+                            .map(|t| self.llvm_type(t))
+                            .collect::<Result<_, _>>()?;
+                        let tuple_type = self.context.struct_type(&field_types, false);
+                        let field_type = field_types[field_idx as usize];
+
+                        // GEP to get the field
+                        let field_ptr = self.builder
+                            .build_struct_gep(tuple_type, var_info.ptr, field_idx, &format!("{}.{}", name, field))
+                            .unwrap();
+
+                        let field_val = self.builder
+                            .build_load(field_type, field_ptr, field)
+                            .unwrap();
+
+                        return Ok(field_val);
+                    } else {
+                        return Err(CodegenError::UndefinedField(
+                            format!("tuple index {} out of bounds (tuple has {} elements)", field_idx, types.len())
+                        ));
+                    }
+                }
+            }
 
             // Determine struct name - either direct or through reference
             let struct_name = if var_info.is_ref {

@@ -100,6 +100,14 @@ impl<'ctx> Codegen<'ctx> {
                     .struct_type(&[ptr_type.into(), len_type.into()], false)
                     .into())
             }
+            Type::Tuple(types) => {
+                // Tuples are anonymous struct types
+                let field_types: Vec<BasicTypeEnum> = types
+                    .iter()
+                    .map(|t| self.llvm_type(t))
+                    .collect::<Result<_, _>>()?;
+                Ok(self.context.struct_type(&field_types, false).into())
+            }
             _ => Err(CodegenError::NotImplemented(format!(
                 "unsupported type '{:?}'. Supported types: i8, i16, i32, i64, u8, u16, u32, u64, \
                  f32, f64, bool, structs, enums, arrays, slices, and references", ty
@@ -188,6 +196,10 @@ impl<'ctx> Codegen<'ctx> {
                 }
             }
             Type::Slice(inner) => format!("slice_{}", self.type_name(inner)),
+            Type::Tuple(types) => {
+                let type_names: Vec<_> = types.iter().map(|t| self.type_name(t)).collect();
+                format!("tup_{}", type_names.join("_"))
+            }
             _ => "unknown".to_string(),
         }
     }
@@ -590,6 +602,24 @@ impl<'ctx> Codegen<'ctx> {
             }
             Expr::StructInit { name, generics, .. } => {
                 Ok(Type::Named { name: name.clone(), generics: generics.clone() })
+            }
+            Expr::Tuple { elements, .. } => {
+                // Get the type of each tuple element
+                let elem_types: Result<Vec<Type>, _> = elements
+                    .iter()
+                    .map(|e| self.get_expr_type(e))
+                    .collect();
+                Ok(Type::Tuple(elem_types?))
+            }
+            Expr::Call { func, .. } => {
+                // Look up function return type
+                if let Expr::Ident(func_name, _) = func.as_ref() {
+                    if let Some(Some(ret_type)) = self.function_return_types.get(func_name) {
+                        return Ok(ret_type.clone());
+                    }
+                }
+                // Fallback
+                Ok(Type::I32)
             }
             _ => {
                 // For other expressions, try to infer

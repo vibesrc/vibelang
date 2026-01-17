@@ -333,7 +333,15 @@ impl Parser {
                 };
             } else if self.match_token(TokenKind::Dot) {
                 // Field access or method call
-                let field = self.expect_ident()?;
+                // Allow both identifiers (struct fields) and numbers (tuple indices)
+                let field = if let Some(TokenKind::Int(n, _)) = self.peek_kind() {
+                    // Tuple field access: tuple.0, tuple.1, etc.
+                    let idx = n.to_string();
+                    self.advance();
+                    idx
+                } else {
+                    self.expect_ident()?
+                };
 
                 if self.match_token(TokenKind::LParen) {
                     // Method call
@@ -504,9 +512,43 @@ impl Parser {
             }
             Some(TokenKind::LParen) => {
                 self.advance();
-                let expr = self.parse_expr()?;
+
+                // Empty tuple ()
+                if self.check(TokenKind::RParen) {
+                    self.advance();
+                    return Ok(Expr::Tuple {
+                        elements: Vec::new(),
+                        span: self.span_from(span),
+                    });
+                }
+
+                let first = self.parse_expr()?;
+
+                // Check for comma -> tuple
+                if self.match_token(TokenKind::Comma) {
+                    let mut elements = vec![first];
+
+                    // Parse remaining elements
+                    if !self.check(TokenKind::RParen) {
+                        elements.push(self.parse_expr()?);
+                        while self.match_token(TokenKind::Comma) {
+                            if self.check(TokenKind::RParen) {
+                                break; // trailing comma
+                            }
+                            elements.push(self.parse_expr()?);
+                        }
+                    }
+
+                    self.expect(TokenKind::RParen)?;
+                    return Ok(Expr::Tuple {
+                        elements,
+                        span: self.span_from(span),
+                    });
+                }
+
+                // Just grouping
                 self.expect(TokenKind::RParen)?;
-                Ok(expr)
+                Ok(first)
             }
             Some(TokenKind::LBracket) => {
                 // Array literal or repeat: [1, 2, 3] or [0; 100]
@@ -743,6 +785,7 @@ impl Expr {
             Expr::StructInit { span, .. } => *span,
             Expr::ArrayInit { span, .. } => *span,
             Expr::ArrayRepeat { span, .. } => *span,
+            Expr::Tuple { span, .. } => *span,
             Expr::If { span, .. } => *span,
             Expr::Block(block) => block.span,
             Expr::Try { span, .. } => *span,

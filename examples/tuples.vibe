@@ -1,0 +1,36 @@
+// Tuple examples
+
+fn divmod(a: i64, b: i64) -> (i64, i64) {
+    return (a / b, a % b)
+}
+
+fn swap(a: i64, b: i64) -> (i64, i64) {
+    return (b, a)
+}
+
+fn main() {
+    // Basic tuple creation and field access
+    let pair = (10, 20)
+    let x0 = pair.0
+    let x1 = pair.1
+    println("pair.0 = ${x0}")
+    println("pair.1 = ${x1}")
+
+    // Tuple destructuring
+    let (x, y) = pair
+    println("x = ${x}, y = ${y}")
+
+    // Function returning tuple
+    let result = divmod(17, 5)
+    let quotient = result.0
+    let remainder = result.1
+    println("17 / 5 = ${quotient} remainder ${remainder}")
+
+    // Destructuring from function return
+    let (q, r) = divmod(23, 7)
+    println("23 / 7 = ${q} remainder ${r}")
+
+    // Nested usage
+    let (a, b) = swap(1, 2)
+    println("swapped: a = ${a}, b = ${b}")
+}

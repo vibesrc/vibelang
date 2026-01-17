@@ -1,0 +1,100 @@
+// Conformance test: tuple types, expressions, field access, and destructuring
+
+fn swap(a: i64, b: i64) -> (i64, i64) {
+    return (b, a)
+}
+
+fn divmod(a: i64, b: i64) -> (i64, i64) {
+    return (a / b, a % b)
+}
+
+fn make_triple(x: i64) -> (i64, i64, i64) {
+    return (x, x * 2, x * 3)
+}
+
+fn main() -> i64 {
+    // Basic tuple creation and field access
+    let pair = (10, 20)
+    if pair.0 != 10 {
+        return 1
+    }
+    if pair.1 != 20 {
+        return 2
+    }
+
+    // Tuple destructuring
+    let (a, b) = pair
+    if a != 10 {
+        return 3
+    }
+    if b != 20 {
+        return 4
+    }
+
+    // Function returning tuple
+    let swapped = swap(1, 2)
+    if swapped.0 != 2 {
+        return 5
+    }
+    if swapped.1 != 1 {
+        return 6
+    }
+
+    // Destructuring function return
+    let (x, y) = swap(100, 200)
+    if x != 200 {
+        return 7
+    }
+    if y != 100 {
+        return 8
+    }
+
+    // Division with remainder
+    let (q, r) = divmod(17, 5)
+    if q != 3 {
+        return 9
+    }
+    if r != 2 {
+        return 10
+    }
+
+    // Triple (3-element tuple)
+    let triple = make_triple(5)
+    if triple.0 != 5 {
+        return 11
+    }
+    if triple.1 != 10 {
+        return 12
+    }
+    if triple.2 != 15 {
+        return 13
+    }
+
+    // Destructuring triple
+    let (t1, t2, t3) = make_triple(7)
+    if t1 != 7 {
+        return 14
+    }
+    if t2 != 14 {
+        return 15
+    }
+    if t3 != 21 {
+        return 16
+    }
+
+    // Tuple with different types
+    let mixed = (42, true)
+    if mixed.0 != 42 {
+        return 17
+    }
+    if mixed.1 != true {
+        return 18
+    }
+
+    // TODO: Nested tuple access needs additional work
+    // let outer = ((1, 2), (3, 4))
+    // let inner1 = outer.0
+    // if inner1.0 != 1 { return 19 }
+
+    return 0
+}

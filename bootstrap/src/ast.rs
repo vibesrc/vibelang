@@ -164,6 +164,7 @@ pub enum Type {
     RefMut(Box<Type>),       // ~T (vibing - mutable borrow)
     Array(Box<Type>, usize), // T[N]
     Slice(Box<Type>),        // Slice<T>
+    Tuple(Vec<Type>),        // (T1, T2, ...)
 
     // Named
     Named {
@@ -188,6 +189,11 @@ pub enum Stmt {
     Let {
         name: String,
         ty: Option<Type>,
+        value: Expr,
+        span: Span,
+    },
+    LetPattern {
+        pattern: Pattern,
         value: Expr,
         span: Span,
     },
@@ -242,6 +248,7 @@ pub enum Pattern {
     Wildcard,
     Ident(String),
     Literal(Literal),
+    Tuple(Vec<Pattern>),  // (a, b, c)
     Enum {
         path: Vec<String>,
         fields: Vec<Pattern>,
@@ -314,6 +321,10 @@ pub enum Expr {
     ArrayRepeat {
         value: Box<Expr>,
         count: usize,
+        span: Span,
+    },
+    Tuple {
+        elements: Vec<Expr>,
         span: Span,
     },
     If {

@@ -6,6 +6,34 @@ use crate::lexer::TokenKind;
 
 impl Parser {
     pub(crate) fn parse_type(&mut self) -> Result<Type, ParseError> {
+        // Tuple type: (T1, T2, ...)
+        if self.match_token(TokenKind::LParen) {
+            let mut types = Vec::new();
+            let mut saw_comma = false;
+
+            if !self.check(TokenKind::RParen) {
+                types.push(self.parse_type()?);
+
+                while self.match_token(TokenKind::Comma) {
+                    saw_comma = true;
+                    if self.check(TokenKind::RParen) {
+                        break; // trailing comma
+                    }
+                    types.push(self.parse_type()?);
+                }
+            }
+
+            self.expect(TokenKind::RParen)?;
+
+            // Single type in parens without comma is just grouping, not a tuple
+            // (i32) -> i32, (i32,) -> Tuple([i32]), (i32, i64) -> Tuple([i32, i64])
+            if types.len() == 1 && !saw_comma {
+                return Ok(types.pop().unwrap());
+            }
+
+            return Ok(Type::Tuple(types));
+        }
+
         // Pointer type
         if self.match_token(TokenKind::Star) {
             let inner = self.parse_type()?;

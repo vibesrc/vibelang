@@ -401,6 +401,14 @@ impl<'ctx> Codegen<'ctx> {
                 });
                 Ok(None)
             }
+            Stmt::LetPattern { pattern, value, .. } => {
+                // Compile the value expression first
+                let val = self.compile_expr(value)?;
+
+                // Handle tuple destructuring
+                self.compile_pattern_binding(pattern, val, value)?;
+                Ok(None)
+            }
             Stmt::Return { value, .. } => {
                 // Execute deferred expressions in reverse order before return
                 self.emit_deferred_exprs()?;
@@ -1088,5 +1096,117 @@ impl<'ctx> Codegen<'ctx> {
         self.loop_continue_block = outer_continue;
 
         Ok(None)
+    }
+
+    /// Compile pattern binding for let destructuring
+    fn compile_pattern_binding(
+        &mut self,
+        pattern: &Pattern,
+        value: BasicValueEnum<'ctx>,
+        value_expr: &Expr,
+    ) -> Result<(), CodegenError> {
+        match pattern {
+            Pattern::Tuple(patterns) => {
+                // Get the tuple type from the value
+                let tuple_type = value.get_type();
+
+                if !tuple_type.is_struct_type() {
+                    return Err(CodegenError::NotImplemented(
+                        "tuple destructuring requires a tuple/struct value".to_string()
+                    ));
+                }
+
+                let struct_type = tuple_type.into_struct_type();
+
+                // Infer element types from the value expression if it's a tuple
+                let elem_types: Vec<Option<Type>> = if let Expr::Tuple { elements, .. } = value_expr {
+                    elements.iter().map(|_| None).collect()
+                } else {
+                    vec![None; patterns.len()]
+                };
+
+                // Store the tuple to get a pointer for GEP
+                let alloca = self.builder.build_alloca(struct_type, "tuple_destructure").unwrap();
+                self.builder.build_store(alloca, value).unwrap();
+
+                // Extract each element and bind to pattern
+                for (i, pat) in patterns.iter().enumerate() {
+                    let field_ptr = self.builder
+                        .build_struct_gep(struct_type, alloca, i as u32, &format!("tuple.{}", i))
+                        .unwrap();
+
+                    let field_type = struct_type.get_field_type_at_index(i as u32)
+                        .ok_or_else(|| CodegenError::UndefinedField(format!("tuple index {}", i)))?;
+
+                    let field_val = self.builder
+                        .build_load(field_type, field_ptr, &format!("elem{}", i))
+                        .unwrap();
+
+                    // Recursively bind the pattern
+                    match pat {
+                        Pattern::Ident(name) => {
+                            // Create a variable for this binding
+                            let var_alloca = self.create_entry_block_alloca(name, field_type);
+                            self.builder.build_store(var_alloca, field_val).unwrap();
+
+                            // Get AST type if available
+                            let ast_type = elem_types.get(i).cloned().flatten();
+
+                            self.variables.insert(name.clone(), VarInfo {
+                                ptr: var_alloca,
+                                ty: field_type,
+                                struct_name: None,
+                                ast_type,
+                                is_ref: false,
+                                is_mut_ref: false,
+                                ref_struct_name: None,
+                                slice_elem_type: None,
+                            });
+                        }
+                        Pattern::Wildcard => {
+                            // Ignore this element
+                        }
+                        Pattern::Tuple(_) => {
+                            // Nested tuple destructuring - create a dummy expr for recursion
+                            let dummy_expr = Expr::Tuple {
+                                elements: vec![],
+                                span: crate::lexer::Span { start: 0, end: 0, line: 0, column: 0 },
+                            };
+                            self.compile_pattern_binding(pat, field_val, &dummy_expr)?;
+                        }
+                        _ => {
+                            return Err(CodegenError::NotImplemented(
+                                format!("pattern type {:?} in tuple destructuring", pat)
+                            ));
+                        }
+                    }
+                }
+
+                Ok(())
+            }
+            Pattern::Ident(name) => {
+                // Simple binding
+                let val_type = value.get_type();
+                let alloca = self.create_entry_block_alloca(name, val_type);
+                self.builder.build_store(alloca, value).unwrap();
+
+                self.variables.insert(name.clone(), VarInfo {
+                    ptr: alloca,
+                    ty: val_type,
+                    struct_name: None,
+                    ast_type: None,
+                    is_ref: false,
+                    is_mut_ref: false,
+                    ref_struct_name: None,
+                    slice_elem_type: None,
+                });
+
+                Ok(())
+            }
+            Pattern::Wildcard => Ok(()),
+            _ => Err(CodegenError::NotImplemented(
+                format!("pattern type {:?} in let binding", pattern)
+            )),
+        }
     }
 }

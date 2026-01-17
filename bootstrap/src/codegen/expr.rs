@@ -195,6 +195,9 @@ impl<'ctx> Codegen<'ctx> {
             Expr::Cast { expr, ty, .. } => {
                 self.compile_cast(expr, ty)
             }
+            Expr::Tuple { elements, .. } => {
+                self.compile_tuple(elements, expected_type)
+            }
             other => {
                 Err(CodegenError::NotImplemented(format!(
                     "unsupported expression type: {:?}. This expression may not be implemented yet", other
@@ -1384,5 +1387,44 @@ impl<'ctx> Codegen<'ctx> {
                 target_type
             ))),
         }
+    }
+
+    /// Compile a tuple expression: (a, b, c)
+    pub(crate) fn compile_tuple(
+        &mut self,
+        elements: &[Expr],
+        expected_type: Option<&Type>,
+    ) -> Result<BasicValueEnum<'ctx>, CodegenError> {
+        // Get expected element types if available
+        let expected_elem_types: Vec<Option<&Type>> = match expected_type {
+            Some(Type::Tuple(types)) => types.iter().map(Some).collect(),
+            _ => vec![None; elements.len()],
+        };
+
+        // Compile each element
+        let mut values = Vec::new();
+        for (i, elem) in elements.iter().enumerate() {
+            let expected = expected_elem_types.get(i).copied().flatten();
+            let val = self.compile_expr_with_type(elem, expected)?;
+            values.push(val);
+        }
+
+        // Create the tuple type (anonymous struct)
+        let field_types: Vec<_> = values.iter().map(|v| v.get_type()).collect();
+        let tuple_type = self.context.struct_type(&field_types, false);
+
+        // Allocate and initialize the tuple
+        let alloca = self.builder.build_alloca(tuple_type, "tuple").unwrap();
+
+        for (i, val) in values.iter().enumerate() {
+            let field_ptr = self.builder
+                .build_struct_gep(tuple_type, alloca, i as u32, &format!("tuple.{}", i))
+                .unwrap();
+            self.builder.build_store(field_ptr, *val).unwrap();
+        }
+
+        // Load and return the tuple value
+        let tuple_val = self.builder.build_load(tuple_type, alloca, "tuple_val").unwrap();
+        Ok(tuple_val)
     }
 }

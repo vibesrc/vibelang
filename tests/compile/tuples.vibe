@@ -1,0 +1,48 @@
+// Test tuple type syntax variations
+
+fn returns_pair() -> (i64, i64) {
+    return (1, 2)
+}
+
+fn returns_triple() -> (i32, bool, i64) {
+    return (42, true, 100)
+}
+
+fn takes_tuple(t: (i64, i64)) -> i64 {
+    return t.0 + t.1
+}
+
+fn main() -> i32 {
+    // Basic tuple
+    let pair = (10, 20)
+
+    // Tuple with explicit type
+    let typed: (i64, i64) = (30, 40)
+
+    // Tuple with trailing comma
+    let trailing = (50, 60,)
+
+    // Empty tuple (unit)
+    let unit = ()
+
+    // Single element with comma is a tuple
+    let single = (100,)
+
+    // Nested tuples
+    let nested = ((1, 2), (3, 4))
+
+    // Access
+    let x = pair.0
+    let y = pair.1
+
+    // Destructuring
+    let (a, b) = typed
+
+    // From function
+    let (p, q) = returns_pair()
+
+    // Pass to function
+    let sum = takes_tuple((5, 6))
+
+    return 0
+}

@@ -1,0 +1,7 @@
+// Conformance test: tuple index out of bounds should error
+// Expected error: tuple index 2 out of bounds
+
+fn main() {
+    let pair = (10, 20)
+    let x = pair.2  // ERROR: pair only has 2 elements (0 and 1)
+}

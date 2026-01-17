@@ -179,6 +179,10 @@ impl Backend {
                     format!("{}<{}>", name, generic_strs.join(", "))
                 }
             }
+            Type::Tuple(types) => {
+                let type_strs: Vec<_> = types.iter().map(|t| self.type_to_string(t)).collect();
+                format!("({})", type_strs.join(", "))
+            }
             Type::SelfType => "Self".to_string(),
         }
     }

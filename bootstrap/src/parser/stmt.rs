@@ -60,6 +60,19 @@ impl Parser {
     fn parse_let(&mut self) -> Result<Stmt, ParseError> {
         let start = self.current_span();
         self.expect_keyword(Keyword::Let)?;
+
+        // Check for tuple destructuring: let (a, b) = ...
+        if self.check(TokenKind::LParen) {
+            let pattern = self.parse_pattern()?;
+            self.expect(TokenKind::Eq)?;
+            let value = self.parse_expr()?;
+            return Ok(Stmt::LetPattern {
+                pattern,
+                value,
+                span: self.span_from(start),
+            });
+        }
+
         let name = self.expect_ident()?;
 
         let ty = if self.match_token(TokenKind::Colon) {

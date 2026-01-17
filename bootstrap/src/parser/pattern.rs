@@ -7,6 +7,24 @@ use crate::lexer::TokenKind;
 impl Parser {
     pub(crate) fn parse_pattern(&mut self) -> Result<Pattern, ParseError> {
         match self.peek_kind() {
+            // Tuple pattern: (a, b, c)
+            Some(TokenKind::LParen) => {
+                self.advance();
+                let mut patterns = Vec::new();
+
+                if !self.check(TokenKind::RParen) {
+                    patterns.push(self.parse_pattern()?);
+                    while self.match_token(TokenKind::Comma) {
+                        if self.check(TokenKind::RParen) {
+                            break; // trailing comma
+                        }
+                        patterns.push(self.parse_pattern()?);
+                    }
+                }
+
+                self.expect(TokenKind::RParen)?;
+                Ok(Pattern::Tuple(patterns))
+            }
             Some(TokenKind::Ident(name)) => {
                 let name = name.clone();
                 self.advance();
