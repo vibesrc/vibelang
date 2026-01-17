@@ -15,7 +15,7 @@ Vibelang uses an ownership system to manage memory without garbage collection. E
 | Category | Description | Example |
 |----------|-------------|---------|
 | Copy | Implicitly duplicated on assignment | `i32`, `f64`, `bool` |
-| Owned | Moved on assignment, single owner | `String`, `Array<T>` |
+| Owned | Moved on assignment, single owner | `String`, `Vec<T>` |
 | Borrowed | Temporary access, no ownership | `&String`, `Slice<T>` |
 
 ## 6.2 Copy Types
@@ -329,7 +329,7 @@ let s = String.from("hello")
 // Stack: String struct (24 bytes: ptr + len + cap)
 // Heap: "hello" bytes (5 bytes + possible extra capacity)
 
-let v = Array<i32>()
+let v = Vec<i32>()
 // Stack: Array struct (24 bytes: ptr + len + cap)
 // Heap: nothing yet (empty)
 
@@ -358,7 +358,7 @@ let s = get_string().copy()
 
 ```vibelang
 // You write:
-let arr = Array<i32>()
+let arr = Vec<i32>()
 arr.push(1)
 arr.push(2)
 return arr.len()                    // arr doesn't escape
@@ -389,7 +389,7 @@ These optimizations are invisible to the programmer. The ownership semantics rem
 
 ```vibelang
 fn consume(s: String)               // takes ownership, will free
-fn sink(v: Array<i32>)              // takes ownership, will free
+fn sink(v: Vec<i32>)              // takes ownership, will free
 ```
 
 Use when:
@@ -401,7 +401,7 @@ Use when:
 
 ```vibelang
 fn read(s: &String)                 // borrows, read-only
-fn inspect(v: &Array<i32>)          // borrows, read-only
+fn inspect(v: &Vec<i32>)          // borrows, read-only
 ```
 
 Use when:
@@ -412,7 +412,7 @@ Use when:
 
 ```vibelang
 fn modify(s: ~String)               // borrows, can mutate
-fn append(v: ~Array<i32>)           // borrows, can mutate
+fn append(v: ~Vec<i32>)           // borrows, can mutate
 ```
 
 Use when:
@@ -484,8 +484,8 @@ let longest = find_longest(&s1, &s2)    // borrows, doesn't copy
 ### Split and Process Pattern
 
 ```vibelang
-fn process_lines(text: &String) -> Array<Result> {
-    let results = Array<Result>()
+fn process_lines(text: &String) -> Vec<Result> {
+    let results = Vec<Result>()
     
     for line in text.split("\n") {      // line is Slice<u8>, borrows text
         let result = process_line(line)  // process each borrowed slice

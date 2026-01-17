@@ -3,10 +3,14 @@
 use tower_lsp_server::ls_types::{
     CompletionItem, CompletionItemKind, InsertTextFormat, Position,
 };
+use std::path::PathBuf;
 
 use crate::lsp::types::{DocumentInfo, VariantFieldsData};
-use crate::lsp::utils::{std_modules, std_module_items};
+use crate::lsp::utils::std_modules;
 use crate::lsp::Backend;
+use crate::lexer::Lexer;
+use crate::parser::Parser;
+use crate::ast::Item;
 
 impl Backend {
     /// Check if position is inside a string interpolation ${...} expression.
@@ -175,9 +179,21 @@ impl Backend {
                 }
             }
 
+            // Check if expr_name is a struct/enum type (for static method calls like String.from())
+            let is_type_name = doc.symbols.structs.contains_key(expr_name)
+                || doc.symbols.enums.contains_key(expr_name);
+
             // Methods for type
             if let Some(methods) = doc.symbols.methods.get(expr_name) {
                 for method in methods {
+                    // For type names (String.), only show static methods (no self parameter)
+                    // For variables, show all methods
+                    let is_static = method.params.first().map(|(n, _)| n != "self").unwrap_or(true);
+
+                    if is_type_name && !is_static {
+                        continue; // Skip instance methods when completing on a type name
+                    }
+
                     let params_str: Vec<_> = method
                         .params
                         .iter()
@@ -491,16 +507,18 @@ impl Backend {
                 let after_module = &after_std[dot_pos + 1..];
 
                 // "use std.types." or "use std.types.{" - suggest items in module
-                if after_module.is_empty() || after_module == "{" || after_module.ends_with(", ") {
-                    for (item_name, item_kind) in std_module_items(module_name) {
-                        let kind = match item_kind {
+                // Also handle cases like "{File," or "{File, " (with or without trailing space after comma)
+                if after_module.is_empty() || after_module == "{" || after_module.ends_with(", ") || after_module.ends_with(',') {
+                    // Dynamically load module items from the std library
+                    for (item_name, item_kind) in self.get_std_module_items(module_name) {
+                        let kind = match item_kind.as_str() {
                             "enum" => CompletionItemKind::ENUM,
                             "struct" => CompletionItemKind::STRUCT,
                             "fn" => CompletionItemKind::FUNCTION,
                             _ => CompletionItemKind::VALUE,
                         };
                         completions.push(CompletionItem {
-                            label: item_name.to_string(),
+                            label: item_name,
                             kind: Some(kind),
                             detail: Some(format!("{} from std.{}", item_kind, module_name)),
                             ..Default::default()
@@ -525,5 +543,98 @@ impl Backend {
         // For other prefixes (src., lib., dep.), we'd need file system access
         // For now, just return empty to avoid blocking
         Some(completions)
+    }
+
+    /// Dynamically load public items from a std module
+    fn get_std_module_items(&self, module_name: &str) -> Vec<(String, String)> {
+        let std_path = self.get_std_library_path_for_completion();
+        let std_path = match std_path {
+            Some(p) => p,
+            None => return vec![],
+        };
+
+        // Build path to module's mod.vibe
+        let mod_path = std_path.join(module_name).join("mod.vibe");
+
+        // Read and parse the module file
+        let content = match std::fs::read_to_string(&mod_path) {
+            Ok(c) => c,
+            Err(_) => return vec![],
+        };
+
+        let mut lexer = Lexer::new(&content);
+        let tokens = match lexer.tokenize() {
+            Ok(t) => t,
+            Err(_) => return vec![],
+        };
+
+        let mut parser = Parser::new(tokens);
+        let program = match parser.parse_program() {
+            Ok(p) => p,
+            Err(_) => return vec![],
+        };
+
+        // Extract public items
+        let mut items = Vec::new();
+        for item in &program.items {
+            match item {
+                Item::Struct(s) if s.is_pub => {
+                    items.push((s.name.clone(), "struct".to_string()));
+                }
+                Item::Enum(e) if e.is_pub => {
+                    items.push((e.name.clone(), "enum".to_string()));
+                }
+                Item::Function(f) if f.is_pub => {
+                    items.push((f.name.clone(), "fn".to_string()));
+                }
+                _ => {}
+            }
+        }
+
+        items
+    }
+
+    /// Get the path to the std library src directory for completion
+    fn get_std_library_path_for_completion(&self) -> Option<PathBuf> {
+        // First, check environment variable (highest priority)
+        if let Ok(path) = std::env::var("VIBELANG_STD") {
+            let path = PathBuf::from(path).join("src");
+            if path.exists() {
+                return Some(path);
+            }
+        }
+
+        // Also check legacy VIBELANG_STDLIB for backwards compatibility
+        if let Ok(path) = std::env::var("VIBELANG_STDLIB") {
+            let path = PathBuf::from(path).join("src");
+            if path.exists() {
+                return Some(path);
+            }
+        }
+
+        // Try relative to current executable
+        if let Ok(exe) = std::env::current_exe() {
+            if let Some(exe_dir) = exe.parent() {
+                // Check ../std (installed layout)
+                let stdlib = exe_dir.join("../std/src");
+                if stdlib.exists() {
+                    return stdlib.canonicalize().ok();
+                }
+
+                // Check ../../std (dev layout - from bootstrap/target/release)
+                let stdlib = exe_dir.join("../../std/src");
+                if stdlib.exists() {
+                    return stdlib.canonicalize().ok();
+                }
+
+                // Check ../../../std (dev layout - from bootstrap/target/debug or release)
+                let stdlib = exe_dir.join("../../../std/src");
+                if stdlib.exists() {
+                    return stdlib.canonicalize().ok();
+                }
+            }
+        }
+
+        None
     }
 }

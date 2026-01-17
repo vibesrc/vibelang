@@ -37,7 +37,9 @@ impl<'ctx> Codegen<'ctx> {
                 .get(field_name)
                 .ok_or_else(|| CodegenError::UndefinedField(field_name.clone()))?;
 
-            let field_value = self.compile_expr(field_expr)?;
+            // Get expected field type for coercion
+            let expected_type = struct_info.ast_field_types.get(field_idx as usize);
+            let field_value = self.compile_expr_with_type(field_expr, expected_type)?;
 
             let field_ptr = self
                 .builder
@@ -79,9 +81,14 @@ impl<'ctx> Codegen<'ctx> {
         let tag_val = self.context.i32_type().const_int(tag as u64, false);
         self.builder.build_store(tag_ptr, tag_val).unwrap();
 
+        // Get expected payload types for this variant (for type coercion)
+        let payload_types = enum_info.ast_variant_payloads.get(variant_name);
+
         // Store payload values starting at index 1
         for (i, arg) in args.iter().enumerate() {
-            let arg_val = self.compile_expr(arg)?;
+            // Get expected type for coercion if available
+            let expected_type = payload_types.and_then(|types| types.get(i));
+            let arg_val = self.compile_expr_with_type(arg, expected_type)?;
             let payload_ptr = self
                 .builder
                 .build_struct_gep(enum_info.llvm_type, alloca, (i + 1) as u32, &format!("{}.payload{}", enum_name, i))
@@ -154,7 +161,7 @@ impl<'ctx> Codegen<'ctx> {
                         .ok_or_else(|| CodegenError::UndefinedType(format!("enum '{}' not found after monomorphization", mono_name)))?;
                     return self.compile_enum_variant_constructor(&enum_info, &mono_name, field, &[]);
                 }
-                // For generic structs like Array<u8>, this will be handled by method call logic
+                // For generic structs like Vec<u8>, this will be handled by method call logic
             }
         }
 
@@ -635,6 +642,41 @@ impl<'ctx> Codegen<'ctx> {
         Ok(array_val)
     }
 
+    /// Compile array repeat syntax: [val; count]
+    pub(crate) fn compile_array_repeat(&mut self, value: &Expr, count: usize, elem_type: Option<&Type>) -> Result<BasicValueEnum<'ctx>, CodegenError> {
+        if count == 0 {
+            return Err(CodegenError::InvalidArguments("array repeat count cannot be 0".to_string()));
+        }
+
+        // Compile the value with expected element type for coercion
+        let val = self.compile_expr_with_type(value, elem_type)?;
+
+        // Determine element type
+        let llvm_elem_type = val.get_type();
+        let array_type = llvm_elem_type.array_type(count as u32);
+
+        // Create alloca for the array
+        let array_alloca = self.create_entry_block_alloca("array_repeat", array_type.into());
+
+        // Store the value into each element
+        for i in 0..count {
+            let idx = self.context.i32_type().const_int(i as u64, false);
+            let elem_ptr = unsafe {
+                self.builder.build_gep(
+                    array_type,
+                    array_alloca,
+                    &[self.context.i32_type().const_zero(), idx],
+                    &format!("elem{}", i)
+                ).unwrap()
+            };
+            self.builder.build_store(elem_ptr, val).unwrap();
+        }
+
+        // Load and return the array value
+        let array_val = self.builder.build_load(array_type, array_alloca, "array_repeat").unwrap();
+        Ok(array_val)
+    }
+
     pub(crate) fn compile_index(&mut self, array: &Expr, index: &Expr) -> Result<BasicValueEnum<'ctx>, CodegenError> {
         // For now, handle array variable indexing
         if let Expr::Ident(name, _) = array {
@@ -692,21 +734,43 @@ impl<'ctx> Codegen<'ctx> {
                     "array_ptr"
                 ).unwrap().into_pointer_value();
 
-                // For array references, we need to know the element type
-                // For now, assume i64 (need better type tracking for arrays)
-                let elem_type = self.context.i64_type();
+                // Extract element type and array size from AST type
+                // For &T[N], we need to unwrap the Ref to get Array(T, N)
+                let (elem_llvm_type, array_size): (BasicTypeEnum, u32) = if let Some(ref ast_type) = var_info.ast_type {
+                    match ast_type {
+                        Type::Ref(inner) | Type::RefMut(inner) => {
+                            if let Type::Array(elem_type, size) = inner.as_ref() {
+                                (self.llvm_type(elem_type)?, *size as u32)
+                            } else {
+                                // Fallback for non-array references
+                                (self.context.i64_type().into(), 0)
+                            }
+                        }
+                        Type::Array(elem_type, size) => {
+                            // Direct array type (shouldn't happen with is_ref, but handle it)
+                            (self.llvm_type(elem_type)?, *size as u32)
+                        }
+                        _ => (self.context.i64_type().into(), 0)
+                    }
+                } else {
+                    // Fallback if no AST type available
+                    (self.context.i64_type().into(), 0)
+                };
 
-                // GEP into the array
+                // Build the array type for proper GEP
+                let array_type = elem_llvm_type.array_type(array_size);
+
+                // GEP into the array with [0, idx] to go through pointer then index
                 let elem_ptr = unsafe {
                     self.builder.build_gep(
-                        elem_type.array_type(0), // Use unsized array for GEP
+                        array_type,
                         array_ptr,
                         &[self.context.i32_type().const_zero(), idx_val],
                         "elem_ptr"
                     ).unwrap()
                 };
 
-                let val = self.builder.build_load(elem_type.as_basic_type_enum(), elem_ptr, "elem").unwrap();
+                let val = self.builder.build_load(elem_llvm_type, elem_ptr, "elem").unwrap();
                 Ok(val)
             } else {
                 // Direct array variable
@@ -731,6 +795,117 @@ impl<'ctx> Codegen<'ctx> {
             Err(CodegenError::NotImplemented(
                 "can only index array/slice variables directly (e.g., 'arr[i]'). \
                  Indexing expressions like 'get_array()[i]' requires an intermediate variable".to_string()
+            ))
+        }
+    }
+
+    /// Get a pointer to an array element for assignment (arr[i] = val)
+    /// Returns (pointer, element_type) so we can properly coerce the value before storing
+    pub(crate) fn compile_index_ptr(&mut self, array: &Expr, index: &Expr) -> Result<(PointerValue<'ctx>, BasicTypeEnum<'ctx>), CodegenError> {
+        if let Expr::Ident(name, _) = array {
+            let var_info = self
+                .variables
+                .get(name)
+                .ok_or_else(|| CodegenError::UndefinedVariable(name.clone()))?
+                .clone();
+
+            let idx = self.compile_expr(index)?;
+            let idx_val = idx.into_int_value();
+
+            // Check if this is a slice (struct with {ptr, len} layout)
+            if var_info.ty.is_struct_type() {
+                let struct_ty = var_info.ty.into_struct_type();
+                // Slices are structs with 2 fields: { ptr, i64 }
+                if struct_ty.count_fields() == 2 {
+                    // Load the slice value
+                    let slice_val = self.builder.build_load(struct_ty, var_info.ptr, "slice").unwrap();
+
+                    // Extract pointer from slice (field 0)
+                    let data_ptr = self.builder
+                        .build_extract_value(slice_val.into_struct_value(), 0, "slice_ptr")
+                        .unwrap()
+                        .into_pointer_value();
+
+                    // Get element type from tracked slice_elem_type, fallback to i64
+                    let elem_type: BasicTypeEnum = if let Some(ref ast_ty) = var_info.slice_elem_type {
+                        self.llvm_type(ast_ty)?
+                    } else {
+                        self.context.i64_type().into()
+                    };
+
+                    // GEP to get element pointer at index
+                    let elem_ptr = unsafe {
+                        self.builder.build_gep(
+                            elem_type,
+                            data_ptr,
+                            &[idx_val],
+                            "slice_elem_ptr"
+                        ).unwrap()
+                    };
+
+                    return Ok((elem_ptr, elem_type));
+                }
+            }
+
+            if var_info.is_ref {
+                // Indexing through a reference - load the pointer, then index
+                let array_ptr = self.builder.build_load(
+                    self.context.ptr_type(inkwell::AddressSpace::default()),
+                    var_info.ptr,
+                    "array_ptr"
+                ).unwrap().into_pointer_value();
+
+                // Extract element type and array size from AST type
+                let (elem_llvm_type, array_size): (BasicTypeEnum, u32) = if let Some(ref ast_type) = var_info.ast_type {
+                    match ast_type {
+                        Type::Ref(inner) | Type::RefMut(inner) => {
+                            if let Type::Array(elem_type, size) = inner.as_ref() {
+                                (self.llvm_type(elem_type)?, *size as u32)
+                            } else {
+                                (self.context.i64_type().into(), 0)
+                            }
+                        }
+                        Type::Array(elem_type, size) => {
+                            (self.llvm_type(elem_type)?, *size as u32)
+                        }
+                        _ => (self.context.i64_type().into(), 0)
+                    }
+                } else {
+                    (self.context.i64_type().into(), 0)
+                };
+
+                let array_type = elem_llvm_type.array_type(array_size);
+
+                let elem_ptr = unsafe {
+                    self.builder.build_gep(
+                        array_type,
+                        array_ptr,
+                        &[self.context.i32_type().const_zero(), idx_val],
+                        "elem_ptr"
+                    ).unwrap()
+                };
+
+                Ok((elem_ptr, elem_llvm_type))
+            } else {
+                // Direct array variable - GEP to get element pointer
+                let elem_ptr = unsafe {
+                    self.builder.build_gep(
+                        var_info.ty,
+                        var_info.ptr,
+                        &[self.context.i32_type().const_zero(), idx_val],
+                        "elem_ptr"
+                    ).unwrap()
+                };
+
+                // Get element type from array type
+                let array_ty = var_info.ty.into_array_type();
+                let elem_type: BasicTypeEnum = array_ty.get_element_type();
+
+                Ok((elem_ptr, elem_type))
+            }
+        } else {
+            Err(CodegenError::NotImplemented(
+                "can only assign to array/slice variables directly (e.g., 'arr[i] = val')".to_string()
             ))
         }
     }

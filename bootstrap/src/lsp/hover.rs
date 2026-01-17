@@ -210,6 +210,15 @@ impl Backend {
     }
 
     pub fn infer_type_from_expr(&self, expr: &Expr) -> Option<String> {
+        // Wrapper without symbols - limited inference
+        self.infer_type_from_expr_with_symbols(expr, None)
+    }
+
+    pub fn infer_type_from_expr_with_symbols(
+        &self,
+        expr: &Expr,
+        symbols: Option<&crate::lsp::types::SymbolTable>,
+    ) -> Option<String> {
         match expr {
             Expr::StructInit { name, generics, .. } => {
                 if generics.is_empty() {
@@ -229,24 +238,82 @@ impl Backend {
                     None
                 }
             }
+            Expr::MethodCall { receiver, method, .. } => {
+                // Static method call on a type (e.g., String.from(), Vec.new())
+                if let Expr::Ident(type_name, _) = receiver.as_ref() {
+                    // Look up the method return type from symbols
+                    if let Some(syms) = symbols {
+                        if let Some(methods) = syms.methods.get(type_name) {
+                            if let Some(method_info) = methods.iter().find(|m| &m.name == method) {
+                                if let Some(ref ret_ty) = method_info.return_type {
+                                    return Some(ret_ty.clone());
+                                }
+                            }
+                        }
+                    }
+                }
+                // For chained method calls on variables, get receiver type first
+                if let Some(syms) = symbols {
+                    if let Some(receiver_type) = self.infer_type_from_expr_with_symbols(receiver, Some(syms)) {
+                        // Strip reference markers to get base type
+                        let base_type = receiver_type
+                            .trim_start_matches('&')
+                            .trim_start_matches('~')
+                            .trim_start_matches('*')
+                            .to_string();
+                        // Look up method on the receiver type
+                        if let Some(methods) = syms.methods.get(&base_type) {
+                            if let Some(method_info) = methods.iter().find(|m| &m.name == method) {
+                                if let Some(ref ret_ty) = method_info.return_type {
+                                    return Some(ret_ty.clone());
+                                }
+                            }
+                        }
+                    }
+                }
+                None
+            }
+            Expr::Ident(name, _) => {
+                // Look up variable type from symbols
+                if let Some(syms) = symbols {
+                    if let Some(var) = syms.variables.iter().find(|v| &v.name == name) {
+                        return var.ty.clone();
+                    }
+                }
+                None
+            }
             Expr::ArrayInit { elements, .. } => {
                 if let Some(first) = elements.first() {
-                    if let Some(elem_ty) = self.infer_type_from_expr(first) {
+                    if let Some(elem_ty) = self.infer_type_from_expr_with_symbols(first, symbols) {
                         return Some(format!("{}[{}]", elem_ty, elements.len()));
                     }
                 }
                 None
             }
             Expr::Ref { operand, .. } => {
-                self.infer_type_from_expr(operand).map(|t| format!("&{}", t))
+                self.infer_type_from_expr_with_symbols(operand, symbols).map(|t| format!("&{}", t))
             }
             Expr::RefMut { operand, .. } => {
-                self.infer_type_from_expr(operand).map(|t| format!("~{}", t))
+                self.infer_type_from_expr_with_symbols(operand, symbols).map(|t| format!("~{}", t))
             }
             Expr::Literal(lit, _) => match lit {
-                Literal::Int(_) => Some("i32".to_string()),
+                Literal::Int(_, suffix) => {
+                    use crate::ast::IntSuffix;
+                    Some(match suffix {
+                        IntSuffix::I8 => "i8".to_string(),
+                        IntSuffix::I16 => "i16".to_string(),
+                        IntSuffix::I32 => "i32".to_string(),
+                        IntSuffix::I64 => "i64".to_string(),
+                        IntSuffix::U8 => "u8".to_string(),
+                        IntSuffix::U16 => "u16".to_string(),
+                        IntSuffix::U32 => "u32".to_string(),
+                        IntSuffix::U64 => "u64".to_string(),
+                        IntSuffix::None => "i32".to_string(),
+                    })
+                }
                 Literal::Float(_) => Some("f64".to_string()),
                 Literal::Bool(_) => Some("bool".to_string()),
+                Literal::Char(_) => Some("char".to_string()),
                 Literal::String(_) => Some("Slice<u8>".to_string()),
             },
             _ => None,

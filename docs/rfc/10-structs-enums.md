@@ -487,12 +487,12 @@ pub struct PublicPoint {
 
 ```vibelang
 pub struct Encapsulated {
-    data: Array<u8>     // private by default
+    data: Vec<u8>     // private by default
 }
 
 impl Encapsulated {
     pub fn new() -> Encapsulated {
-        return Encapsulated { data: Array<u8>() }
+        return Encapsulated { data: Vec<u8>() }
     }
     
     pub fn len(self: &Encapsulated) -> u64 {
@@ -555,7 +555,7 @@ type NodePtr<T> = *Node<T>
 
 ```vibelang
 type ParseResult = Result<Ast, ParseError>
-type TokenList = Array<Token>
+type TokenList = Vec<Token>
 type StringMap<V> = Map<String, V>
 ```
 
@@ -578,7 +578,7 @@ pub enum Expr {
     }
     Call {
         callee: String
-        args: Array<Expr>
+        args: Vec<Expr>
     }
 }
 

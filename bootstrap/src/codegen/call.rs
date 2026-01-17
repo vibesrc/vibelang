@@ -223,16 +223,33 @@ impl<'ctx> Codegen<'ctx> {
             let coerced_val = if let Some(ref params) = param_types {
                 if i < params.len() {
                     match &params[i] {
-                        Type::Ref(_) | Type::RefMut(_) => {
-                            // Parameter expects a reference but we have a value
-                            // Check if arg_val is a struct value (not a pointer)
-                            if arg_val.is_struct_value() {
-                                // Create temporary storage and pass pointer
-                                let temp = self.builder.build_alloca(arg_val.get_type(), "ref_temp").unwrap();
-                                self.builder.build_store(temp, arg_val).unwrap();
-                                temp.into()
+                        Type::Ref(inner) | Type::RefMut(inner) => {
+                            // Check if parameter expects a reference to a fixed-size array
+                            // and arg_val is a slice struct (from &array coercion)
+                            if let Type::Array(_, _) = inner.as_ref() {
+                                // Parameter expects &T[N], but compile_ref produces a slice {ptr, len}
+                                // Extract the pointer from the slice struct
+                                if arg_val.is_struct_value() {
+                                    let struct_val = arg_val.into_struct_value();
+                                    // Extract field 0 (the pointer)
+                                    let ptr = self.builder
+                                        .build_extract_value(struct_val, 0, "array_ptr")
+                                        .unwrap();
+                                    ptr
+                                } else {
+                                    arg_val
+                                }
                             } else {
-                                arg_val
+                                // Parameter expects a reference but we have a value
+                                // Check if arg_val is a struct value (not a pointer)
+                                if arg_val.is_struct_value() {
+                                    // Create temporary storage and pass pointer
+                                    let temp = self.builder.build_alloca(arg_val.get_type(), "ref_temp").unwrap();
+                                    self.builder.build_store(temp, arg_val).unwrap();
+                                    temp.into()
+                                } else {
+                                    arg_val
+                                }
                             }
                         }
                         _ => arg_val,
@@ -314,16 +331,33 @@ impl<'ctx> Codegen<'ctx> {
             let coerced_val = if let Some(ref params) = param_types {
                 if i < params.len() {
                     match &params[i] {
-                        Type::Ref(_) | Type::RefMut(_) => {
-                            // Parameter expects a reference but we have a value
-                            // Check if arg_val is a struct value (not a pointer)
-                            if arg_val.is_struct_value() {
-                                // Create temporary storage and pass pointer
-                                let temp = self.builder.build_alloca(arg_val.get_type(), "ref_temp").unwrap();
-                                self.builder.build_store(temp, arg_val).unwrap();
-                                temp.into()
+                        Type::Ref(inner) | Type::RefMut(inner) => {
+                            // Check if parameter expects a reference to a fixed-size array
+                            // and arg_val is a slice struct (from &array coercion)
+                            if let Type::Array(_, _) = inner.as_ref() {
+                                // Parameter expects &T[N], but compile_ref produces a slice {ptr, len}
+                                // Extract the pointer from the slice struct
+                                if arg_val.is_struct_value() {
+                                    let struct_val = arg_val.into_struct_value();
+                                    // Extract field 0 (the pointer)
+                                    let ptr = self.builder
+                                        .build_extract_value(struct_val, 0, "array_ptr")
+                                        .unwrap();
+                                    ptr
+                                } else {
+                                    arg_val
+                                }
                             } else {
-                                arg_val
+                                // Parameter expects a reference but we have a value
+                                // Check if arg_val is a struct value (not a pointer)
+                                if arg_val.is_struct_value() {
+                                    // Create temporary storage and pass pointer
+                                    let temp = self.builder.build_alloca(arg_val.get_type(), "ref_temp").unwrap();
+                                    self.builder.build_store(temp, arg_val).unwrap();
+                                    temp.into()
+                                } else {
+                                    arg_val
+                                }
                             }
                         }
                         _ => arg_val,
@@ -444,7 +478,7 @@ impl<'ctx> Codegen<'ctx> {
             ));
         };
 
-        // If this is a monomorphized generic type (e.g., Array_String), ensure impl methods are generated
+        // If this is a monomorphized generic type (e.g., Vec_String), ensure impl methods are generated
         // Try to parse the type name to see if it's a monomorphized generic type
         if !self.type_methods.contains_key(&type_name) {
             if let Some((base_name, type_args)) = self.parse_mangled_name(&type_name) {

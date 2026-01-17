@@ -4,72 +4,72 @@ The standard library provides essential types and functions built on top of Vibe
 
 ## 14.1 Core Types
 
-### Array<T>
+### Vec<T>
 
-Dynamic, growable array:
+Dynamic, growable vector:
 
 ```vibelang
-struct Array<T> {
+struct Vec<T> {
     ptr: *T
     len: u64
     cap: u64
 }
 
-impl<T> Array<T> {
+impl<T> Vec<T> {
     /// Create empty array
-    fn new() -> Array<T>
+    fn new() -> Vec<T>
     
     /// Create with initial capacity
-    fn with_capacity(cap: u64) -> Array<T>
+    fn with_capacity(cap: u64) -> Vec<T>
     
     /// Number of elements
-    fn len(self: &Array<T>) -> u64
+    fn len(self: &Vec<T>) -> u64
     
     /// Current capacity
-    fn capacity(self: &Array<T>) -> u64
+    fn capacity(self: &Vec<T>) -> u64
     
     /// Is empty?
-    fn is_empty(self: &Array<T>) -> bool
+    fn is_empty(self: &Vec<T>) -> bool
     
     /// Add element to end
-    fn push(self: ~Array<T>, item: T)
+    fn push(self: ~Vec<T>, item: T)
     
     /// Remove and return last element
-    fn pop(self: ~Array<T>) -> Option<T>
+    fn pop(self: ~Vec<T>) -> Option<T>
     
     /// Get element by index
-    fn get(self: &Array<T>, index: u64) -> Option<&T>
+    fn get(self: &Vec<T>, index: u64) -> Option<&T>
     
     /// Get mutable element by index
-    fn get_mut(self: ~Array<T>, index: u64) -> Option<~T>
+    fn get_mut(self: ~Vec<T>, index: u64) -> Option<~T>
     
     /// First element
-    fn first(self: &Array<T>) -> Option<&T>
+    fn first(self: &Vec<T>) -> Option<&T>
     
     /// Last element
-    fn last(self: &Array<T>) -> Option<&T>
+    fn last(self: &Vec<T>) -> Option<&T>
     
     /// Clear all elements
-    fn clear(self: ~Array<T>)
+    fn clear(self: ~Vec<T>)
     
     /// Insert at index
-    fn insert(self: ~Array<T>, index: u64, item: T)
+    fn insert(self: ~Vec<T>, index: u64, item: T)
     
     /// Remove at index
-    fn remove(self: ~Array<T>, index: u64) -> T
+    fn remove(self: ~Vec<T>, index: u64) -> T
     
     /// Borrow as slice
-    fn as_slice(self: &Array<T>) -> Slice<T>
+    fn as_slice(self: &Vec<T>) -> Slice<T>
     
     /// Iterate
-    fn iter(self: &Array<T>) -> ArrayIter<T>
+    fn iter(self: &Vec<T>) -> VecIter<T>
 }
 ```
 
-#### Array Usage
+#### Vec Usage
 
 ```vibelang
-let numbers = Array<i32>()
+let numbers = Vec<i32>()
 numbers.push(1)
 numbers.push(2)
 numbers.push(3)
@@ -121,7 +121,7 @@ impl<T> Slice<T> {
     fn iter(self: &Slice<T>) -> SliceIter<T>
     
     /// Copy to owned Array
-    fn to_array(self: &Slice<T>) -> Array<T>
+    fn to_array(self: &Slice<T>) -> Vec<T>
 }
 ```
 
@@ -145,7 +145,7 @@ UTF-8 encoded, growable string:
 
 ```vibelang
 struct String {
-    bytes: Array<u8>
+    bytes: Vec<u8>
 }
 
 impl String {
@@ -186,7 +186,7 @@ impl String {
     fn slice(self: &String, start: u64, end: u64) -> Slice<u8>
     
     /// Split by delimiter
-    fn split(self: &String, delim: Slice<u8>) -> Array<Slice<u8>>
+    fn split(self: &String, delim: Slice<u8>) -> Vec<Slice<u8>>
     
     /// Trim whitespace
     fn trim(self: &String) -> Slice<u8>
@@ -357,7 +357,7 @@ Hash map:
 
 ```vibelang
 struct Map<K, V> {
-    buckets: Array<Bucket<K, V>>
+    buckets: Vec<Bucket<K, V>>
     len: u64
 }
 
@@ -442,7 +442,7 @@ impl File {
     fn read_all(self: &File) -> Result<String, IoError>
     
     /// Read into buffer
-    fn read(self: &File, buf: &Array<u8>) -> Result<u64, IoError>
+    fn read(self: &File, buf: &Vec<u8>) -> Result<u64, IoError>
     
     /// Write buffer
     fn write(self: &File, data: Slice<u8>) -> Result<u64, IoError>

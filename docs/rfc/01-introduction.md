@@ -72,7 +72,7 @@ void                    // Unit type
 T[N]                    // Fixed-size array
 
 // Everything else is stdlib (written in Vibelang)
-Array<T>                // Dynamic array
+Vec<T>                // Dynamic array
 Slice<T>                // Borrowed view
 String                  // UTF-8 string
 Map<K, V>               // Hash map
@@ -208,7 +208,7 @@ fn consume_string(s: String) {
 | Mutability | `let mut` | `let` (mutable by default) |
 | Immutability | `let` (default) | `const` |
 | String types | `String`, `&str`, `&'a str` | `String`, `Slice<u8>` |
-| Array types | `Vec<T>`, `[T; N]`, `&[T]` | `Array<T>`, `T[N]`, `Slice<T>` |
+| Array types | `Vec<T>`, `[T; N]`, `&[T]` | `Vec<T>`, `T[N]`, `Slice<T>` |
 
 ### 1.4.2 vs Go
 
@@ -239,7 +239,7 @@ Phase 1: Bootstrap Compiler (C)
 └── Can compile Vibelang v0.1
 
 Phase 2: Standard Library (Vibelang)
-├── Array<T>
+├── Vec<T>
 ├── Slice<T>
 ├── String
 ├── Map<K, V>

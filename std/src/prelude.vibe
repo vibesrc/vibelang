@@ -1,0 +1,14 @@
+// std.prelude - Common types and utilities automatically imported into every module
+//
+// This module re-exports the most commonly used types from the standard library.
+// When a .vibe file is compiled, the contents of this prelude are automatically
+// available without explicit imports.
+
+// Core types
+pub use std.types.{Option, Result, Error}
+
+// Collections
+pub use std.collections.{Vec}
+
+// String handling
+pub use std.string.{String}

@@ -107,8 +107,8 @@ fn main() -> Result<void, Error> {
     return Ok(void)
 }
 
-fn lex(src: &String) -> Array<Token> {
-    let tokens = Array<Token>()
+fn lex(src: &String) -> Vec<Token> {
+    let tokens = Vec<Token>()
     let pos = 0
     
     while pos < src.len() {

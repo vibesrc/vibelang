@@ -40,10 +40,11 @@ impl Parser {
 
                 Ok(Pattern::Ident(name))
             }
-            Some(TokenKind::Int(n)) => {
+            Some(TokenKind::Int(n, suffix)) => {
                 let n = *n;
+                let suffix = *suffix;
                 self.advance();
-                Ok(Pattern::Literal(Literal::Int(n)))
+                Ok(Pattern::Literal(Literal::Int(n, suffix)))
             }
             Some(TokenKind::Bool(b)) => {
                 let b = *b;

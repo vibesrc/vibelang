@@ -415,8 +415,8 @@ let err_opt: Option<Error> = result.err()
 ### Collect Results
 
 ```vibelang
-fn process_all(items: &Array<Item>) -> Result<Array<Output>, Error> {
-    let results = Array<Output>()
+fn process_all(items: &Vec<Item>) -> Result<Vec<Output>, Error> {
+    let results = Vec<Output>()
     
     for item in items {
         let output = process(item)?     // fail on first error
@@ -430,9 +430,9 @@ fn process_all(items: &Array<Item>) -> Result<Array<Output>, Error> {
 ### Collect All Errors
 
 ```vibelang
-fn process_all(items: &Array<Item>) -> (Array<Output>, Array<Error>) {
-    let outputs = Array<Output>()
-    let errors = Array<Error>()
+fn process_all(items: &Vec<Item>) -> (Vec<Output>, Vec<Error>) {
+    let outputs = Vec<Output>()
+    let errors = Vec<Error>()
     
     for item in items {
         match process(item) {

@@ -3,7 +3,7 @@
 
 use std.types.{Result, Error, Option}
 use std.string.{String}
-use std.collections.{Array}
+use std.collections.{Vec}
 use std.mem.{alloc, dealloc}
 
 // Unix open() flags
@@ -213,21 +213,21 @@ impl File {
         return Result<String, Error>.Ok(result)
     }
 
-    /// Read up to `count` bytes, allocating a new Array
-    pub fn read_n(~self, count: i64) -> Result<Array<u8>, Error> {
+    /// Read up to `count` bytes, allocating a new Vec
+    pub fn read_n(~self, count: i64) -> Result<Vec<u8>, Error> {
         if self.is_closed {
-            return Result<Array<u8>, Error>.Err(Error { message: "file is closed" })
+            return Result<Vec<u8>, Error>.Err(Error { message: "file is closed" })
         }
 
         let buf = alloc(count)
         if ptr_is_null(buf) {
-            return Result<Array<u8>, Error>.Err(Error { message: "allocation failed" })
+            return Result<Vec<u8>, Error>.Err(Error { message: "allocation failed" })
         }
 
         let n = self.read_bytes(buf, count)?
 
-        // Build Array from buffer
-        let result = Array<u8>.with_capacity(n)
+        // Build Vec from buffer
+        let result = Vec<u8>.with_capacity(n)
         let i: i64 = 0
         while i < n {
             unsafe {
@@ -237,7 +237,7 @@ impl File {
         }
 
         dealloc(buf)
-        return Result<Array<u8>, Error>.Ok(result)
+        return Result<Vec<u8>, Error>.Ok(result)
     }
 
     // === Queries ===

@@ -17,5 +17,6 @@ fn main() -> i32 {
     let y = Option<i32>.None
     let a = unwrap_or<i32>(x, 0)
     let b = unwrap_or<i32>(y, 99)
+    println("a: ${a}, b: ${b}")
     return a + b    // should be 42 + 99 = 141
 }

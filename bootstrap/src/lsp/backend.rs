@@ -78,6 +78,13 @@ impl Backend {
                 (format!("Invalid escape sequence '\\{}'", c), *line, 1)
             }
             LexError::InvalidNumber(line) => ("Invalid number literal".to_string(), *line, 1),
+            LexError::UnterminatedChar(line) => {
+                ("Unterminated character literal".to_string(), *line, 1)
+            }
+            LexError::EmptyChar(line) => ("Empty character literal".to_string(), *line, 1),
+            LexError::NonAsciiChar(line) => {
+                ("Non-ASCII character in character literal".to_string(), *line, 1)
+            }
         };
 
         Diagnostic {
@@ -156,6 +163,7 @@ impl Backend {
             Type::F32 => "f32".to_string(),
             Type::F64 => "f64".to_string(),
             Type::Bool => "bool".to_string(),
+            Type::Char => "char".to_string(),
             Type::Void => "void".to_string(),
             Type::Pointer(inner) => format!("*{}", self.type_to_string(inner)),
             Type::Ref(inner) => format!("&{}", self.type_to_string(inner)),

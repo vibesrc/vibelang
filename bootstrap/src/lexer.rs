@@ -1,11 +1,26 @@
 //! Vibelang lexer - tokenizes source into tokens
 
+/// Integer literal suffix for explicit typing
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum IntSuffix {
+    None,  // No suffix, use default (i32)
+    I8,
+    I16,
+    I32,
+    I64,
+    U8,
+    U16,
+    U32,
+    U64,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum TokenKind {
     // Literals
-    Int(i64),
+    Int(i64, IntSuffix),
     Float(f64),
     String(String),
+    Char(u8),
     Bool(bool),
 
     /// Interpolated string start: "text before ${
@@ -288,6 +303,9 @@ impl<'a> Lexer<'a> {
                 // String literal
                 '"' => self.lex_string()?,
 
+                // Character literal
+                '\'' => self.lex_char()?,
+
                 // Number
                 c if c.is_ascii_digit() => self.lex_number(c)?,
 
@@ -425,6 +443,52 @@ impl<'a> Lexer<'a> {
         Ok(TokenKind::String(value))
     }
 
+    /// Lex a character literal like 'a' or '\n'
+    fn lex_char(&mut self) -> Result<TokenKind, LexError> {
+        let c = match self.advance() {
+            None => return Err(LexError::UnterminatedChar(self.line)),
+            Some((_, '\\')) => {
+                // Escape sequence
+                match self.advance() {
+                    Some((_, 'n')) => b'\n',
+                    Some((_, 'r')) => b'\r',
+                    Some((_, 't')) => b'\t',
+                    Some((_, '\\')) => b'\\',
+                    Some((_, '\'')) => b'\'',
+                    Some((_, '0')) => b'\0',
+                    Some((_, 'x')) => {
+                        // Hex escape \xNN
+                        let mut hex = String::new();
+                        for _ in 0..2 {
+                            match self.advance() {
+                                Some((_, c)) if c.is_ascii_hexdigit() => hex.push(c),
+                                _ => return Err(LexError::InvalidEscape('x', self.line)),
+                            }
+                        }
+                        u8::from_str_radix(&hex, 16).map_err(|_| LexError::InvalidEscape('x', self.line))?
+                    }
+                    Some((_, c)) => return Err(LexError::InvalidEscape(c, self.line)),
+                    None => return Err(LexError::UnterminatedChar(self.line)),
+                }
+            }
+            Some((_, '\'')) => return Err(LexError::EmptyChar(self.line)),
+            Some((_, c)) => {
+                // Single ASCII character
+                if c.is_ascii() {
+                    c as u8
+                } else {
+                    return Err(LexError::NonAsciiChar(self.line));
+                }
+            }
+        };
+
+        // Expect closing quote
+        match self.advance() {
+            Some((_, '\'')) => Ok(TokenKind::Char(c)),
+            _ => Err(LexError::UnterminatedChar(self.line)),
+        }
+    }
+
     /// Continue lexing after an interpolation expression ends (after the closing `}`)
     fn lex_interpolation_continuation(&mut self) -> Result<Token, LexError> {
         let start = self.current_pos();
@@ -515,7 +579,8 @@ impl<'a> Lexer<'a> {
                     }
                     let val = i64::from_str_radix(&num_str, 16)
                         .map_err(|_| LexError::InvalidNumber(self.line))?;
-                    return Ok(TokenKind::Int(val));
+                    let suffix = self.try_parse_int_suffix();
+                    return Ok(TokenKind::Int(val, suffix));
                 }
                 Some('o' | 'O') => {
                     self.advance();
@@ -532,7 +597,8 @@ impl<'a> Lexer<'a> {
                     }
                     let val = i64::from_str_radix(&num_str, 8)
                         .map_err(|_| LexError::InvalidNumber(self.line))?;
-                    return Ok(TokenKind::Int(val));
+                    let suffix = self.try_parse_int_suffix();
+                    return Ok(TokenKind::Int(val, suffix));
                 }
                 Some('b' | 'B') => {
                     self.advance();
@@ -549,7 +615,8 @@ impl<'a> Lexer<'a> {
                     }
                     let val = i64::from_str_radix(&num_str, 2)
                         .map_err(|_| LexError::InvalidNumber(self.line))?;
-                    return Ok(TokenKind::Int(val));
+                    let suffix = self.try_parse_int_suffix();
+                    return Ok(TokenKind::Int(val, suffix));
                 }
                 _ => {}
             }
@@ -589,9 +656,52 @@ impl<'a> Lexer<'a> {
             let val: f64 = num_str.parse().map_err(|_| LexError::InvalidNumber(self.line))?;
             Ok(TokenKind::Float(val))
         } else {
+            // Check for integer suffix (i8, i16, i32, i64, u8, u16, u32, u64)
+            let suffix = self.try_parse_int_suffix();
             let val: i64 = num_str.parse().map_err(|_| LexError::InvalidNumber(self.line))?;
-            Ok(TokenKind::Int(val))
+            Ok(TokenKind::Int(val, suffix))
         }
+    }
+
+    fn try_parse_int_suffix(&mut self) -> IntSuffix {
+        // Look for type suffix: i8, i16, i32, i64, u8, u16, u32, u64
+        let start_pos = self.chars.clone();
+
+        if let Some(c) = self.peek_char() {
+            if c == 'i' || c == 'u' {
+                let is_unsigned = c == 'u';
+                self.advance();
+
+                // Collect digits for the size
+                let mut size_str = String::new();
+                while let Some(d) = self.peek_char() {
+                    if d.is_ascii_digit() {
+                        size_str.push(d);
+                        self.advance();
+                    } else {
+                        break;
+                    }
+                }
+
+                // Parse the suffix
+                match (is_unsigned, size_str.as_str()) {
+                    (false, "8") => return IntSuffix::I8,
+                    (false, "16") => return IntSuffix::I16,
+                    (false, "32") => return IntSuffix::I32,
+                    (false, "64") => return IntSuffix::I64,
+                    (true, "8") => return IntSuffix::U8,
+                    (true, "16") => return IntSuffix::U16,
+                    (true, "32") => return IntSuffix::U32,
+                    (true, "64") => return IntSuffix::U64,
+                    _ => {
+                        // Invalid suffix, restore position
+                        self.chars = start_pos;
+                    }
+                }
+            }
+        }
+
+        IntSuffix::None
     }
 
     fn lex_ident(&mut self, first: char) -> TokenKind {
@@ -645,6 +755,9 @@ impl<'a> Lexer<'a> {
 pub enum LexError {
     UnexpectedChar(char, u32, u32),
     UnterminatedString(u32),
+    UnterminatedChar(u32),
+    EmptyChar(u32),
+    NonAsciiChar(u32),
     InvalidEscape(char, u32),
     InvalidNumber(u32),
 }
@@ -657,6 +770,15 @@ impl std::fmt::Display for LexError {
             }
             LexError::UnterminatedString(line) => {
                 write!(f, "unterminated string at line {}", line)
+            }
+            LexError::UnterminatedChar(line) => {
+                write!(f, "unterminated character literal at line {}", line)
+            }
+            LexError::EmptyChar(line) => {
+                write!(f, "empty character literal at line {}", line)
+            }
+            LexError::NonAsciiChar(line) => {
+                write!(f, "non-ASCII character in character literal at line {}", line)
             }
             LexError::InvalidEscape(c, line) => {
                 write!(f, "invalid escape sequence '\\{}' at line {}", c, line)
@@ -738,7 +860,7 @@ mod tests {
         assert_eq!(tokens[0].kind, TokenKind::InterpolatedStringStart("result: ".to_string()));
         assert_eq!(tokens[1].kind, TokenKind::Ident("x".to_string()));
         assert_eq!(tokens[2].kind, TokenKind::Plus);
-        assert_eq!(tokens[3].kind, TokenKind::Int(1));
+        assert_eq!(tokens[3].kind, TokenKind::Int(1, IntSuffix::None));
         assert_eq!(tokens[4].kind, TokenKind::InterpolatedStringEnd("".to_string()));
     }
 
@@ -760,8 +882,26 @@ mod tests {
         assert_eq!(tokens[2].kind, TokenKind::LBrace);
         assert_eq!(tokens[3].kind, TokenKind::Ident("x".to_string()));
         assert_eq!(tokens[4].kind, TokenKind::Colon);
-        assert_eq!(tokens[5].kind, TokenKind::Int(1));
+        assert_eq!(tokens[5].kind, TokenKind::Int(1, IntSuffix::None));
         assert_eq!(tokens[6].kind, TokenKind::RBrace);
         assert_eq!(tokens[7].kind, TokenKind::InterpolatedStringEnd("".to_string()));
+    }
+
+    #[test]
+    fn test_integer_suffixes() {
+        let mut lexer = Lexer::new("42i64 100u8 255i32");
+        let tokens = lexer.tokenize().unwrap();
+        assert_eq!(tokens[0].kind, TokenKind::Int(42, IntSuffix::I64));
+        assert_eq!(tokens[1].kind, TokenKind::Int(100, IntSuffix::U8));
+        assert_eq!(tokens[2].kind, TokenKind::Int(255, IntSuffix::I32));
+    }
+
+    #[test]
+    fn test_underscore_in_numbers() {
+        let mut lexer = Lexer::new("1_000_000 0xFF_FF 0b1111_0000");
+        let tokens = lexer.tokenize().unwrap();
+        assert_eq!(tokens[0].kind, TokenKind::Int(1000000, IntSuffix::None));
+        assert_eq!(tokens[1].kind, TokenKind::Int(0xFFFF, IntSuffix::None));
+        assert_eq!(tokens[2].kind, TokenKind::Int(0b11110000, IntSuffix::None));
     }
 }

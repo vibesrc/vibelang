@@ -1,13 +1,13 @@
 // std.string - String type and utilities
 // Method-based API with chaining support
 
-use std.collections.{Array}
+use std.collections.{Vec}
 use std.types.{Option}
 use std.mem.{alloc, dealloc, copy}
 
 /// String - heap-allocated, growable UTF-8 string
 pub struct String {
-    data: Array<u8>
+    data: Vec<u8>
 }
 
 impl String {
@@ -15,12 +15,12 @@ impl String {
 
     /// Create a new empty String
     pub fn new() -> String {
-        return String { data: Array<u8>.new() }
+        return String { data: Vec<u8>.new() }
     }
 
     /// Create a String with pre-allocated capacity
     pub fn with_capacity(cap: i64) -> String {
-        return String { data: Array<u8>.with_capacity(cap) }
+        return String { data: Vec<u8>.with_capacity(cap) }
     }
 
     /// Create a String from a slice
@@ -359,8 +359,8 @@ impl String {
     // === Splitting ===
 
     /// Split string by delimiter
-    pub fn split(&self, delim: &Slice<u8>) -> Array<String> {
-        let result = Array<String>.new()
+    pub fn split(&self, delim: &Slice<u8>) -> Vec<String> {
+        let result = Vec<String>.new()
         let bytes = self.as_bytes()
         let start: i64 = 0
         let i: i64 = 0
@@ -412,14 +412,14 @@ impl String {
     }
 
     /// Split string into lines (by \n)
-    pub fn lines(&self) -> Array<String> {
+    pub fn lines(&self) -> Vec<String> {
         return self.split("\n")
     }
 
     // === Static Methods ===
 
     /// Join array of strings with delimiter
-    pub fn join(parts: &Array<String>, delim: &Slice<u8>) -> String {
+    pub fn join(parts: &Vec<String>, delim: &Slice<u8>) -> String {
         if parts.len == 0 {
             return String.new()
         }

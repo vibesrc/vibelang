@@ -8,8 +8,8 @@ Vibelang's compiler performs optimizations to transform simple, correct code int
 
 ```vibelang
 // You write clear, safe code
-fn process(data: &String) -> Array<Token> {
-    let tokens = Array<Token>()
+fn process(data: &String) -> Vec<Token> {
+    let tokens = Vec<Token>()
     for line in data.split("\n") {
         let token = parse_line(line.copy())
         tokens.push(token)
@@ -80,7 +80,7 @@ fn build() -> String {
 
 ```vibelang
 fn process() -> i64 {
-    let arr = Array<i32>()      // normally heap
+    let arr = Vec<i32>()      // normally heap
     arr.push(1)
     arr.push(2)
     arr.push(3)
@@ -278,7 +278,7 @@ for i in 0..n {
 ### Specialized Code Generation
 
 ```vibelang
-fn process<T>(items: &Array<T>) { ... }
+fn process<T>(items: &Vec<T>) { ... }
 
 process(&int_array)     // generates process_i32
 process(&string_array)  // generates process_String
@@ -323,7 +323,7 @@ let s = String.from("this is a much longer string")  // heap
 ### Empty Collection Optimization
 
 ```vibelang
-let arr = Array<i32>()      // no heap allocation until first push
+let arr = Vec<i32>()      // no heap allocation until first push
 ```
 
 ## 15.10 LLVM Optimizations
@@ -382,7 +382,7 @@ vibec -O2 --profile-use=profile.data main.vibe
 
 ```vibelang
 // Source code
-fn sum_squares(arr: &Array<i32>) -> i64 {
+fn sum_squares(arr: &Vec<i32>) -> i64 {
     let total: i64 = 0
     for x in arr {
         let squared = (*x as i64) * (*x as i64)

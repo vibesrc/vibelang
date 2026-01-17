@@ -75,7 +75,7 @@ fn print_hello() {
 ### Early Return
 
 ```vibelang
-fn find(arr: &Array<i32>, target: i32) -> Option<u64> {
+fn find(arr: &Vec<i32>, target: i32) -> Option<u64> {
     let i = 0
     while i < arr.len() {
         if arr[i] == target {
@@ -427,10 +427,10 @@ An empty statement does nothing:
 ### Complete Function
 
 ```vibelang
-fn process_items(items: &Array<Item>) -> Summary {
+fn process_items(items: &Vec<Item>) -> Summary {
     let processed = 0
     let failed = 0
-    let results = Array<r>()
+    let results = Vec<r>()
     
     for item in items {
         if not item.is_valid() {
@@ -487,7 +487,7 @@ fn with_transaction(db: &Database) -> Result<void, Error> {
 ### Loop with Complex Control Flow
 
 ```vibelang
-fn find_match(data: &Array<Array<Item>>) -> Option<(u64, u64)> {
+fn find_match(data: &Vec<Vec<Item>>) -> Option<(u64, u64)> {
     'outer: for (i, row) in data.enumerate() {
         for (j, item) in row.enumerate() {
             if item.is_empty() {

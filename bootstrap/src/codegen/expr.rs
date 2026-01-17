@@ -64,7 +64,7 @@ impl<'ctx> Codegen<'ctx> {
                 self.compile_field_access(object, field)
             }
             Expr::MethodCall { receiver, method, args, .. } => {
-                // Check for generic struct static method call with explicit type args: Array<u8>.new()
+                // Check for generic struct static method call with explicit type args: Vec<u8>.new()
                 if let Expr::StructInit { name, generics, fields, .. } = receiver.as_ref() {
                     if fields.is_empty() && !generics.is_empty() {
                         // This is a generic type with explicit type args
@@ -107,7 +107,7 @@ impl<'ctx> Codegen<'ctx> {
                         }
                     }
 
-                    // Check if this is a static method call on a struct type (e.g., IntArray.new())
+                    // Check if this is a static method call on a struct type (e.g., IntVec.new())
                     if self.struct_types.contains_key(name) || self.type_methods.contains_key(name) {
                         return self.compile_static_method_call(name, method, args);
                     }
@@ -160,6 +160,14 @@ impl<'ctx> Codegen<'ctx> {
                 };
                 self.compile_array_init_with_type(elements, elem_type)
             }
+            Expr::ArrayRepeat { value, count, .. } => {
+                // [val; count] - create array with count copies of val
+                let elem_type = match expected_type {
+                    Some(Type::Array(inner, _)) => Some(inner.as_ref()),
+                    _ => None,
+                };
+                self.compile_array_repeat(value, *count, elem_type)
+            }
             Expr::Index { array, index, .. } => {
                 self.compile_index(array, index)
             }
@@ -201,18 +209,34 @@ impl<'ctx> Codegen<'ctx> {
 
     /// Compile a literal with an optional expected type for coercion
     pub(crate) fn compile_literal_with_type(&mut self, lit: &Literal, expected_type: Option<&Type>) -> Result<BasicValueEnum<'ctx>, CodegenError> {
+        use crate::ast::IntSuffix;
+
         match lit {
-            Literal::Int(n) => {
-                // Coerce integer literal to expected type if specified
-                let int_type = match expected_type {
-                    Some(Type::I8) => self.context.i8_type(),
-                    Some(Type::I16) => self.context.i16_type(),
-                    Some(Type::I32) => self.context.i32_type(),
-                    Some(Type::U8) => self.context.i8_type(),
-                    Some(Type::U16) => self.context.i16_type(),
-                    Some(Type::U32) => self.context.i32_type(),
-                    Some(Type::U64) => self.context.i64_type(),
-                    _ => self.context.i64_type(), // Default to i64
+            Literal::Int(n, suffix) => {
+                // Priority: explicit suffix > expected type > default (i32)
+                let int_type = match suffix {
+                    IntSuffix::I8 => self.context.i8_type(),
+                    IntSuffix::I16 => self.context.i16_type(),
+                    IntSuffix::I32 => self.context.i32_type(),
+                    IntSuffix::I64 => self.context.i64_type(),
+                    IntSuffix::U8 => self.context.i8_type(),
+                    IntSuffix::U16 => self.context.i16_type(),
+                    IntSuffix::U32 => self.context.i32_type(),
+                    IntSuffix::U64 => self.context.i64_type(),
+                    IntSuffix::None => {
+                        // No suffix - use expected type or default to i32
+                        match expected_type {
+                            Some(Type::I8) => self.context.i8_type(),
+                            Some(Type::I16) => self.context.i16_type(),
+                            Some(Type::I32) => self.context.i32_type(),
+                            Some(Type::I64) => self.context.i64_type(),
+                            Some(Type::U8) => self.context.i8_type(),
+                            Some(Type::U16) => self.context.i16_type(),
+                            Some(Type::U32) => self.context.i32_type(),
+                            Some(Type::U64) => self.context.i64_type(),
+                            _ => self.context.i32_type(), // Default to i32
+                        }
+                    }
                 };
                 let val = int_type.const_int(*n as u64, true);
                 Ok(val.into())
@@ -226,6 +250,11 @@ impl<'ctx> Codegen<'ctx> {
             }
             Literal::Bool(b) => {
                 let val = self.context.bool_type().const_int(*b as u64, false);
+                Ok(val.into())
+            }
+            Literal::Char(c) => {
+                // char is u8
+                let val = self.context.i8_type().const_int(*c as u64, false);
                 Ok(val.into())
             }
             Literal::String(s) => {
@@ -290,6 +319,34 @@ impl<'ctx> Codegen<'ctx> {
             // Handle dereference assignment (e.g., *ptr = val, *(ptr + offset) = val)
             if let Expr::Deref { operand, .. } = left {
                 return self.compile_deref_assign(operand, rhs);
+            }
+
+            // Handle array index assignment (e.g., arr[i] = val)
+            if let Expr::Index { array, index, .. } = left {
+                let (elem_ptr, elem_type) = self.compile_index_ptr(array, index)?;
+
+                // Coerce the value to the element type if needed
+                let coerced_rhs = if rhs.is_int_value() && elem_type.is_int_type() {
+                    let rhs_int = rhs.into_int_value();
+                    let elem_int_type = elem_type.into_int_type();
+                    let rhs_width = rhs_int.get_type().get_bit_width();
+                    let elem_width = elem_int_type.get_bit_width();
+
+                    if rhs_width > elem_width {
+                        // Truncate (e.g., i64 -> i32)
+                        self.builder.build_int_truncate(rhs_int, elem_int_type, "trunc").unwrap().into()
+                    } else if rhs_width < elem_width {
+                        // Sign extend (e.g., i32 -> i64)
+                        self.builder.build_int_s_extend(rhs_int, elem_int_type, "sext").unwrap().into()
+                    } else {
+                        rhs
+                    }
+                } else {
+                    rhs
+                };
+
+                self.builder.build_store(elem_ptr, coerced_rhs).unwrap();
+                return Ok(coerced_rhs);
             }
 
             return Err(CodegenError::InvalidAssignment);
@@ -598,6 +655,35 @@ impl<'ctx> Codegen<'ctx> {
             }
         }
 
+        // Try to get AST type for proper formatting first
+        // This handles char, specific int types, and importantly Slice<u8> (str) correctly
+        if let Ok(ast_type) = self.get_expr_type(expr) {
+            // Helper to check if type is a string (Slice<u8>) or reference to string
+            fn is_string_type(ty: &crate::ast::Type) -> bool {
+                match ty {
+                    crate::ast::Type::Slice(inner) => matches!(inner.as_ref(), crate::ast::Type::U8),
+                    crate::ast::Type::Ref(inner) => is_string_type(inner),
+                    crate::ast::Type::RefMut(inner) => is_string_type(inner),
+                    _ => false,
+                }
+            }
+
+            // For string types (str, &str, ~str), handle appropriately
+            if is_string_type(&ast_type) {
+                // The value should already be a struct value (Slice is a struct {ptr, len})
+                // If it's a pointer, that means we have a reference - skip the deref, let the
+                // existing slice detection handle it
+                if val.is_struct_value() {
+                    let slice_type = crate::ast::Type::Slice(Box::new(crate::ast::Type::U8));
+                    return self.value_to_string(val, &slice_type);
+                }
+            }
+            // For other types that are not structs/enums, use value_to_string
+            if !matches!(&ast_type, crate::ast::Type::Named { .. }) {
+                return self.value_to_string(val, &ast_type);
+            }
+        }
+
         // Handle user-defined types (structs and enums)
         if let Some(ref name) = type_name {
             // If the value is a pointer (reference to a struct), dereference it
@@ -654,7 +740,12 @@ impl<'ctx> Codegen<'ctx> {
             }
         }
 
-        // Handle primitive types
+        // Fallback: try value_to_string with inferred type (for remaining cases)
+        if let Ok(ast_type) = self.get_expr_type(expr) {
+            return self.value_to_string(val, &ast_type);
+        }
+
+        // Fallback: Handle primitive types by LLVM type
         if val.is_int_value() {
             let int_val = val.into_int_value();
             let bit_width = int_val.get_type().get_bit_width();
@@ -934,6 +1025,10 @@ impl<'ctx> Codegen<'ctx> {
             crate::ast::Type::Bool => {
                 self.bool_to_string(val.into_int_value())
             }
+            crate::ast::Type::Char => {
+                // char is u8, print as character
+                self.char_to_string(val.into_int_value())
+            }
             crate::ast::Type::F32 | crate::ast::Type::F64 => {
                 self.float_to_string(val.into_float_value())
             }
@@ -1067,6 +1162,37 @@ impl<'ctx> Codegen<'ctx> {
         phi_len.add_incoming(&[(&true_len, true_bb), (&false_len, false_bb)]);
 
         Ok((phi_ptr.as_basic_value().into_pointer_value(), phi_len.as_basic_value().into_int_value()))
+    }
+
+    /// Convert a char to a string (single character)
+    fn char_to_string(&mut self, val: inkwell::values::IntValue<'ctx>) -> Result<(inkwell::values::PointerValue<'ctx>, inkwell::values::IntValue<'ctx>), CodegenError> {
+        let i64_type = self.context.i64_type();
+        let i8_type = self.context.i8_type();
+
+        // Allocate 2-byte buffer (char + null terminator)
+        let buf_size = i64_type.const_int(2, false);
+        let malloc_fn = self.module.get_function("malloc").unwrap();
+        let call_result = self.builder
+            .build_call(malloc_fn, &[buf_size.into()], "char_buf")
+            .unwrap();
+        let buffer = match call_result.try_as_basic_value() {
+            inkwell::values::ValueKind::Basic(v) => v.into_pointer_value(),
+            _ => return Err(CodegenError::NotImplemented("malloc call failed".to_string())),
+        };
+
+        // Store the character
+        self.builder.build_store(buffer, val).unwrap();
+
+        // Store null terminator at position 1
+        let one = i64_type.const_int(1, false);
+        let null_ptr = unsafe {
+            self.builder.build_gep(i8_type, buffer, &[one], "null_pos").unwrap()
+        };
+        self.builder.build_store(null_ptr, i8_type.const_zero()).unwrap();
+
+        // Return ptr and length 1
+        let len = i64_type.const_int(1, false);
+        Ok((buffer, len))
     }
 
     /// Convert a float to a string

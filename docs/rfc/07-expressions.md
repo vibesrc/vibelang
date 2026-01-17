@@ -287,7 +287,7 @@ text.trim().split(",").first()
 
 ```vibelang
 String.new()
-Array<i32>.with_capacity(100)
+Vec<i32>.with_capacity(100)
 Option.Some(42)
 ```
 

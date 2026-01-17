@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 use tower_lsp_server::ls_types::{Diagnostic, DiagnosticSeverity};
-use crate::ast::{Block, BinOp, Expr, Item, Program, Stmt, Type, VariantFields, Pattern as AstPattern, ImportPrefix, ImportItems};
+use crate::ast::{Block, BinOp, Expr, Item, Literal, Program, Stmt, Type, VariantFields, Pattern as AstPattern, ImportPrefix, ImportItems};
 use crate::lexer::{Lexer, Span};
 use crate::parser::Parser;
 
@@ -154,7 +154,7 @@ impl Backend {
                     let inferred_ty = if let Some(t) = ty {
                         Some(self.type_to_string(t))
                     } else {
-                        self.infer_type_from_expr(value)
+                        self.infer_type_from_expr_with_symbols(value, Some(symbols))
                     };
 
                     symbols.variables.push(VariableInfo {
@@ -284,6 +284,11 @@ impl Backend {
         let mut borrowed_vars: HashMap<String, (BorrowState, Span)> = HashMap::new();
 
         for item in &program.items {
+            // Check for duplicate imports in use statements
+            if let Item::Use(use_stmt) = item {
+                self.check_duplicate_imports(use_stmt, diagnostics);
+            }
+
             if let Item::Function(func) = item {
                 moved_vars.clear();
                 borrowed_vars.clear();
@@ -349,6 +354,31 @@ impl Backend {
         }
     }
 
+    /// Check for duplicate items in a use statement
+    pub fn check_duplicate_imports(
+        &self,
+        use_stmt: &crate::ast::Use,
+        diagnostics: &mut Vec<Diagnostic>,
+    ) {
+        if let ImportItems::Named(items) = &use_stmt.items {
+            let mut seen: HashMap<String, Span> = HashMap::new();
+            for item in items {
+                let name = item.alias.as_ref().unwrap_or(&item.name);
+                if let Some(_first_span) = seen.get(name) {
+                    diagnostics.push(Diagnostic {
+                        range: self.span_to_range(&item.span),
+                        severity: Some(DiagnosticSeverity::WARNING),
+                        source: Some("vibelang".to_string()),
+                        message: format!("Duplicate import '{}'", name),
+                        ..Default::default()
+                    });
+                } else {
+                    seen.insert(name.clone(), item.span);
+                }
+            }
+        }
+    }
+
     pub fn analyze_block(
         &self,
         block: &Block,
@@ -374,8 +404,22 @@ impl Backend {
     ) {
         match stmt {
             Stmt::Let { ty, value, span, .. } => {
-                if let Some(t) = ty {
-                    self.check_type(t, symbols, type_params, diagnostics, span);
+                if let Some(declared_ty) = ty {
+                    self.check_type(declared_ty, symbols, type_params, diagnostics, span);
+
+                    // Check if the expression type matches the declared type
+                    if let Some(expr_ty) = self.infer_expr_type(value, symbols) {
+                        let declared_str = self.type_to_string(declared_ty);
+                        if !self.types_compatible(&declared_str, &expr_ty) {
+                            diagnostics.push(Diagnostic {
+                                range: self.span_to_range(span),
+                                severity: Some(DiagnosticSeverity::ERROR),
+                                source: Some("vibelang".to_string()),
+                                message: format!("Type mismatch: expected '{}', found '{}'", declared_str, expr_ty),
+                                ..Default::default()
+                            });
+                        }
+                    }
                 }
                 let temp_borrows = borrowed_vars.clone();
                 self.analyze_expr(value, symbols, diagnostics, moved_vars, borrowed_vars);
@@ -715,6 +759,107 @@ impl Backend {
         }
     }
 
+    /// Attempt to infer the type of an expression
+    /// Returns None if the type cannot be determined
+    fn infer_expr_type(&self, expr: &Expr, symbols: &SymbolTable) -> Option<String> {
+        use crate::ast::IntSuffix;
+
+        match expr {
+            Expr::Literal(lit, _) => Some(match lit {
+                Literal::Int(_, suffix) => match suffix {
+                    IntSuffix::I8 => "i8".to_string(),
+                    IntSuffix::I16 => "i16".to_string(),
+                    IntSuffix::I32 => "i32".to_string(),
+                    IntSuffix::I64 => "i64".to_string(),
+                    IntSuffix::U8 => "u8".to_string(),
+                    IntSuffix::U16 => "u16".to_string(),
+                    IntSuffix::U32 => "u32".to_string(),
+                    IntSuffix::U64 => "u64".to_string(),
+                    IntSuffix::None => "i32".to_string(),
+                },
+                Literal::Float(_) => "f64".to_string(),
+                Literal::Bool(_) => "bool".to_string(),
+                Literal::Char(_) => "char".to_string(),
+                Literal::String(_) => "Slice<u8>".to_string(),
+            }),
+            Expr::Ident(name, _) => {
+                // Look up variable type in symbols
+                symbols.variables.iter()
+                    .find(|v| &v.name == name)
+                    .and_then(|v| v.ty.clone())
+            }
+            Expr::Call { func, .. } => {
+                // Try to get function return type
+                if let Expr::Ident(name, _) = func.as_ref() {
+                    symbols.functions.get(name)
+                        .and_then(|f| f.return_type.clone())
+                } else {
+                    None
+                }
+            }
+            Expr::MethodCall { receiver, method, .. } => {
+                // Try to get method return type
+                // First get the receiver type
+                let receiver_type = self.infer_expr_type(receiver, symbols)?;
+                // Strip reference markers
+                let base_type = receiver_type.trim_start_matches('&').trim_start_matches('~').to_string();
+                // Look up method in type's methods
+                symbols.methods.get(&base_type)
+                    .and_then(|methods| methods.iter().find(|m| &m.name == method))
+                    .and_then(|m| m.return_type.clone())
+                    .or_else(|| {
+                        // Check if it's a static method call on a type name
+                        if let Expr::Ident(type_name, _) = receiver.as_ref() {
+                            symbols.methods.get(type_name)
+                                .and_then(|methods| methods.iter().find(|m| &m.name == method))
+                                .and_then(|m| m.return_type.clone())
+                        } else {
+                            None
+                        }
+                    })
+            }
+            Expr::StructInit { name, generics, .. } => {
+                if generics.is_empty() {
+                    Some(name.clone())
+                } else {
+                    let generic_strs: Vec<_> = generics.iter().map(|g| self.type_to_string(g)).collect();
+                    Some(format!("{}<{}>", name, generic_strs.join(", ")))
+                }
+            }
+            Expr::ArrayInit { elements, .. } => {
+                // Infer array type from first element
+                if let Some(first) = elements.first() {
+                    let elem_type = self.infer_expr_type(first, symbols)?;
+                    Some(format!("Array<{}>", elem_type))
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        }
+    }
+
+    /// Check if two types are compatible (allowing for generic type matching)
+    fn types_compatible(&self, expected: &str, actual: &str) -> bool {
+        // Exact match
+        if expected == actual {
+            return true;
+        }
+
+        // Handle generic Result type - Result<T, E> is compatible with Result<T, E>
+        // For now, just check base type name matches
+        let expected_base = expected.split('<').next().unwrap_or(expected);
+        let actual_base = actual.split('<').next().unwrap_or(actual);
+
+        if expected_base != actual_base {
+            return false;
+        }
+
+        // If bases match but generics differ, they're incompatible
+        // (unless we add more sophisticated generic handling)
+        expected == actual
+    }
+
     /// Process an import statement and load symbols from the imported module
     fn process_import(&self, use_stmt: &crate::ast::Use, symbols: &mut SymbolTable) {
         // Only handle std imports for now
@@ -742,6 +887,10 @@ impl Backend {
                                 });
                                 // Also add to structs for type checking
                                 symbols.structs.insert(local_name.clone(), struct_info.clone());
+                                // Also copy methods for this struct type
+                                if let Some(methods) = module_symbols.methods.get(&item.name) {
+                                    symbols.methods.entry(local_name.clone()).or_default().extend(methods.clone());
+                                }
                             }
                         } else if let Some(enum_info) = module_symbols.enums.get(&item.name) {
                             if enum_info.is_pub {
@@ -753,6 +902,10 @@ impl Backend {
                                 });
                                 // Also add to enums for type checking
                                 symbols.enums.insert(local_name.clone(), enum_info.clone());
+                                // Also copy methods for this enum type
+                                if let Some(methods) = module_symbols.methods.get(&item.name) {
+                                    symbols.methods.entry(local_name.clone()).or_default().extend(methods.clone());
+                                }
                             }
                         } else if let Some(func_info) = module_symbols.functions.get(&item.name) {
                             if func_info.is_pub {
@@ -844,18 +997,44 @@ impl Backend {
         Some(module_symbols)
     }
 
-    /// Get the path to the std library
+    /// Get the path to the std library src directory
     fn get_std_library_path(&self) -> Option<PathBuf> {
-        // Try to find the std library relative to the compiler or in common locations
-        let possible_paths = [
-            // Relative to vibelang project
-            PathBuf::from("/home/brenn/github/vibelang/std/src"),
-            // Could add other paths later for installed stdlib
-        ];
-
-        for path in &possible_paths {
+        // First, check environment variable (highest priority)
+        if let Ok(path) = std::env::var("VIBELANG_STD") {
+            let path = PathBuf::from(path).join("src");
             if path.exists() {
-                return Some(path.clone());
+                return Some(path);
+            }
+        }
+
+        // Also check legacy VIBELANG_STDLIB for backwards compatibility
+        if let Ok(path) = std::env::var("VIBELANG_STDLIB") {
+            let path = PathBuf::from(path).join("src");
+            if path.exists() {
+                return Some(path);
+            }
+        }
+
+        // Try relative to current executable
+        if let Ok(exe) = std::env::current_exe() {
+            if let Some(exe_dir) = exe.parent() {
+                // Check ../std (installed layout)
+                let stdlib = exe_dir.join("../std/src");
+                if stdlib.exists() {
+                    return stdlib.canonicalize().ok();
+                }
+
+                // Check ../../std (dev layout - from bootstrap/target/release)
+                let stdlib = exe_dir.join("../../std/src");
+                if stdlib.exists() {
+                    return stdlib.canonicalize().ok();
+                }
+
+                // Check ../../../std (dev layout - from bootstrap/target/debug or release)
+                let stdlib = exe_dir.join("../../../std/src");
+                if stdlib.exists() {
+                    return stdlib.canonicalize().ok();
+                }
             }
         }
 

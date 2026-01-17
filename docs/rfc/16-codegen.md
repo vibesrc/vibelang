@@ -34,10 +34,10 @@ Vibelang compiles to LLVM IR, leveraging LLVM's optimization passes and backend 
 ; Slice<T>
 %Slice = type { ptr, i64 }      ; ptr + len
 
-; Array<T>
+; Vec<T>
 %Array = type { ptr, i64, i64 } ; ptr + len + cap
 
-; String (same as Array<u8>)
+; String (same as Vec<u8>)
 %String = type { ptr, i64, i64 }
 ```
 
@@ -425,7 +425,7 @@ define i32 @main() {
 ## 16.9 Example: Complete Function
 
 ```vibelang
-fn sum_positive(numbers: &Array<i32>) -> i64 {
+fn sum_positive(numbers: &Vec<i32>) -> i64 {
     let total: i64 = 0
     for n in numbers {
         if n > 0 {

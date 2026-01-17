@@ -19,6 +19,7 @@ impl<'ctx> Codegen<'ctx> {
             Type::F32 => Ok(self.context.f32_type().into()),
             Type::F64 => Ok(self.context.f64_type().into()),
             Type::Bool => Ok(self.context.bool_type().into()),
+            Type::Char => Ok(self.context.i8_type().into()),  // char is u8
             Type::Pointer(_) => Ok(self.context.ptr_type(AddressSpace::default()).into()),
             Type::Ref(_) => Ok(self.context.ptr_type(AddressSpace::default()).into()),
             Type::RefMut(_) => Ok(self.context.ptr_type(AddressSpace::default()).into()),
@@ -123,7 +124,7 @@ impl<'ctx> Codegen<'ctx> {
 
     /// Parse a mangled name back into base name and type arguments
     /// e.g., "Slice_u8" => Some(("Slice", [Type::U8]))
-    /// e.g., "Array_String" => Some(("Array", [Type::Named { name: "String", generics: [] }]))
+    /// e.g., "Vec_String" => Some(("Array", [Type::Named { name: "String", generics: [] }]))
     pub(crate) fn parse_mangled_name(&self, mangled: &str) -> Option<(String, Vec<Type>)> {
         // Find the first underscore that separates base name from type args
         if let Some(underscore_pos) = mangled.find('_') {
@@ -175,6 +176,7 @@ impl<'ctx> Codegen<'ctx> {
             Type::F32 => "f32".to_string(),
             Type::F64 => "f64".to_string(),
             Type::Bool => "bool".to_string(),
+            Type::Char => "char".to_string(),
             Type::Pointer(inner) => format!("ptr_{}", self.type_name(inner)),
             Type::Ref(inner) => format!("ref_{}", self.type_name(inner)),
             Type::RefMut(inner) => format!("mut_{}", self.type_name(inner)),
@@ -432,13 +434,24 @@ impl<'ctx> Codegen<'ctx> {
 
     /// Infer the type of an expression
     fn infer_type_from_expr(&mut self, expr: &crate::ast::Expr) -> Result<Type, CodegenError> {
-        use crate::ast::{Expr, Literal};
+        use crate::ast::{Expr, Literal, IntSuffix};
 
         match expr {
             Expr::Literal(lit, _) => match lit {
-                Literal::Int(_) => Ok(Type::I32),
+                Literal::Int(_, suffix) => Ok(match suffix {
+                    IntSuffix::I8 => Type::I8,
+                    IntSuffix::I16 => Type::I16,
+                    IntSuffix::I32 => Type::I32,
+                    IntSuffix::I64 => Type::I64,
+                    IntSuffix::U8 => Type::U8,
+                    IntSuffix::U16 => Type::U16,
+                    IntSuffix::U32 => Type::U32,
+                    IntSuffix::U64 => Type::U64,
+                    IntSuffix::None => Type::I32,
+                }),
                 Literal::Float(_) => Ok(Type::F64),
                 Literal::Bool(_) => Ok(Type::Bool),
+                Literal::Char(_) => Ok(Type::Char),
                 Literal::String(_) => Ok(Type::Named {
                     name: "Slice".to_string(),
                     generics: vec![Type::U8]
@@ -534,14 +547,25 @@ impl<'ctx> Codegen<'ctx> {
     }
 
     /// Get the type of an expression for type inference
-    fn get_expr_type(&self, expr: &crate::ast::Expr) -> Result<Type, CodegenError> {
-        use crate::ast::{Expr, Literal};
+    pub fn get_expr_type(&self, expr: &crate::ast::Expr) -> Result<Type, CodegenError> {
+        use crate::ast::{Expr, Literal, IntSuffix};
 
         match expr {
             Expr::Literal(lit, _) => match lit {
-                Literal::Int(_) => Ok(Type::I32),
+                Literal::Int(_, suffix) => Ok(match suffix {
+                    IntSuffix::I8 => Type::I8,
+                    IntSuffix::I16 => Type::I16,
+                    IntSuffix::I32 => Type::I32,
+                    IntSuffix::I64 => Type::I64,
+                    IntSuffix::U8 => Type::U8,
+                    IntSuffix::U16 => Type::U16,
+                    IntSuffix::U32 => Type::U32,
+                    IntSuffix::U64 => Type::U64,
+                    IntSuffix::None => Type::I32,
+                }),
                 Literal::Float(_) => Ok(Type::F64),
                 Literal::Bool(_) => Ok(Type::Bool),
+                Literal::Char(_) => Ok(Type::Char),
                 Literal::String(_) => Ok(Type::Named {
                     name: "Slice".to_string(),
                     generics: vec![Type::U8]

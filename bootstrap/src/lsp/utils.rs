@@ -74,32 +74,54 @@ pub fn is_builtin_function(name: &str) -> bool {
     )
 }
 
-/// Standard library modules available for import
-pub fn std_modules() -> Vec<&'static str> {
-    vec!["types", "mem", "collections", "string", "io", "fs"]
+/// Standard library modules available for import (dynamically discovered)
+pub fn std_modules() -> Vec<String> {
+    // Try to find and list std modules dynamically
+    if let Some(std_path) = get_std_src_path() {
+        if let Ok(entries) = std::fs::read_dir(&std_path) {
+            return entries
+                .filter_map(|e| e.ok())
+                .filter(|e| e.path().is_dir())
+                .filter_map(|e| e.file_name().into_string().ok())
+                .filter(|name| !name.starts_with('.'))
+                .collect();
+        }
+    }
+    // Fallback to empty if std not found
+    vec![]
 }
 
-/// Get items available in a std module
-pub fn std_module_items(module: &str) -> Vec<(&'static str, &'static str)> {
-    match module {
-        "types" => vec![
-            ("Option", "enum"),
-            ("Result", "enum"),
-            ("Error", "struct"),
-        ],
-        "mem" => vec![
-            ("alloc", "fn"),
-            ("dealloc", "fn"),
-            ("resize", "fn"),
-            ("copy", "fn"),
-        ],
-        "collections" => vec![
-            ("Array", "struct"),
-        ],
-        "string" => vec![
-            ("String", "struct"),
-            ("StringBuilder", "struct"),
-        ],
-        _ => vec![],
+/// Get the path to the std library src directory
+fn get_std_src_path() -> Option<std::path::PathBuf> {
+    use std::path::PathBuf;
+
+    // First, check environment variable
+    if let Ok(path) = std::env::var("VIBELANG_STD") {
+        let path = PathBuf::from(path).join("src");
+        if path.exists() {
+            return Some(path);
+        }
     }
+
+    // Also check legacy VIBELANG_STDLIB
+    if let Ok(path) = std::env::var("VIBELANG_STDLIB") {
+        let path = PathBuf::from(path).join("src");
+        if path.exists() {
+            return Some(path);
+        }
+    }
+
+    // Try relative to current executable
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(exe_dir) = exe.parent() {
+            for relative in &["../std/src", "../../std/src", "../../../std/src"] {
+                let stdlib = exe_dir.join(relative);
+                if stdlib.exists() {
+                    return stdlib.canonicalize().ok();
+                }
+            }
+        }
+    }
+
+    None
 }

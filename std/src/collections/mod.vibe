@@ -2,25 +2,25 @@
 
 use std.mem.{alloc, resize, dealloc}
 
-/// Array<T> - heap-allocated, growable array
-pub struct Array<T> {
+/// Vec<T> - heap-allocated, growable vector
+pub struct Vec<T> {
     ptr: *T
     len: i64
     capacity: i64
 }
 
-impl Array<T> {
-    pub fn new() -> Array<T> {
-        return Array<T> {
+impl Vec<T> {
+    pub fn new() -> Vec<T> {
+        return Vec<T> {
             ptr: ptr_null<T>(),
             len: 0,
             capacity: 0
         }
     }
 
-    pub fn with_capacity(cap: i64) -> Array<T> {
+    pub fn with_capacity(cap: i64) -> Vec<T> {
         let ptr = alloc(cap * sizeof<T>()) as *T
-        return Array<T> {
+        return Vec<T> {
             ptr: ptr,
             len: 0,
             capacity: cap
@@ -74,7 +74,7 @@ impl Array<T> {
 
     pub fn set(~self, index: i64, value: T) {
         if index < 0 or index >= self.len {
-            panic("Array index out of bounds")
+            panic("Vec index out of bounds")
         }
         unsafe {
             let dest = ptr_add<T>(self.ptr, index)

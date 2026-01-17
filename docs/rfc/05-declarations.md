@@ -86,7 +86,7 @@ fn process(data: &String) {
     const greeting = "hello"            // OK: string literal (static borrow)
     
     const owned = String.from("hi")     // ERROR: const cannot hold owned types
-    const vec = Array<i32>()            // ERROR: const cannot hold owned types
+    const vec = Vec<i32>()            // ERROR: const cannot hold owned types
 }
 ```
 
@@ -203,7 +203,7 @@ static F = load()               // ERROR: not compile-time
 // const: Copy and borrowed types only
 const n = get_number()          // OK: i32 is Copy
 const s = &owned_string         // OK: borrow
-const v = Array<i32>()          // ERROR: owned type
+const v = Vec<i32>()          // ERROR: owned type
 
 // let: any type
 let n = 42                      // OK: Copy
@@ -279,7 +279,7 @@ let x = 42                      // inferred: i32
 let y = 3.14                    // inferred: f64
 let s = "hello"                 // inferred: Slice<u8>
 let arr = [1, 2, 3]             // inferred: i32[3]
-let vec = Array<i32>()          // explicit generic required
+let vec = Vec<i32>()          // explicit generic required
 
 const len = s.len()             // inferred: u64
 const flag = true               // inferred: bool
@@ -289,7 +289,7 @@ const flag = true               // inferred: bool
 
 ```vibelang
 let vec = Array()               // ERROR: can't infer T
-let vec = Array<i32>()          // OK: explicit
+let vec = Vec<i32>()          // OK: explicit
 
 let opt = Option.None           // ERROR: can't infer T
 let opt: Option<i32> = Option.None  // OK: explicit type
@@ -302,9 +302,9 @@ let opt: Option<i32> = Option.None  // OK: explicit type
 ```vibelang
 static MAX_ITERATIONS = 1000
 
-fn process(input: &String) -> Result<Array<Token>, Error> {
+fn process(input: &String) -> Result<Vec<Token>, Error> {
     const len = input.len()             // const: won't change
-    let tokens = Array<Token>()         // let: will be mutated
+    let tokens = Vec<Token>()         // let: will be mutated
     let pos = 0                         // let: will be incremented
     
     while pos < len {

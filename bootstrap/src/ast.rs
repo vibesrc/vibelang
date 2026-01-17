@@ -155,6 +155,7 @@ pub enum Type {
     F32,
     F64,
     Bool,
+    Char,  // u8 under the hood
     Void,
 
     // Compound
@@ -310,6 +311,11 @@ pub enum Expr {
         elements: Vec<Expr>,
         span: Span,
     },
+    ArrayRepeat {
+        value: Box<Expr>,
+        count: usize,
+        span: Span,
+    },
     If {
         condition: Box<Expr>,
         then_expr: Box<Expr>,
@@ -390,11 +396,14 @@ pub enum UnaryOp {
     BitNot, // ! (bitwise)
 }
 
+pub use crate::lexer::IntSuffix;
+
 #[derive(Debug, Clone)]
 pub enum Literal {
-    Int(i64),
+    Int(i64, IntSuffix),
     Float(f64),
     String(String),
+    Char(u8),
     Bool(bool),
 }
 

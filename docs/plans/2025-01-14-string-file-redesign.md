@@ -8,7 +8,7 @@ Redesign `std.string.String` and add `std.fs.File` with consistent, chainable AP
 
 ```vibe
 pub struct String {
-    data: Array<u8>
+    data: Vec<u8>
 }
 
 impl String {
@@ -44,11 +44,11 @@ impl String {
     pub fn find(&self, needle: &Slice<u8>) -> Option<i64>
 
     // === Splitting ===
-    pub fn split(&self, delim: &Slice<u8>) -> Array<String>
-    pub fn lines(&self) -> Array<String>
+    pub fn split(&self, delim: &Slice<u8>) -> Vec<String>
+    pub fn lines(&self) -> Vec<String>
 
     // === Joining (static) ===
-    pub fn join(parts: &Array<String>, delim: &Slice<u8>) -> String
+    pub fn join(parts: &Vec<String>, delim: &Slice<u8>) -> String
 }
 ```
 
@@ -90,7 +90,7 @@ impl File {
     pub fn append(path: &Slice<u8>) -> Result<File, Error>    // write + create + append
 
     // === Core I/O (buffer-based for performance) ===
-    pub fn read_bytes(~self, buf: ~Array<u8>, count: i64) -> Result<i64, Error>
+    pub fn read_bytes(~self, buf: ~Vec<u8>, count: i64) -> Result<i64, Error>
     pub fn write_bytes(~self, buf: &Slice<u8>) -> Result<i64, Error>
     pub fn seek(~self, offset: i64, whence: SeekFrom) -> Result<i64, Error>
     pub fn close(~self) -> Result<void, Error>
@@ -98,7 +98,7 @@ impl File {
     // === Convenience (allocates, returns String) ===
     pub fn read_all(~self) -> Result<String, Error>
     pub fn read_line(~self) -> Result<Option<String>, Error>
-    pub fn read_n(~self, count: i64) -> Result<Array<u8>, Error>  // allocates buffer
+    pub fn read_n(~self, count: i64) -> Result<Vec<u8>, Error>  // allocates buffer
 
     // === Queries ===
     pub fn is_closed(&self) -> bool

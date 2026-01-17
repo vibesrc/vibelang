@@ -425,6 +425,7 @@ impl Backend {
             Type::F32 => "f32",
             Type::F64 => "f64",
             Type::Bool => "bool",
+            Type::Char => "char",
             Type::Void => "void",
             _ => "",
         }

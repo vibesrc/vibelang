@@ -144,7 +144,7 @@ fn create_greeting(name: &String) -> String {
 ### Returning References
 
 ```vibelang
-fn first(arr: &Array<i32>) -> Option<&i32> {
+fn first(arr: &Vec<i32>) -> Option<&i32> {
     if arr.is_empty() {
         return Option.None
     }
@@ -297,16 +297,16 @@ let result = apply(double, 21)  // 42
 ### Higher-Order Functions
 
 ```vibelang
-fn map<T, U>(arr: &Array<T>, f: fn(&T) -> U) -> Array<U> {
-    let result = Array<U>()
+fn map<T, U>(arr: &Vec<T>, f: fn(&T) -> U) -> Vec<U> {
+    let result = Vec<U>()
     for item in arr {
         result.push(f(item))
     }
     return result
 }
 
-fn filter<T>(arr: &Array<T>, pred: fn(&T) -> bool) -> Array<T> {
-    let result = Array<T>()
+fn filter<T>(arr: &Vec<T>, pred: fn(&T) -> bool) -> Vec<T> {
+    let result = Vec<T>()
     for item in arr {
         if pred(item) {
             result.push(item.copy())
@@ -315,7 +315,7 @@ fn filter<T>(arr: &Array<T>, pred: fn(&T) -> bool) -> Array<T> {
     return result
 }
 
-fn fold<T, A>(arr: &Array<T>, init: A, f: fn(A, &T) -> A) -> A {
+fn fold<T, A>(arr: &Vec<T>, init: A, f: fn(A, &T) -> A) -> A {
     let acc = init
     for item in arr {
         acc = f(acc, item)
@@ -479,7 +479,7 @@ impl MyResource {
 struct Parser {
     source: String
     pos: u64
-    tokens: Array<Token>
+    tokens: Vec<Token>
 }
 
 impl Parser {
@@ -487,7 +487,7 @@ impl Parser {
         return Parser {
             source: source,
             pos: 0,
-            tokens: Array<Token>()
+            tokens: Vec<Token>()
         }
     }
     

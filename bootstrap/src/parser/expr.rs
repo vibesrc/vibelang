@@ -158,7 +158,7 @@ impl Parser {
         while self.check(TokenKind::Amp) {
             // Look ahead to disambiguate
             let next = self.tokens.get(self.pos + 1);
-            if matches!(next.map(|t| &t.kind), Some(TokenKind::Ident(_)) | Some(TokenKind::Int(_))) {
+            if matches!(next.map(|t| &t.kind), Some(TokenKind::Ident(_)) | Some(TokenKind::Int(_, _))) {
                 // Could be bitwise AND, but let's be conservative
                 break;
             }
@@ -363,10 +363,11 @@ impl Parser {
         let span = self.current_span();
 
         match self.peek_kind() {
-            Some(TokenKind::Int(n)) => {
+            Some(TokenKind::Int(n, suffix)) => {
                 let n = *n;
+                let suffix = *suffix;
                 self.advance();
-                Ok(Expr::Literal(Literal::Int(n), span))
+                Ok(Expr::Literal(Literal::Int(n, suffix), span))
             }
             Some(TokenKind::Float(n)) => {
                 let n = *n;
@@ -377,6 +378,11 @@ impl Parser {
                 let s = s.clone();
                 self.advance();
                 Ok(Expr::Literal(Literal::String(s), span))
+            }
+            Some(TokenKind::Char(c)) => {
+                let c = *c;
+                self.advance();
+                Ok(Expr::Literal(Literal::Char(c), span))
             }
             Some(TokenKind::InterpolatedStringStart(s)) => {
                 self.parse_interpolated_string(s.clone(), span)
@@ -483,14 +489,47 @@ impl Parser {
                 Ok(expr)
             }
             Some(TokenKind::LBracket) => {
-                // Array literal
+                // Array literal or repeat: [1, 2, 3] or [0; 100]
                 self.advance();
-                let mut elements = Vec::new();
-                while !self.check(TokenKind::RBracket) {
-                    elements.push(self.parse_expr()?);
-                    if !self.match_token(TokenKind::Comma) {
-                        break;
+
+                // Check for empty array
+                if self.check(TokenKind::RBracket) {
+                    self.advance();
+                    return Ok(Expr::ArrayInit {
+                        elements: Vec::new(),
+                        span: self.span_from(span),
+                    });
+                }
+
+                // Parse first element
+                let first = self.parse_expr()?;
+
+                // Check for repeat syntax: [value; count]
+                if self.match_token(TokenKind::Semicolon) {
+                    // Repeat syntax
+                    let count_expr = self.parse_expr()?;
+                    self.expect(TokenKind::RBracket)?;
+
+                    // Extract count as usize (must be a literal integer)
+                    let count = match &count_expr {
+                        Expr::Literal(Literal::Int(n, _), _) => *n as usize,
+                        _ => return Err(self.error("array repeat count must be a constant integer")),
+                    };
+
+                    return Ok(Expr::ArrayRepeat {
+                        value: Box::new(first),
+                        count,
+                        span: self.span_from(span),
+                    });
+                }
+
+                // Regular array literal: [a, b, c, ...]
+                let mut elements = vec![first];
+                while self.match_token(TokenKind::Comma) {
+                    if self.check(TokenKind::RBracket) {
+                        break; // trailing comma
                     }
+                    elements.push(self.parse_expr()?);
                 }
                 self.expect(TokenKind::RBracket)?;
                 Ok(Expr::ArrayInit {
@@ -683,6 +722,7 @@ impl Expr {
             Expr::Deref { span, .. } => *span,
             Expr::StructInit { span, .. } => *span,
             Expr::ArrayInit { span, .. } => *span,
+            Expr::ArrayRepeat { span, .. } => *span,
             Expr::If { span, .. } => *span,
             Expr::Block(block) => block.span,
             Expr::Try { span, .. } => *span,

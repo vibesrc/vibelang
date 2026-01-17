@@ -295,7 +295,7 @@ Sensitive data should be zeroed when freed:
 
 ```vibelang
 struct SecureString {
-    data: Array<u8>
+    data: Vec<u8>
 }
 
 impl SecureString {

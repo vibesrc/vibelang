@@ -15,7 +15,7 @@ Vibelang uses **ownership-based mutation** with two borrow types:
 ### Owner Mutates Directly
 
 ```vibelang
-let arr = Array<i32>()
+let arr = Vec<i32>()
 arr.push(1)                 // we own arr, can mutate
 arr.push(2)
 ```
@@ -23,12 +23,12 @@ arr.push(2)
 ### Read-Only Borrow (`&`)
 
 ```vibelang
-fn print_len(arr: &Array<i32>) {
+fn print_len(arr: &Vec<i32>) {
     print(arr.len())        // OK: reading
     arr.push(1)             // ERROR: arr is borrowed as read-only
 }
 
-let arr = Array<i32>()
+let arr = Vec<i32>()
 arr.push(1)
 print_len(&arr)             // lend read-only
 arr.push(2)                 // still own it
@@ -37,11 +37,11 @@ arr.push(2)                 // still own it
 ### Vibing (`~`) - Mutable Borrow
 
 ```vibelang
-fn add_item(arr: ~Array<i32>, item: i32) {
+fn add_item(arr: ~Vec<i32>, item: i32) {
     arr.push(item)          // OK: arr is vibing (mutable borrow)
 }
 
-let arr = Array<i32>()
+let arr = Vec<i32>()
 add_item(~arr, 1)           // vibe with arr
 add_item(~arr, 2)           // still own it
 print(arr.len())            // 2

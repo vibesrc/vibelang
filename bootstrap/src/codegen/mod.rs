@@ -274,14 +274,20 @@ impl<'ctx> Codegen<'ctx> {
         }
         self.loaded_modules.insert("__prelude__".to_string());
 
-        // Try to find prelude in stdlib
-        if let Some(ref stdlib_path) = self.project.stdlib_path {
-            // Load types from std/src/types/mod.vibe
-            let types_mod = stdlib_path.join("src").join("types").join("mod.vibe");
-            if types_mod.exists() {
-                self.load_prelude_file(&types_mod)?;
-            }
+        // Clone stdlib path to avoid borrow issues
+        let stdlib_path = match &self.project.stdlib_path {
+            Some(p) => p.clone(),
+            None => return Ok(()),
+        };
+
+        // Load types from std/src/types/mod.vibe (Option, Result, Error, Slice)
+        let types_mod = stdlib_path.join("src").join("types").join("mod.vibe");
+        if types_mod.exists() {
+            self.load_prelude_file(&types_mod)?;
         }
+
+        // Note: Vec and String require explicit import due to dependencies on std.mem
+        // A proper prelude system would need to resolve module dependencies
 
         Ok(())
     }
@@ -316,7 +322,7 @@ impl<'ctx> Codegen<'ctx> {
         }
         self.module_public_items.insert(path_str, public_items);
 
-        // Process items from prelude
+        // Process items from prelude - first pass: define types
         for item in &prelude_program.items {
             match item {
                 Item::Struct(s) if s.is_pub => {
@@ -333,13 +339,35 @@ impl<'ctx> Codegen<'ctx> {
                         self.generic_enums.insert(e.name.clone(), e.clone());
                     }
                 }
+                _ => {}
+            }
+        }
+
+        // Second pass: declare functions and impl methods
+        for item in &prelude_program.items {
+            match item {
                 Item::Function(func) if func.is_pub => {
                     if func.generics.is_empty() {
                         self.declare_function(func)?;
-                        self.compile_function(func)?;
                     } else {
                         self.generic_functions.insert(func.name.clone(), func.clone());
                     }
+                }
+                Item::Impl(impl_block) => {
+                    self.declare_impl_methods(impl_block)?;
+                }
+                _ => {}
+            }
+        }
+
+        // Third pass: compile function bodies
+        for item in &prelude_program.items {
+            match item {
+                Item::Function(func) if func.is_pub && func.generics.is_empty() => {
+                    self.compile_function(func)?;
+                }
+                Item::Impl(impl_block) => {
+                    self.compile_impl_methods(impl_block)?;
                 }
                 _ => {}
             }
@@ -448,7 +476,7 @@ impl<'ctx> Codegen<'ctx> {
         } else {
             // Infer from value (only supports literals for now)
             match &s.value {
-                Expr::Literal(Literal::Int(_), _) => self.context.i64_type().into(),
+                Expr::Literal(Literal::Int(_, _), _) => self.context.i64_type().into(),
                 Expr::Literal(Literal::Float(_), _) => self.context.f64_type().into(),
                 Expr::Literal(Literal::Bool(_), _) => self.context.bool_type().into(),
                 Expr::Literal(Literal::String(_), _) => {
@@ -468,7 +496,7 @@ impl<'ctx> Codegen<'ctx> {
 
         // For simple integer literals, we can set the initializer directly
         match &s.value {
-            Expr::Literal(Literal::Int(val), _) => {
+            Expr::Literal(Literal::Int(val, _suffix), _) => {
                 if ty.is_int_type() {
                     let int_ty = ty.into_int_type();
                     let const_val = int_ty.const_int(*val as u64, true);

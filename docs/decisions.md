@@ -50,7 +50,7 @@ std/
     │   ├── result.vibe
     │   └── error.vibe
     ├── collections/
-    │   ├── mod.vibe          # Array<T>
+    │   ├── mod.vibe          # Vec<T>
     │   └── array.vibe
     ├── string/mod.vibe       # String type + utilities
     ├── io/mod.vibe           # print, println

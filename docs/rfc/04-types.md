@@ -19,7 +19,7 @@ Types
 │   └── Enum: enum { ... }
 │
 └── Standard Library Types (written in Vibelang)
-    ├── Array<T>: Dynamic array
+    ├── Vec<T>: Dynamic array
     ├── Slice<T>: Borrowed view
     ├── String: UTF-8 string
     ├── Map<K, V>: Hash map
@@ -65,7 +65,7 @@ print(&b)           // OK: b owns the string
 ```
 
 Owned types include:
-- `Array<T>` — Dynamic array
+- `Vec<T>` — Dynamic array
 - `String` — UTF-8 string
 - `Map<K, V>` — Hash map
 - Any struct containing owned types
@@ -95,7 +95,7 @@ let x = 42                      // inferred: i32 (default integer)
 let y = 3.14                    // inferred: f64 (default float)
 let s = "hello"                 // inferred: Slice<u8> (string literal)
 let arr = [1, 2, 3]             // inferred: i32[3]
-let vec = Array<i32>()          // explicit generic required
+let vec = Vec<i32>()          // explicit generic required
 ```
 
 Type annotations can be added for clarity or disambiguation:
@@ -116,8 +116,8 @@ Two types are equal if they have the same structure:
 i32 == i32                      // equal
 i32[3] == i32[3]                // equal
 i32[3] != i32[4]                // not equal (different size)
-Array<i32> == Array<i32>        // equal
-Array<i32> != Array<i64>        // not equal (different element type)
+Vec<i32> == Vec<i32>        // equal
+Vec<i32> != Vec<i64>        // not equal (different element type)
 ```
 
 ### Coercion
@@ -168,5 +168,5 @@ The compiler determines memory layout based on type category:
 | `i64`, `u64`, `f64`, `*T` | 8 bytes |
 | `T[N]` | `N * sizeof(T)` bytes, inline |
 | `struct` | Sum of fields with alignment padding |
-| `Array<T>` | 24 bytes (ptr + len + cap) |
+| `Vec<T>` | 24 bytes (ptr + len + cap) |
 | `Slice<T>` | 16 bytes (ptr + len) |

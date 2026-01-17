@@ -33,7 +33,7 @@ The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "S
 : A type whose values can be duplicated by copying bits. All primitive types are Copy types.
 
 **Owned Type**
-: A type whose values have a single owner responsible for cleanup. Includes `Array<T>`, `String`, and structs containing owned types.
+: A type whose values have a single owner responsible for cleanup. Includes `Vec<T>`, `String`, and structs containing owned types.
 
 ### Storage Terms
 
@@ -67,7 +67,7 @@ The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "S
 ```
 T           Type variable
 T[N]        Fixed array of N elements of type T
-Array<T>    Dynamic array of type T
+Vec<T>    Dynamic array of type T
 Slice<T>    Borrowed view into contiguous T elements
 *T          Raw pointer to T
 &T          Borrow of T (read-only)
@@ -102,7 +102,7 @@ Types that are implicitly copyable:
 
 Types that have single ownership:
 
-- `Array<T>` — Dynamic array
+- `Vec<T>` — Dynamic array
 - `String` — UTF-8 string
 - `Map<K, V>` — Hash map
 - Structs containing any Owned type

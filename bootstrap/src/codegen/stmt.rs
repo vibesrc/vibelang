@@ -43,7 +43,7 @@ impl<'ctx> Codegen<'ctx> {
                             (None, None)
                         }
                     }
-                    // Handle static method calls like IntArray.new() or enum constructors like Color.Red
+                    // Handle static method calls like IntVec.new() or enum constructors like Color.Red
                     // Also handles instance method calls like self.as_bytes()
                     Expr::MethodCall { receiver, method, args, .. } => {
                         if let Expr::Ident(type_name, _) = receiver.as_ref() {
@@ -380,11 +380,17 @@ impl<'ctx> Codegen<'ctx> {
                     self.moved_vars.insert(src);
                 }
 
+                // Get the AST type - either from explicit annotation or inferred from expression
+                let ast_type = match ty {
+                    Some(t) => Some(t.clone()),
+                    None => self.get_expr_type(value).ok(),
+                };
+
                 self.variables.insert(name.clone(), VarInfo {
                     ptr: alloca,
                     ty: alloca_type,
                     struct_name,
-                    ast_type: ty.clone(),
+                    ast_type,
                     is_ref,
                     is_mut_ref,
                     ref_struct_name,
@@ -630,21 +636,21 @@ impl<'ctx> Codegen<'ctx> {
                     if struct_ty.count_fields() == 2 {
                         return self.compile_for_slice(name, &var_info, body);
                     }
-                    // Array<T> is a struct with 3 fields: { ptr, len, capacity }
-                    // Check if ast_type indicates this is an Array<T>
+                    // Vec<T> is a struct with 3 fields: { ptr, len, capacity }
+                    // Check if ast_type indicates this is a Vec<T>
                     if struct_ty.count_fields() == 3 {
                         // First check explicit ast_type
                         if let Some(Type::Named { name: type_name, generics }) = &var_info.ast_type {
-                            if type_name == "Array" && generics.len() == 1 {
+                            if type_name == "Vec" && generics.len() == 1 {
                                 // Get element type from the generic parameter
                                 let elem_ast_type = &generics[0];
                                 return self.compile_for_dynamic_array(name, &var_info, elem_ast_type, body);
                             }
                         }
-                        // Fallback: check struct_name for mangled Array types (e.g., "Array_String")
+                        // Fallback: check struct_name for mangled Vec types (e.g., "Vec_String")
                         if let Some(ref struct_name) = var_info.struct_name {
                             if let Some((base_name, type_args)) = self.parse_mangled_name(struct_name) {
-                                if base_name == "Array" && type_args.len() == 1 {
+                                if base_name == "Vec" && type_args.len() == 1 {
                                     let elem_ast_type = &type_args[0];
                                     return self.compile_for_dynamic_array(name, &var_info, elem_ast_type, body);
                                 }
@@ -868,7 +874,7 @@ impl<'ctx> Codegen<'ctx> {
         Ok(None)
     }
 
-    /// Compile for loop over a dynamic Array<T> (struct with {ptr, len, capacity})
+    /// Compile for loop over a dynamic Vec<T> (struct with {ptr, len, capacity})
     pub(crate) fn compile_for_dynamic_array(
         &mut self,
         name: &str,
@@ -880,10 +886,10 @@ impl<'ctx> Codegen<'ctx> {
         let struct_ty = var_info.ty.into_struct_type();
         let i64_type = self.context.i64_type();
 
-        // Load the Array<T> value
+        // Load the Vec<T> value
         let array_val = self.builder.build_load(struct_ty, var_info.ptr, "array").unwrap();
 
-        // Extract pointer (field 0) and length (field 1) from Array<T>
+        // Extract pointer (field 0) and length (field 1) from Vec<T>
         let data_ptr = self.builder
             .build_extract_value(array_val.into_struct_value(), 0, "array_ptr")
             .unwrap()
