@@ -1,0 +1,59 @@
+// Test struct destructuring
+
+struct Point {
+    x: i32
+    y: i32
+}
+
+struct Rect {
+    origin: Point
+    width: i32
+    height: i32
+}
+
+fn main() -> i32 {
+    // Test 1: Basic struct destructuring
+    let p = Point { x: 10, y: 20 }
+    let {x, y} = p
+
+    if x != 10 {
+        print("FAIL: x should be 10\n")
+        return 1
+    }
+    if y != 20 {
+        print("FAIL: y should be 20\n")
+        return 1
+    }
+    print("Test 1 passed: basic destructuring\n")
+
+    // Test 2: Destructuring with rename
+    let p2 = Point { x: 30, y: 40 }
+    let {x: px, y: py} = p2
+
+    if px != 30 {
+        print("FAIL: px should be 30\n")
+        return 1
+    }
+    if py != 40 {
+        print("FAIL: py should be 40\n")
+        return 1
+    }
+    print("Test 2 passed: destructuring with rename\n")
+
+    // Test 3: Partial destructuring (only some fields)
+    let rect = Rect { origin: Point { x: 5, y: 6 }, width: 100, height: 200 }
+    let {width, height} = rect
+
+    if width != 100 {
+        print("FAIL: width should be 100\n")
+        return 1
+    }
+    if height != 200 {
+        print("FAIL: height should be 200\n")
+        return 1
+    }
+    print("Test 3 passed: partial destructuring\n")
+
+    print("All struct destructuring tests passed!\n")
+    return 0
+}

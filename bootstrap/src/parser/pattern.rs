@@ -7,6 +7,37 @@ use crate::lexer::TokenKind;
 impl Parser {
     pub(crate) fn parse_pattern(&mut self) -> Result<Pattern, ParseError> {
         match self.peek_kind() {
+            // Struct pattern: {x, y} or {x: pat, y: pat}
+            Some(TokenKind::LBrace) => {
+                self.advance();
+                let mut fields = Vec::new();
+
+                if !self.check(TokenKind::RBrace) {
+                    loop {
+                        let field_name = self.expect_ident()?;
+                        let pattern = if self.match_token(TokenKind::Colon) {
+                            self.parse_pattern()?
+                        } else {
+                            // Shorthand: {x} means {x: x}
+                            Pattern::Ident(field_name.clone())
+                        };
+                        fields.push((field_name, pattern));
+
+                        if !self.match_token(TokenKind::Comma) {
+                            break;
+                        }
+                        if self.check(TokenKind::RBrace) {
+                            break; // trailing comma
+                        }
+                    }
+                }
+
+                self.expect(TokenKind::RBrace)?;
+                Ok(Pattern::Struct {
+                    path: Vec::new(),
+                    fields,
+                })
+            }
             // Tuple pattern: (a, b, c)
             Some(TokenKind::LParen) => {
                 self.advance();

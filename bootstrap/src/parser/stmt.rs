@@ -66,8 +66,8 @@ impl Parser {
         let start = self.current_span();
         self.expect_keyword(Keyword::Let)?;
 
-        // Check for tuple destructuring: let (a, b) = ...
-        if self.check(TokenKind::LParen) {
+        // Check for pattern destructuring: let (a, b) = ... or let {x, y} = ...
+        if self.check(TokenKind::LParen) || self.check(TokenKind::LBrace) {
             let pattern = self.parse_pattern()?;
             self.expect(TokenKind::Eq)?;
             let value = self.parse_expr()?;
