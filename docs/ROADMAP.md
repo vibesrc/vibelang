@@ -12,6 +12,14 @@
 - Struct destructuring: `let {x, y} = point`, `let {x: px, y: py} = point`
 
 ## In Progress
+- Move semantics for struct/tuple destructuring (source marked as moved)
 
 ## Planned
+- Attributes and macros (`@` decorators, `!` function-like macros) - see `docs/proposals/macros.md`
+  - Phase 1: Attribute parsing (`@name`, `@name(...)`)
+  - Phase 2: Built-in derives (`@derive(Clone, Debug)`)
+  - Phase 3: Compiler attributes (`@test`, `@cfg`, `@repr`)
+  - Phase 4: User-defined macros (`@macro_derive`, `@macro_attribute`, `@macro`)
+  - Phase 5: Declarative macros (`@macro_rules`)
+- Copy/Clone traits (after macros: `@derive(Copy)`, `@derive(Clone)`)
 - Fieldsets and struct tagging

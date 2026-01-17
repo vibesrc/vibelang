@@ -1214,6 +1214,11 @@ impl<'ctx> Codegen<'ctx> {
                     }
                 }
 
+                // Mark the source variable as moved (tuple destructuring consumes the tuple)
+                if let Expr::Ident(var_name, _) = value_expr {
+                    self.moved_vars.insert(var_name.clone());
+                }
+
                 Ok(())
             }
             Pattern::Ident(name) => {
@@ -1299,6 +1304,11 @@ impl<'ctx> Codegen<'ctx> {
                             self.compile_pattern_binding(pattern, field_val, &dummy_expr)?;
                         }
                     }
+                }
+
+                // Mark the source variable as moved (struct destructuring consumes the struct)
+                if let Expr::Ident(var_name, _) = value_expr {
+                    self.moved_vars.insert(var_name.clone());
                 }
 
                 Ok(())
