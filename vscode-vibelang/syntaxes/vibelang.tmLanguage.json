@@ -173,23 +173,23 @@
       "patterns": [
         {
           "name": "constant.numeric.hex.vibe",
-          "match": "\\b0[xX][0-9a-fA-F_]+\\b"
+          "match": "\\b0[xX][0-9a-fA-F_]+([iu](8|16|32|64))?\\b"
         },
         {
           "name": "constant.numeric.octal.vibe",
-          "match": "\\b0[oO][0-7_]+\\b"
+          "match": "\\b0[oO][0-7_]+([iu](8|16|32|64))?\\b"
         },
         {
           "name": "constant.numeric.binary.vibe",
-          "match": "\\b0[bB][01_]+\\b"
+          "match": "\\b0[bB][01_]+([iu](8|16|32|64))?\\b"
         },
         {
           "name": "constant.numeric.float.vibe",
-          "match": "\\b[0-9][0-9_]*\\.[0-9][0-9_]*([eE][+-]?[0-9_]+)?\\b"
+          "match": "\\b[0-9][0-9_]*\\.[0-9][0-9_]*([eE][+-]?[0-9_]+)?(f32|f64)?\\b"
         },
         {
           "name": "constant.numeric.integer.vibe",
-          "match": "\\b[0-9][0-9_]*\\b"
+          "match": "\\b[0-9][0-9_]*([iu](8|16|32|64))?\\b"
         }
       ]
     },

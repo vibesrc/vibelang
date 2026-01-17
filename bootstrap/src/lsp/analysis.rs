@@ -846,6 +846,14 @@ impl Backend {
             return true;
         }
 
+        // Integer literal coercion: i32 literals can be assigned to any integer type
+        // This matches the compiler's behavior where `let x: u8 = 0` is valid
+        let integer_types = ["i8", "i16", "i32", "i64", "u8", "u16", "u32", "u64"];
+        if integer_types.contains(&expected) && integer_types.contains(&actual) {
+            // Allow integer literal coercion (compiler handles overflow checks)
+            return true;
+        }
+
         // Handle generic Result type - Result<T, E> is compatible with Result<T, E>
         // For now, just check base type name matches
         let expected_base = expected.split('<').next().unwrap_or(expected);
