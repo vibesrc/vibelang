@@ -1,0 +1,110 @@
+// Test memory syscalls
+
+use std.mem.{alloc, dealloc}
+
+fn main() -> i32 {
+    print("Testing memory syscalls...")
+
+    // mmap protection flags
+    let PROT_READ: i32 = 1
+    let PROT_WRITE: i32 = 2
+
+    // madvise advice
+    let MADV_SEQUENTIAL: i32 = 2
+
+    // Test sys_mmap with anonymous mapping
+    print("Testing mmap...")
+    let page_size: i64 = 4096
+    let null_ptr = ptr_null<u8>()
+
+    // MAP_PRIVATE | MAP_ANONYMOUS = 2 | 32 = 34
+    let flags: i32 = 34
+    // PROT_READ | PROT_WRITE = 1 | 2 = 3
+    let prot: i32 = 3
+
+    let mapped = sys_mmap(null_ptr, page_size, prot, flags, -1, 0)
+    if ptr_is_null(mapped) {
+        print("ERROR: mmap failed")
+        return 1
+    }
+    print("mmap succeeded")
+
+    // Write some data to the mapped memory
+    print("Writing to mapped memory...")
+    unsafe {
+        ptr_write<u8>(mapped, 42)
+        ptr_write<u8>(ptr_add<u8>(mapped, 1), 99)
+        ptr_write<u8>(ptr_add<u8>(mapped, 2), 77)
+    }
+
+    // Read it back
+    print("Reading from mapped memory...")
+    let val1: u8 = 0
+    let val2: u8 = 0
+    let val3: u8 = 0
+    unsafe {
+        val1 = ptr_read<u8>(mapped)
+        val2 = ptr_read<u8>(ptr_add<u8>(mapped, 1))
+        val3 = ptr_read<u8>(ptr_add<u8>(mapped, 2))
+    }
+
+    if val1 != 42 {
+        print("ERROR: Read value 1 mismatch")
+        sys_munmap(mapped, page_size)
+        return 2
+    }
+    if val2 != 99 {
+        print("ERROR: Read value 2 mismatch")
+        sys_munmap(mapped, page_size)
+        return 3
+    }
+    if val3 != 77 {
+        print("ERROR: Read value 3 mismatch")
+        sys_munmap(mapped, page_size)
+        return 4
+    }
+    print("Memory read/write verified")
+
+    // Test sys_madvise
+    print("Testing madvise...")
+    let advise_result = sys_madvise(mapped, page_size, MADV_SEQUENTIAL)
+    if advise_result != 0 {
+        print("WARNING: madvise returned non-zero (may be expected)")
+    } else {
+        print("madvise succeeded")
+    }
+
+    // Test sys_mprotect - change to read-only
+    print("Testing mprotect...")
+    let protect_result = sys_mprotect(mapped, page_size, PROT_READ)
+    if protect_result != 0 {
+        print("ERROR: mprotect failed")
+        sys_munmap(mapped, page_size)
+        return 5
+    }
+    print("mprotect succeeded")
+
+    // Verify we can still read
+    let val_after: u8 = 0
+    unsafe {
+        val_after = ptr_read<u8>(mapped)
+    }
+    if val_after != 42 {
+        print("ERROR: Read after mprotect failed")
+        sys_munmap(mapped, page_size)
+        return 6
+    }
+    print("Read after mprotect verified")
+
+    // Test sys_munmap
+    print("Testing munmap...")
+    let unmap_result = sys_munmap(mapped, page_size)
+    if unmap_result != 0 {
+        print("ERROR: munmap failed")
+        return 7
+    }
+    print("munmap succeeded")
+
+    print("All memory syscall tests passed!")
+    return 0
+}

@@ -236,6 +236,20 @@ impl<'ctx> Codegen<'ctx> {
             return self.compile_sys_kill_call(args);
         }
 
+        // Memory syscalls
+        if name == "sys_mmap" {
+            return self.compile_sys_mmap_call(args);
+        }
+        if name == "sys_munmap" {
+            return self.compile_sys_munmap_call(args);
+        }
+        if name == "sys_mprotect" {
+            return self.compile_sys_mprotect_call(args);
+        }
+        if name == "sys_madvise" {
+            return self.compile_sys_madvise_call(args);
+        }
+
         // Generate monomorphized function if type args are present
         let mono_name = if !type_args.is_empty() {
             // Explicit type arguments provided

@@ -315,6 +315,30 @@ impl<'ctx> Codegen<'ctx> {
         // int kill(pid_t pid, int sig)
         let kill_type = i32_type.fn_type(&[i32_type.into(), i32_type.into()], false);
         self.module.add_function("kill", kill_type, None);
+
+        // Memory syscalls
+        // void *mmap(void *addr, size_t length, int prot, int flags, int fd, off_t offset)
+        let mmap_type = ptr_type.fn_type(&[
+            ptr_type.into(),   // addr
+            i64_type.into(),   // length
+            i32_type.into(),   // prot
+            i32_type.into(),   // flags
+            i32_type.into(),   // fd
+            i64_type.into(),   // offset
+        ], false);
+        self.module.add_function("mmap", mmap_type, None);
+
+        // int munmap(void *addr, size_t length)
+        let munmap_type = i32_type.fn_type(&[ptr_type.into(), i64_type.into()], false);
+        self.module.add_function("munmap", munmap_type, None);
+
+        // int mprotect(void *addr, size_t len, int prot)
+        let mprotect_type = i32_type.fn_type(&[ptr_type.into(), i64_type.into(), i32_type.into()], false);
+        self.module.add_function("mprotect", mprotect_type, None);
+
+        // int madvise(void *addr, size_t length, int advice)
+        let madvise_type = i32_type.fn_type(&[ptr_type.into(), i64_type.into(), i32_type.into()], false);
+        self.module.add_function("madvise", madvise_type, None);
     }
 
     /// Set the source directory for module resolution
