@@ -10,6 +10,7 @@ This proposal introduces two syntactic constructs for metaprogramming in Vibelan
 ## Motivation
 
 Vibelang needs mechanisms for:
+
 - Compile-time code generation (derive Clone, Debug, serialization)
 - Conditional compilation (`@cfg`)
 - Testing infrastructure (`@test`)
@@ -52,10 +53,12 @@ fn hot_loop() {
 ```
 
 **Attribute placement:**
+
 - Before `struct`, `enum`, `fn`, `impl` - item-level attribute
 - Before field definition - field-level attribute
 
 **Attribute syntax:**
+
 ```
 @name                    // simple attribute
 @name(value)             // single argument
@@ -77,6 +80,7 @@ sql!(SELECT * FROM users WHERE id = {user_id})
 ```
 
 **Bracket variants:**
+
 ```vibe
 name!(...)    // parentheses - expression-like
 name![...]    // brackets - collection-like
@@ -87,16 +91,17 @@ name!{...}    // braces - block-like
 
 ### Derive Attributes
 
-| Attribute | Effect |
-|-----------|--------|
-| `@derive(Copy)` | Enable implicit copy semantics (struct must contain only Copy types) |
-| `@derive(Clone)` | Generate `fn clone(&self) -> Self` method |
-| `@derive(Debug)` | Generate `fn debug(&self) -> String` method |
-| `@derive(Default)` | Generate `fn default() -> Self` with default values |
-| `@derive(Eq)` | Generate `fn eq(&self, other: &Self) -> bool` method |
-| `@derive(Hash)` | Generate `fn hash(&self) -> u64` method |
+| Attribute          | Effect                                                               |
+| ------------------ | -------------------------------------------------------------------- |
+| `@derive(Copy)`    | Enable implicit copy semantics (struct must contain only Copy types) |
+| `@derive(Clone)`   | Generate `fn clone(&self) -> Self` method                            |
+| `@derive(Debug)`   | Generate `fn debug(&self) -> String` method                          |
+| `@derive(Default)` | Generate `fn default() -> Self` with default values                  |
+| `@derive(Eq)`      | Generate `fn eq(&self, other: &Self) -> bool` method                 |
+| `@derive(Hash)`    | Generate `fn hash(&self) -> u64` method                              |
 
 Multiple derives can be combined:
+
 ```vibe
 @derive(Copy, Clone, Debug, Eq)
 struct Point {
@@ -107,18 +112,18 @@ struct Point {
 
 ### Compiler Attributes
 
-| Attribute | Level | Effect |
-|-----------|-------|--------|
-| `@repr(C)` | struct | C-compatible memory layout |
-| `@repr(packed)` | struct | No padding between fields |
-| `@repr(align=N)` | struct | Minimum alignment of N bytes |
-| `@inline` | fn | Hint to inline function |
-| `@inline(always)` | fn | Force inlining |
-| `@inline(never)` | fn | Never inline |
-| `@cold` | fn | Unlikely to be called (optimize for size) |
-| `@deprecated` | any | Warn on use |
-| `@deprecated(msg)` | any | Warn with custom message |
-| `@must_use` | fn | Warn if return value is ignored |
+| Attribute          | Level  | Effect                                    |
+| ------------------ | ------ | ----------------------------------------- |
+| `@repr(C)`         | struct | C-compatible memory layout                |
+| `@repr(packed)`    | struct | No padding between fields                 |
+| `@repr(align=N)`   | struct | Minimum alignment of N bytes              |
+| `@inline`          | fn     | Hint to inline function                   |
+| `@inline(always)`  | fn     | Force inlining                            |
+| `@inline(never)`   | fn     | Never inline                              |
+| `@cold`            | fn     | Unlikely to be called (optimize for size) |
+| `@deprecated`      | any    | Warn on use                               |
+| `@deprecated(msg)` | any    | Warn with custom message                  |
+| `@must_use`        | fn     | Warn if return value is ignored           |
 
 ### Conditional Compilation
 
@@ -143,6 +148,7 @@ fn fast_path() { ... }
 ```
 
 **Cfg predicates:**
+
 - `target_os` - "linux", "macos", "windows"
 - `target_arch` - "x86_64", "aarch64", "wasm32"
 - `debug` / `release` - build mode
@@ -202,7 +208,60 @@ struct User {
 
 ## User-Defined Macros
 
+There are four ways to define macros in Vibelang:
+
+| Decorator                | Purpose                                | Input                      | Invoked as      |
+| ------------------------ | -------------------------------------- | -------------------------- | --------------- |
+| `@macro_derive(Name)`    | Generate impl blocks for structs/enums | `DeriveInput`              | `@derive(Name)` |
+| `@macro_attribute(name)` | Transform any item                     | `TokenStream, TokenStream` | `@name`         |
+| `@macro`                 | Function-like code generation          | `TokenStream`              | `name!(...)`    |
+| `@macro_rules`           | Pattern-based macro                    | Patterns                   | `name!(...)`    |
+
+### The `quote!` Macro
+
+All procedural macros use `quote!` to generate code. It's a template literal for code:
+
+```vibe
+quote! {
+    fn hello() {
+        println!("Hello!")
+    }
+}
+```
+
+**Interpolation with `${...}`:**
+
+```vibe
+let name = "greet"
+let msg = "Hello, World!"
+
+quote! {
+    fn ${name}() {
+        println!(${msg})
+    }
+}
+// Generates:
+// fn greet() {
+//     println!("Hello, World!")
+// }
+```
+
+**Iterating with `${...}` on arrays:**
+
+```vibe
+let fields = ["x", "y", "z"]
+
+quote! {
+    ${fields.map(|f| quote! { self.${f}.clone() })}
+}
+// Generates: self.x.clone() self.y.clone() self.z.clone()
+```
+
 ### Declaring a Derive Macro
+
+Syntax: `@macro_derive(Name)` on a function that takes `DeriveInput` and returns `TokenStream`.
+
+The macro is invoked with `@derive(Name)` on a struct or enum.
 
 ```vibe
 @macro_derive(JsonCodec)
@@ -234,6 +293,12 @@ fn json_codec_derive(input: DeriveInput) -> TokenStream {
 
 ### Declaring an Attribute Macro
 
+Syntax: `@macro_attribute(name)` on a function that takes two `TokenStream` arguments:
+1. `attr` - The attribute arguments (e.g., `x` in `@name(x)`)
+2. `item` - The item the attribute is attached to (function, struct, etc.)
+
+Returns a `TokenStream` that replaces the original item.
+
 ```vibe
 @macro_attribute(test)
 fn test_attribute(attr: TokenStream, item: TokenStream) -> TokenStream {
@@ -256,6 +321,10 @@ fn test_attribute(attr: TokenStream, item: TokenStream) -> TokenStream {
 
 ### Declaring a Function-like Macro
 
+Syntax: `@macro` on a function that takes a `TokenStream` and returns a `TokenStream`.
+
+The function name becomes the macro name. Invoked as `name!(...)`, `name![...]`, or `name!{...}`.
+
 ```vibe
 @macro
 fn vec(input: TokenStream) -> TokenStream {
@@ -276,7 +345,18 @@ fn vec(input: TokenStream) -> TokenStream {
 
 ### Declaring a Declarative Macro (simpler)
 
-For simpler pattern-based macros:
+Syntax: `@macro_rules` on a `macro` block with pattern-matching rules.
+
+Simpler than procedural macros - just pattern match on syntax and expand.
+
+**Pattern syntax:**
+- `$name:expr` - match an expression, bind to `$name`
+- `$name:ty` - match a type
+- `$name:ident` - match an identifier
+- `$name:stmt` - match a statement
+- `$name:block` - match a block
+- `$($name:expr),*` - match zero or more comma-separated expressions
+- `$($name:expr),+` - match one or more comma-separated expressions
 
 ```vibe
 @macro_rules
@@ -333,6 +413,7 @@ enum AttrValue {
 ### Copy
 
 `@derive(Copy)` marks a type as implicitly copyable:
+
 - All assignments copy instead of move
 - Original value remains valid after assignment
 - Only allowed if all fields are also Copy types
@@ -350,12 +431,14 @@ let p3 = p1      // Copy - p1 still valid
 ```
 
 **Implicitly Copy types:**
+
 - All primitives: `i8`, `i16`, `i32`, `i64`, `u8`, `u16`, `u32`, `u64`, `f32`, `f64`, `bool`, `char`
 - References: `&T`, `~T`
 - Tuples of Copy types: `(i32, i32)`
 - Arrays of Copy types with known size: `[i32; 4]`
 
 **Not Copy (must move):**
+
 - Structs without `@derive(Copy)`
 - `String`, `Array<T>`, `Slice<T>`
 - Any type containing non-Copy fields
@@ -402,36 +485,43 @@ let {start, end} = line   // Move - line now invalid
 ## Implementation Phases
 
 ### Phase 1: Attribute Parsing
+
 - Parse `@name` and `@name(...)` syntax
 - Store attributes in AST for structs, enums, functions, fields
 - No semantic effects yet
 
 ### Phase 2: Built-in Derives
+
 - Implement `@derive(Copy)` - compiler flag for copy semantics
 - Implement `@derive(Clone)` - generate clone method
 - Implement `@derive(Debug)` - generate debug method
 
 ### Phase 3: Compiler Attributes
+
 - Implement `@test` - test registration
 - Implement `@cfg(...)` - conditional compilation
 - Implement `@repr(...)` - memory layout control
 
 ### Phase 4: User-Defined Macros
+
 - Token stream types
 - Quote syntax for code generation
 - `@macro_derive`, `@macro_attribute`, `@macro`
 - Macro hygiene
 
 ### Phase 5: Declarative Macros
+
 - `@macro_rules` for pattern-based macros
 - Standard macro patterns
 
 ## Alternatives Considered
 
 ### Rust-style `#[...]`
+
 Rejected: `@` is more visually distinct and familiar from other languages (Python, TypeScript, Java annotations).
 
 ### Attributes inside struct body
+
 ```vibe
 struct Packet {
     @derive(Copy)  // struct-level
@@ -439,9 +529,11 @@ struct Packet {
     header: u8
 }
 ```
+
 Rejected: Ambiguous whether attribute applies to struct or first field. Before-declaration is clearer.
 
 ### `#` for macros instead of `!`
+
 Rejected: `!` is familiar from Rust and clearly marks macro invocation.
 
 ## Field Attribute Behavior
@@ -457,6 +549,7 @@ struct Packet {
 ```
 
 **Behavior:**
+
 - Attributes are always parsed and stored in the AST
 - Derive macros read field attributes via `field.get_attr("json", "name")`
 - Unused field attributes trigger a warning:
@@ -472,17 +565,18 @@ The language server must fully support attributes and macros for a good develope
 
 ### Syntax Highlighting
 
-| Element | Scope | Color (typical) |
-|---------|-------|-----------------|
-| `@` | `punctuation.definition.attribute` | Yellow/Gold |
-| `derive`, `test`, `cfg` | `entity.name.attribute` | Yellow/Gold |
-| `Copy`, `Clone`, `Debug` | `entity.name.type.derive` | Cyan/Type color |
-| `name=`, `offset=` | `variable.parameter.attribute` | Orange/Parameter |
-| `"deviceId"` | `string.quoted` | Green/String |
-| `!` in `println!` | `punctuation.definition.macro` | Yellow/Gold |
-| `println`, `vec` | `entity.name.function.macro` | Yellow/Gold |
+| Element                  | Scope                              | Color (typical)  |
+| ------------------------ | ---------------------------------- | ---------------- |
+| `@`                      | `punctuation.definition.attribute` | Yellow/Gold      |
+| `derive`, `test`, `cfg`  | `entity.name.attribute`            | Yellow/Gold      |
+| `Copy`, `Clone`, `Debug` | `entity.name.type.derive`          | Cyan/Type color  |
+| `name=`, `offset=`       | `variable.parameter.attribute`     | Orange/Parameter |
+| `"deviceId"`             | `string.quoted`                    | Green/String     |
+| `!` in `println!`        | `punctuation.definition.macro`     | Yellow/Gold      |
+| `println`, `vec`         | `entity.name.function.macro`       | Yellow/Gold      |
 
 **TextMate grammar additions:**
+
 ```json
 {
   "patterns": [
@@ -512,6 +606,7 @@ The language server must fully support attributes and macros for a good develope
 ### Autocomplete
 
 **Struct-level attributes:**
+
 ```
 @  →  @derive(...)
       @repr(...)
@@ -520,6 +615,7 @@ The language server must fully support attributes and macros for a good develope
 ```
 
 **Inside @derive():**
+
 ```
 @derive(  →  Copy
              Clone
@@ -531,6 +627,7 @@ The language server must fully support attributes and macros for a good develope
 ```
 
 **Field-level attributes:**
+
 ```
 @  →  @json(...)
       @protocol(...)
@@ -539,6 +636,7 @@ The language server must fully support attributes and macros for a good develope
 ```
 
 **Inside @json():**
+
 ```
 @json(  →  name="..."
            skip=true
@@ -548,6 +646,7 @@ The language server must fully support attributes and macros for a good develope
 ```
 
 **Macro invocations:**
+
 ```
 println  →  println!(...)
 vec      →  vec![...]
@@ -558,6 +657,7 @@ assert   →  assert!(...)
 ### Hover Information
 
 **On @derive:**
+
 ```
 @derive(Clone)
 ────────────────
@@ -568,6 +668,7 @@ Generated method:
 ```
 
 **On field attribute:**
+
 ```
 @json(name="deviceId")
 ────────────────────────
@@ -579,6 +680,7 @@ JSON serialization options for this field.
 ```
 
 **On macro invocation:**
+
 ```
 println!("Hello, {}!", name)
 ────────────────────────────
@@ -594,16 +696,17 @@ Expands to:
 
 ### Go to Definition
 
-| Element | Jumps to |
-|---------|----------|
+| Element              | Jumps to                            |
+| -------------------- | ----------------------------------- |
 | `@derive(JsonCodec)` | `@macro_derive(JsonCodec)` function |
-| `println!` | `@macro fn println(...)` definition |
-| `@test` | `@macro_attribute(test)` function |
-| Built-in derives | Documentation / compiler intrinsic |
+| `println!`           | `@macro fn println(...)` definition |
+| `@test`              | `@macro_attribute(test)` function   |
+| Built-in derives     | Documentation / compiler intrinsic  |
 
 ### Diagnostics
 
 **Error: Invalid attribute:**
+
 ```
 error[E0401]: unknown attribute `@jsn`
  --> src/main.vibe:5:5
@@ -613,6 +716,7 @@ error[E0401]: unknown attribute `@jsn`
 ```
 
 **Warning: Unused attribute:**
+
 ```
 warning[W0201]: unused attribute `@json`
  --> src/main.vibe:5:5
@@ -624,6 +728,7 @@ warning[W0201]: unused attribute `@json`
 ```
 
 **Error: Invalid derive for type:**
+
 ```
 error[E0402]: cannot derive `Copy` for `Buffer`
  --> src/main.vibe:1:10
@@ -636,6 +741,7 @@ error[E0402]: cannot derive `Copy` for `Buffer`
 ```
 
 **Error: Missing required attribute argument:**
+
 ```
 error[E0403]: missing required argument `offset` for `@protocol`
  --> src/main.vibe:5:5
@@ -647,6 +753,7 @@ error[E0403]: missing required argument `offset` for `@protocol`
 ### Code Actions
 
 **Add missing derive:**
+
 ```
 @json(name="deviceId")  // warning: unused without derive
 id: u32
@@ -655,6 +762,7 @@ Quick fix: Add @derive(JsonCodec) to struct
 ```
 
 **Generate derive implementation:**
+
 ```
 @derive(Clone)
 struct Point { ... }
@@ -672,13 +780,13 @@ Code action: Expand derive to explicit impl
 
 Provide semantic token types for enhanced highlighting:
 
-| Token | Semantic Type | Modifiers |
-|-------|--------------|-----------|
-| `@derive` | `decorator` | `declaration` |
-| `Copy` | `type` | `defaultLibrary` |
-| `@json` | `decorator` | - |
-| `name` in `name=` | `parameter` | - |
-| `println!` | `macro` | - |
+| Token             | Semantic Type | Modifiers        |
+| ----------------- | ------------- | ---------------- |
+| `@derive`         | `decorator`   | `declaration`    |
+| `Copy`            | `type`        | `defaultLibrary` |
+| `@json`           | `decorator`   | -                |
+| `name` in `name=` | `parameter`   | -                |
+| `println!`        | `macro`       | -                |
 
 ## Open Questions
 
