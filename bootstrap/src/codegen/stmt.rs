@@ -487,7 +487,22 @@ impl<'ctx> Codegen<'ctx> {
         else_block: Option<&Block>,
     ) -> Result<Option<BasicValueEnum<'ctx>>, CodegenError> {
         let cond_value = self.compile_expr(condition)?;
-        let cond_bool = cond_value.into_int_value();
+        let cond_int = cond_value.into_int_value();
+
+        // Ensure condition is i1 for branching
+        // If it's not i1 (e.g., i64 from ptr_is_null), compare with 0
+        let cond_bool = if cond_int.get_type().get_bit_width() != 1 {
+            self.builder
+                .build_int_compare(
+                    inkwell::IntPredicate::NE,
+                    cond_int,
+                    cond_int.get_type().const_zero(),
+                    "cond_bool",
+                )
+                .unwrap()
+        } else {
+            cond_int
+        };
 
         let fn_value = self.current_function.unwrap();
         let then_bb = self.context.append_basic_block(fn_value, "then");
@@ -541,7 +556,22 @@ impl<'ctx> Codegen<'ctx> {
         // Condition block
         self.builder.position_at_end(cond_bb);
         let cond_value = self.compile_expr(condition)?;
-        let cond_bool = cond_value.into_int_value();
+        let cond_int = cond_value.into_int_value();
+
+        // Ensure condition is i1 for branching
+        let cond_bool = if cond_int.get_type().get_bit_width() != 1 {
+            self.builder
+                .build_int_compare(
+                    inkwell::IntPredicate::NE,
+                    cond_int,
+                    cond_int.get_type().const_zero(),
+                    "cond_bool",
+                )
+                .unwrap()
+        } else {
+            cond_int
+        };
+
         self.builder
             .build_conditional_branch(cond_bool, body_bb, end_bb)
             .unwrap();

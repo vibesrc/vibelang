@@ -1,0 +1,19 @@
+// Test ptr_is_null in conditionals
+
+use std.mem.{alloc, dealloc}
+
+fn main() -> i64 {
+    // Test that ptr_is_null works in conditionals
+    let ptr = alloc(16)
+
+    // This should not trigger (ptr should be non-null)
+    if ptr_is_null(ptr) {
+        return 1
+    }
+
+    // Clean up
+    dealloc(ptr)
+
+    // Success
+    return 0
+}
