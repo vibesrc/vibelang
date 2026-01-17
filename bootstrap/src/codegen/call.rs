@@ -193,6 +193,14 @@ impl<'ctx> Codegen<'ctx> {
             return self.compile_sys_lseek_call(args);
         }
 
+        // Time syscalls
+        if name == "sys_clock_gettime" {
+            return self.compile_sys_clock_gettime_call(args);
+        }
+        if name == "sys_nanosleep" {
+            return self.compile_sys_nanosleep_call(args);
+        }
+
         // Generate monomorphized function if type args are present
         let mono_name = if !type_args.is_empty() {
             // Explicit type arguments provided

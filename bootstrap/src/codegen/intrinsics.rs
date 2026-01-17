@@ -819,4 +819,89 @@ impl<'ctx> Codegen<'ctx> {
             inkwell::values::ValueKind::Instruction(_) => Ok(self.context.i64_type().const_zero().into()),
         }
     }
+
+    /// sys_clock_gettime(clockid: i32, timespec_ptr: *u8) -> i32
+    /// Wrapper around Unix clock_gettime() syscall
+    /// clockid: 0 = CLOCK_REALTIME, 1 = CLOCK_MONOTONIC
+    /// timespec_ptr: pointer to 16-byte buffer for {tv_sec: i64, tv_nsec: i64}
+    pub(crate) fn compile_sys_clock_gettime_call(&mut self, args: &[Expr]) -> Result<BasicValueEnum<'ctx>, CodegenError> {
+        if args.len() != 2 {
+            return Err(CodegenError::InvalidArguments(
+                "sys_clock_gettime requires 2 arguments (clockid, timespec_ptr)".to_string()
+            ));
+        }
+
+        let clock_gettime_fn = self.module.get_function("clock_gettime").unwrap();
+
+        let clockid_val = self.compile_expr(&args[0])?;
+        let ptr_val = self.compile_expr(&args[1])?;
+
+        let clockid = if clockid_val.is_int_value() {
+            let int_val = clockid_val.into_int_value();
+            self.builder.build_int_truncate(int_val, self.context.i32_type(), "clockid_i32").unwrap()
+        } else {
+            return Err(CodegenError::InvalidArguments(
+                "sys_clock_gettime clockid must be an integer".to_string()
+            ));
+        };
+
+        let ptr = if ptr_val.is_pointer_value() {
+            ptr_val.into_pointer_value()
+        } else {
+            return Err(CodegenError::InvalidArguments(
+                "sys_clock_gettime timespec_ptr must be a pointer".to_string()
+            ));
+        };
+
+        let call_site = self.builder
+            .build_call(clock_gettime_fn, &[clockid.into(), ptr.into()], "clock_gettime_call")
+            .unwrap();
+
+        match call_site.try_as_basic_value() {
+            inkwell::values::ValueKind::Basic(val) => Ok(val),
+            inkwell::values::ValueKind::Instruction(_) => Ok(self.context.i32_type().const_zero().into()),
+        }
+    }
+
+    /// sys_nanosleep(req_ptr: *u8, rem_ptr: *u8) -> i32
+    /// Wrapper around Unix nanosleep() syscall
+    /// req_ptr: pointer to 16-byte timespec {tv_sec: i64, tv_nsec: i64} for requested sleep time
+    /// rem_ptr: pointer to 16-byte buffer for remaining time (can be null)
+    pub(crate) fn compile_sys_nanosleep_call(&mut self, args: &[Expr]) -> Result<BasicValueEnum<'ctx>, CodegenError> {
+        if args.len() != 2 {
+            return Err(CodegenError::InvalidArguments(
+                "sys_nanosleep requires 2 arguments (req_ptr, rem_ptr)".to_string()
+            ));
+        }
+
+        let nanosleep_fn = self.module.get_function("nanosleep").unwrap();
+
+        let req_val = self.compile_expr(&args[0])?;
+        let rem_val = self.compile_expr(&args[1])?;
+
+        let req_ptr = if req_val.is_pointer_value() {
+            req_val.into_pointer_value()
+        } else {
+            return Err(CodegenError::InvalidArguments(
+                "sys_nanosleep req_ptr must be a pointer".to_string()
+            ));
+        };
+
+        let rem_ptr = if rem_val.is_pointer_value() {
+            rem_val.into_pointer_value()
+        } else {
+            return Err(CodegenError::InvalidArguments(
+                "sys_nanosleep rem_ptr must be a pointer".to_string()
+            ));
+        };
+
+        let call_site = self.builder
+            .build_call(nanosleep_fn, &[req_ptr.into(), rem_ptr.into()], "nanosleep_call")
+            .unwrap();
+
+        match call_site.try_as_basic_value() {
+            inkwell::values::ValueKind::Basic(val) => Ok(val),
+            inkwell::values::ValueKind::Instruction(_) => Ok(self.context.i32_type().const_zero().into()),
+        }
+    }
 }

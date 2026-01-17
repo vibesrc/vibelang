@@ -1,0 +1,245 @@
+// std.time - Time measurement and sleeping
+// Uses raw syscalls with safe wrappers
+
+use std.types.{Result, Error}
+use std.mem.{alloc, dealloc}
+
+// Clock IDs for sys_clock_gettime
+static CLOCK_REALTIME: i32 = 0   // Wall clock time, affected by system time changes
+static CLOCK_MONOTONIC: i32 = 1  // Monotonic time since boot, not affected by time changes
+
+// Nanoseconds per second
+static NANOS_PER_SEC: i64 = 1000000000
+static NANOS_PER_MILLI: i64 = 1000000
+static NANOS_PER_MICRO: i64 = 1000
+
+/// TimeSpec - raw kernel timespec structure
+/// Layout matches Linux struct timespec: { tv_sec: i64, tv_nsec: i64 }
+pub struct TimeSpec {
+    pub sec: i64   // Seconds
+    pub nsec: i64  // Nanoseconds (0-999999999)
+}
+
+impl TimeSpec {
+    /// Create a zero timespec
+    pub fn zero() -> TimeSpec {
+        return TimeSpec { sec: 0, nsec: 0 }
+    }
+
+    /// Create timespec from seconds and nanoseconds
+    pub fn new(sec: i64, nsec: i64) -> TimeSpec {
+        // Normalize: ensure nsec is in [0, NANOS_PER_SEC)
+        let s = sec
+        let ns = nsec
+        while ns >= NANOS_PER_SEC {
+            s = s + 1
+            ns = ns - NANOS_PER_SEC
+        }
+        while ns < 0 {
+            s = s - 1
+            ns = ns + NANOS_PER_SEC
+        }
+        return TimeSpec { sec: s, nsec: ns }
+    }
+}
+
+/// Duration - represents a span of time
+pub struct Duration {
+    secs: i64   // Whole seconds
+    nanos: i64  // Additional nanoseconds (0-999999999)
+}
+
+impl Duration {
+    /// Create a zero duration
+    pub fn zero() -> Duration {
+        return Duration { secs: 0, nanos: 0 }
+    }
+
+    /// Create duration from seconds
+    pub fn from_secs(secs: i64) -> Duration {
+        return Duration { secs: secs, nanos: 0 }
+    }
+
+    /// Create duration from milliseconds
+    pub fn from_millis(millis: i64) -> Duration {
+        let secs = millis / 1000
+        let nanos = (millis % 1000) * NANOS_PER_MILLI
+        return Duration { secs: secs, nanos: nanos }
+    }
+
+    /// Create duration from microseconds
+    pub fn from_micros(micros: i64) -> Duration {
+        let secs = micros / 1000000
+        let nanos = (micros % 1000000) * NANOS_PER_MICRO
+        return Duration { secs: secs, nanos: nanos }
+    }
+
+    /// Create duration from nanoseconds
+    pub fn from_nanos(nanos: i64) -> Duration {
+        let secs = nanos / NANOS_PER_SEC
+        let remaining = nanos % NANOS_PER_SEC
+        return Duration { secs: secs, nanos: remaining }
+    }
+
+    /// Get total seconds (truncated)
+    pub fn as_secs(&self) -> i64 {
+        return self.secs
+    }
+
+    /// Get total milliseconds
+    pub fn as_millis(&self) -> i64 {
+        return self.secs * 1000 + self.nanos / NANOS_PER_MILLI
+    }
+
+    /// Get total microseconds
+    pub fn as_micros(&self) -> i64 {
+        return self.secs * 1000000 + self.nanos / NANOS_PER_MICRO
+    }
+
+    /// Get total nanoseconds
+    pub fn as_nanos(&self) -> i64 {
+        return self.secs * NANOS_PER_SEC + self.nanos
+    }
+
+    /// Get just the subsecond nanoseconds portion
+    pub fn subsec_nanos(&self) -> i64 {
+        return self.nanos
+    }
+
+    /// Check if duration is zero
+    pub fn is_zero(&self) -> bool {
+        return self.secs == 0 and self.nanos == 0
+    }
+
+    /// Add two durations
+    pub fn add(&self, other: &Duration) -> Duration {
+        let secs = self.secs + other.secs
+        let nanos = self.nanos + other.nanos
+        if nanos >= NANOS_PER_SEC {
+            secs = secs + 1
+            nanos = nanos - NANOS_PER_SEC
+        }
+        return Duration { secs: secs, nanos: nanos }
+    }
+
+    /// Subtract duration (saturating at zero)
+    pub fn saturating_sub(&self, other: &Duration) -> Duration {
+        let secs = self.secs - other.secs
+        let nanos = self.nanos - other.nanos
+        if nanos < 0 {
+            secs = secs - 1
+            nanos = nanos + NANOS_PER_SEC
+        }
+        if secs < 0 {
+            return Duration.zero()
+        }
+        return Duration { secs: secs, nanos: nanos }
+    }
+
+    /// Convert to TimeSpec
+    fn to_timespec(&self) -> TimeSpec {
+        return TimeSpec { sec: self.secs, nsec: self.nanos }
+    }
+}
+
+/// Instant - a measurement of a monotonically increasing clock
+/// Used for measuring elapsed time without wall clock issues
+pub struct Instant {
+    secs: i64
+    nanos: i64
+}
+
+impl Instant {
+    /// Get current instant from monotonic clock
+    pub fn now() -> Result<Instant, Error> {
+        // Allocate buffer for timespec (16 bytes: i64 + i64)
+        let buf = alloc(16)
+        if ptr_is_null(buf) {
+            return Result<Instant, Error>.Err(Error { message: "allocation failed" })
+        }
+
+        let result = sys_clock_gettime(CLOCK_MONOTONIC, buf)
+        if result != 0 {
+            dealloc(buf)
+            return Result<Instant, Error>.Err(Error { message: "clock_gettime failed" })
+        }
+
+        // Read tv_sec (first i64) and tv_nsec (second i64)
+        let sec: i64 = 0
+        let nsec: i64 = 0
+        unsafe {
+            sec = ptr_read<i64>(buf)
+            nsec = ptr_read<i64>(ptr_add<u8>(buf, 8))
+        }
+        dealloc(buf)
+
+        return Result<Instant, Error>.Ok(Instant { secs: sec, nanos: nsec })
+    }
+
+    /// Get duration elapsed since this instant
+    pub fn elapsed(&self) -> Result<Duration, Error> {
+        let now = Instant.now()?
+        return Result<Duration, Error>.Ok(self.duration_since(&now))
+    }
+
+    /// Get duration from self to later instant
+    pub fn duration_since(&self, later: &Instant) -> Duration {
+        let secs = later.secs - self.secs
+        let nanos = later.nanos - self.nanos
+        if nanos < 0 {
+            secs = secs - 1
+            nanos = nanos + NANOS_PER_SEC
+        }
+        if secs < 0 {
+            // later is before self - return zero
+            return Duration.zero()
+        }
+        return Duration { secs: secs, nanos: nanos }
+    }
+}
+
+// === Sleep functions ===
+
+/// Sleep for the specified duration
+/// Returns Ok(()) on success, Err if interrupted
+pub fn sleep(duration: &Duration) -> Result<i32, Error> {
+    // Allocate buffers for req and rem timespec (16 bytes each)
+    let req_buf = alloc(16)
+    if ptr_is_null(req_buf) {
+        return Result<i32, Error>.Err(Error { message: "allocation failed" })
+    }
+    let rem_buf = alloc(16)
+    if ptr_is_null(rem_buf) {
+        dealloc(req_buf)
+        return Result<i32, Error>.Err(Error { message: "allocation failed" })
+    }
+
+    // Write timespec to req_buf
+    unsafe {
+        ptr_write<i64>(req_buf, duration.secs)
+        ptr_write<i64>(ptr_add<u8>(req_buf, 8), duration.nanos)
+    }
+
+    let result = sys_nanosleep(req_buf, rem_buf)
+
+    dealloc(req_buf)
+    dealloc(rem_buf)
+
+    if result != 0 {
+        return Result<i32, Error>.Err(Error { message: "nanosleep interrupted" })
+    }
+
+    return Result<i32, Error>.Ok(0)
+}
+
+/// Sleep for specified number of seconds
+pub fn sleep_secs(secs: i64) -> Result<i32, Error> {
+    let dur = Duration.from_secs(secs)
+    return sleep(&dur)
+}
+
+/// Sleep for specified number of milliseconds
+pub fn sleep_millis(millis: i64) -> Result<i32, Error> {
+    let dur = Duration.from_millis(millis)
+    return sleep(&dur)
+}

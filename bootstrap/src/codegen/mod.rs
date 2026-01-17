@@ -261,6 +261,15 @@ impl<'ctx> Codegen<'ctx> {
         // off_t lseek(int fd, off_t offset, int whence)
         let lseek_type = i64_type.fn_type(&[i32_type.into(), i64_type.into(), i32_type.into()], false);
         self.module.add_function("lseek", lseek_type, None);
+
+        // Time syscalls
+        // int clock_gettime(clockid_t clockid, struct timespec *tp)
+        let clock_gettime_type = i32_type.fn_type(&[i32_type.into(), ptr_type.into()], false);
+        self.module.add_function("clock_gettime", clock_gettime_type, None);
+
+        // int nanosleep(const struct timespec *req, struct timespec *rem)
+        let nanosleep_type = i32_type.fn_type(&[ptr_type.into(), ptr_type.into()], false);
+        self.module.add_function("nanosleep", nanosleep_type, None);
     }
 
     /// Set the source directory for module resolution

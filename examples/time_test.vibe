@@ -1,0 +1,90 @@
+// Test time syscalls directly
+
+use std.mem.{alloc, dealloc}
+
+// Clock IDs
+static CLOCK_MONOTONIC: i32 = 1
+
+fn main() -> i64 {
+    print("Testing time syscalls...")
+
+    // Allocate buffer for timespec (16 bytes: i64 + i64)
+    let buf = alloc(16)
+
+    // Call clock_gettime
+    print("Calling sys_clock_gettime...")
+    let result = sys_clock_gettime(CLOCK_MONOTONIC, buf)
+    if result != 0 {
+        print("clock_gettime failed")
+        dealloc(buf)
+        return 2
+    }
+    print("clock_gettime succeeded")
+
+    // Read the time values
+    let sec: i64 = 0
+    let nsec: i64 = 0
+    unsafe {
+        sec = ptr_read<i64>(buf)
+        nsec = ptr_read<i64>(ptr_add<u8>(buf, 8))
+    }
+    print("Got time values")
+
+    // Test nanosleep - sleep for 50 milliseconds
+    print("Sleeping for 50ms...")
+
+    let req_buf = alloc(16)
+    let rem_buf = alloc(16)
+
+    // Set up 50ms sleep: 0 seconds, 50000000 nanoseconds
+    unsafe {
+        ptr_write<i64>(req_buf, 0)
+        ptr_write<i64>(ptr_add<u8>(req_buf, 8), 50000000)
+    }
+
+    let sleep_result = sys_nanosleep(req_buf, rem_buf)
+    if sleep_result != 0 {
+        print("nanosleep failed")
+        dealloc(buf)
+        dealloc(req_buf)
+        dealloc(rem_buf)
+        return 4
+    }
+    print("nanosleep succeeded")
+
+    // Get time again to verify time has passed
+    let result2 = sys_clock_gettime(CLOCK_MONOTONIC, buf)
+    if result2 != 0 {
+        print("second clock_gettime failed")
+        dealloc(buf)
+        dealloc(req_buf)
+        dealloc(rem_buf)
+        return 5
+    }
+
+    let sec2: i64 = 0
+    let nsec2: i64 = 0
+    unsafe {
+        sec2 = ptr_read<i64>(buf)
+        nsec2 = ptr_read<i64>(ptr_add<u8>(buf, 8))
+    }
+
+    // Verify some time has passed (at least 40ms to account for timing variance)
+    let elapsed_ns = (sec2 - sec) * 1000000000 + (nsec2 - nsec)
+    if elapsed_ns < 40000000 {
+        print("Not enough time elapsed")
+        dealloc(buf)
+        dealloc(req_buf)
+        dealloc(rem_buf)
+        return 6
+    }
+
+    print("Time elapsed as expected")
+
+    dealloc(buf)
+    dealloc(req_buf)
+    dealloc(rem_buf)
+
+    print("All time tests passed!")
+    return 0
+}
