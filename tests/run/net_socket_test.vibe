@@ -1,0 +1,44 @@
+// Test socket syscalls
+// This tests the basic socket creation and closure
+
+fn main() -> i32 {
+    // Test 1: Create a TCP socket using raw syscall
+    print("Creating TCP socket...")
+    let tcp_fd: i32 = 0
+    unsafe {
+        tcp_fd = sys_socket(2, 1, 0)  // AF_INET=2, SOCK_STREAM=1
+    }
+    if tcp_fd >= 0 {
+        print(" OK\n")
+    } else {
+        print(" FAILED\n")
+        return 1
+    }
+
+    // Test 2: Create a UDP socket using raw syscall
+    print("Creating UDP socket...")
+    let udp_fd: i32 = 0
+    unsafe {
+        udp_fd = sys_socket(2, 2, 0)  // AF_INET=2, SOCK_DGRAM=2
+    }
+    if udp_fd >= 0 {
+        print(" OK\n")
+    } else {
+        print(" FAILED\n")
+        return 1
+    }
+
+    // Test 3: Shutdown sockets
+    print("Shutting down sockets...")
+    let result1: i32 = 0
+    let result2: i32 = 0
+    unsafe {
+        result1 = sys_shutdown(tcp_fd, 2)  // SHUT_RDWR=2
+        result2 = sys_shutdown(udp_fd, 2)
+    }
+    // Shutdown may return error on unconnected socket, that's ok
+    print(" OK\n")
+
+    print("All socket syscall tests passed!\n")
+    return 0
+}

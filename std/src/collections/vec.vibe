@@ -39,6 +39,11 @@ impl Vec<T> {
         return self.capacity
     }
 
+    /// Get a raw pointer to the underlying data
+    pub fn as_ptr(&self) -> *T {
+        return self.ptr
+    }
+
     pub fn push(~self, value: T) {
         if self.len == self.capacity {
             self.grow()

@@ -250,6 +250,44 @@ impl<'ctx> Codegen<'ctx> {
             return self.compile_sys_madvise_call(args);
         }
 
+        // Socket syscalls
+        if name == "sys_socket" {
+            return self.compile_sys_socket_call(args);
+        }
+        if name == "sys_bind" {
+            return self.compile_sys_bind_call(args);
+        }
+        if name == "sys_listen" {
+            return self.compile_sys_listen_call(args);
+        }
+        if name == "sys_accept" {
+            return self.compile_sys_accept_call(args);
+        }
+        if name == "sys_connect" {
+            return self.compile_sys_connect_call(args);
+        }
+        if name == "sys_send" {
+            return self.compile_sys_send_call(args);
+        }
+        if name == "sys_recv" {
+            return self.compile_sys_recv_call(args);
+        }
+        if name == "sys_sendto" {
+            return self.compile_sys_sendto_call(args);
+        }
+        if name == "sys_recvfrom" {
+            return self.compile_sys_recvfrom_call(args);
+        }
+        if name == "sys_setsockopt" {
+            return self.compile_sys_setsockopt_call(args);
+        }
+        if name == "sys_getsockopt" {
+            return self.compile_sys_getsockopt_call(args);
+        }
+        if name == "sys_shutdown" {
+            return self.compile_sys_shutdown_call(args);
+        }
+
         // Generate monomorphized function if type args are present
         let mono_name = if !type_args.is_empty() {
             // Explicit type arguments provided

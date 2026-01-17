@@ -1,0 +1,39 @@
+// Test std.net TCP functionality
+// This tests TcpListener binding and basic operations
+
+use std.net.{Ipv4Addr, SocketAddrV4, TcpListener}
+
+fn main() -> i32 {
+    // Test 1: Create a TcpListener bound to localhost:9999
+    print("Creating TcpListener on 127.0.0.1:9999...")
+    let addr = SocketAddrV4.new(Ipv4Addr.new(127, 0, 0, 1), 9999)
+    let listener = TcpListener.bind(addr)
+
+    if listener.is_valid() {
+        print(" OK\n")
+    } else {
+        print(" FAILED (could not bind)\n")
+        return 1
+    }
+
+    // Test 2: Close the listener
+    print("Closing listener...")
+    listener.close()
+    print(" OK\n")
+
+    // Test 3: Re-bind to the same port (should work with SO_REUSEADDR)
+    print("Re-binding to same port...")
+    let addr2 = SocketAddrV4.new(Ipv4Addr.new(127, 0, 0, 1), 9999)
+    let listener2 = TcpListener.bind(addr2)
+
+    if listener2.is_valid() {
+        print(" OK\n")
+        listener2.close()
+    } else {
+        print(" FAILED\n")
+        return 1
+    }
+
+    print("All TCP listener tests passed!\n")
+    return 0
+}

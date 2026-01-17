@@ -1,0 +1,467 @@
+// std.net - Network socket primitives
+// Safe wrappers around socket syscalls with RAII semantics
+
+use std.mem.{alloc, dealloc}
+
+// ==================== Address Family Constants ====================
+pub static AF_UNIX: i32 = 1
+pub static AF_INET: i32 = 2       // IPv4
+pub static AF_INET6: i32 = 10     // IPv6
+
+// ==================== Socket Type Constants ====================
+pub static SOCK_STREAM: i32 = 1   // TCP
+pub static SOCK_DGRAM: i32 = 2    // UDP
+pub static SOCK_RAW: i32 = 3      // Raw socket
+
+// ==================== Protocol Constants ====================
+pub static IPPROTO_TCP: i32 = 6
+pub static IPPROTO_UDP: i32 = 17
+
+// ==================== Shutdown Constants ====================
+pub static SHUT_RD: i32 = 0       // No more receptions
+pub static SHUT_WR: i32 = 1       // No more transmissions
+pub static SHUT_RDWR: i32 = 2     // No more receptions or transmissions
+
+// ==================== Socket Option Levels ====================
+pub static SOL_SOCKET: i32 = 1
+
+// ==================== Socket Options ====================
+pub static SO_REUSEADDR: i32 = 2
+pub static SO_KEEPALIVE: i32 = 9
+pub static SO_RCVTIMEO: i32 = 20
+pub static SO_SNDTIMEO: i32 = 21
+
+// ==================== IPv4 Address ====================
+
+/// IPv4 address representation
+/// Stored in network byte order (big-endian)
+pub struct Ipv4Addr {
+    // 4 bytes stored as a single u32 in network order
+    octets: u32
+}
+
+impl Ipv4Addr {
+    /// Create an IPv4 address from four octets
+    pub fn new(a: u8, b: u8, c: u8, d: u8) -> Ipv4Addr {
+        // Convert to network byte order (big-endian)
+        let addr: u32 = 0
+        addr = (a as u32)
+        addr = addr + ((b as u32) << 8)
+        addr = addr + ((c as u32) << 16)
+        addr = addr + ((d as u32) << 24)
+        return Ipv4Addr { octets: addr }
+    }
+
+    /// Localhost address (127.0.0.1)
+    pub fn localhost() -> Ipv4Addr {
+        return Ipv4Addr.new(127, 0, 0, 1)
+    }
+
+    /// Unspecified address (0.0.0.0) - binds to all interfaces
+    pub fn unspecified() -> Ipv4Addr {
+        return Ipv4Addr.new(0, 0, 0, 0)
+    }
+
+    /// Get the raw address value (in network order)
+    pub fn to_bits(&self) -> u32 {
+        return self.octets
+    }
+}
+
+// ==================== Socket Address ====================
+
+/// IPv4 socket address (address + port)
+/// Layout matches struct sockaddr_in for direct syscall use
+pub struct SocketAddrV4 {
+    // Note: The actual sockaddr_in struct layout:
+    //   sin_family: u16 (2 bytes)
+    //   sin_port: u16 (2 bytes, network order)
+    //   sin_addr: u32 (4 bytes, network order)
+    //   sin_zero: [u8; 8] (padding)
+    // Total: 16 bytes
+    //
+    // We store the components and build the raw struct when needed
+    addr: Ipv4Addr
+    port: u16
+}
+
+impl SocketAddrV4 {
+    /// Create a socket address from IP and port
+    pub fn new(addr: Ipv4Addr, port: u16) -> SocketAddrV4 {
+        return SocketAddrV4 { addr: addr, port: port }
+    }
+
+    /// Get the IP address
+    pub fn ip(&self) -> Ipv4Addr {
+        return self.addr
+    }
+
+    /// Get the port
+    pub fn port(&self) -> u16 {
+        return self.port
+    }
+
+    /// Convert port to network byte order (big-endian)
+    fn port_network_order(&self) -> u16 {
+        let p = self.port
+        return ((p >> 8) as u8 as u16) + (((p as u8) as u16) << 8)
+    }
+
+    /// Build a raw sockaddr_in buffer for syscalls
+    /// Caller must free the returned pointer with dealloc()
+    fn to_sockaddr_raw(&self) -> *u8 {
+        let buf = alloc(16)
+        // Zero the buffer
+        let i: i64 = 0
+        while i < 16 {
+            unsafe {
+                ptr_write<u8>(ptr_add<u8>(buf, i), 0)
+            }
+            i = i + 1
+        }
+
+        // Set sin_family = AF_INET (little-endian u16)
+        unsafe {
+            ptr_write<u8>(buf, AF_INET as u8)
+        }
+
+        // Set sin_port (network byte order - big-endian)
+        let port_net = self.port_network_order()
+        unsafe {
+            ptr_write<u8>(ptr_add<u8>(buf, 2), (port_net as u8))
+            ptr_write<u8>(ptr_add<u8>(buf, 3), ((port_net >> 8) as u8))
+        }
+
+        // Set sin_addr
+        let ip_bits = self.addr.to_bits()
+        unsafe {
+            ptr_write<u8>(ptr_add<u8>(buf, 4), (ip_bits as u8))
+            ptr_write<u8>(ptr_add<u8>(buf, 5), ((ip_bits >> 8) as u8))
+            ptr_write<u8>(ptr_add<u8>(buf, 6), ((ip_bits >> 16) as u8))
+            ptr_write<u8>(ptr_add<u8>(buf, 7), ((ip_bits >> 24) as u8))
+        }
+
+        return buf
+    }
+}
+
+// ==================== TCP Listener ====================
+
+/// TcpListener - A listening TCP socket
+/// Accepts incoming connections and returns TcpStream handles
+/// Automatically closes the socket when dropped
+pub struct TcpListener {
+    fd: i32
+}
+
+impl TcpListener {
+    /// Bind to an address and start listening
+    /// Returns a TcpListener on success, with fd = -1 on failure
+    pub fn bind(addr: SocketAddrV4) -> TcpListener {
+        // Create socket
+        let fd: i32 = -1
+        unsafe {
+            fd = sys_socket(AF_INET, SOCK_STREAM, 0)
+        }
+
+        if fd < 0 {
+            return TcpListener { fd: -1 }
+        }
+
+        // Set SO_REUSEADDR to allow quick rebinding
+        let optval: i32 = 1
+        let optval_ptr = (&optval) as *i32
+        unsafe {
+            sys_setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, optval_ptr as *u8, 4)
+        }
+
+        // Build sockaddr_in struct
+        let sockaddr_buf = addr.to_sockaddr_raw()
+
+        // Bind
+        let bind_result: i32 = -1
+        unsafe {
+            bind_result = sys_bind(fd, sockaddr_buf, 16)
+        }
+
+        // Free the buffer
+        dealloc(sockaddr_buf)
+
+        if bind_result < 0 {
+            unsafe {
+                sys_shutdown(fd, SHUT_RDWR)
+            }
+            return TcpListener { fd: -1 }
+        }
+
+        // Listen with backlog of 128
+        let listen_result: i32 = -1
+        unsafe {
+            listen_result = sys_listen(fd, 128)
+        }
+
+        if listen_result < 0 {
+            unsafe {
+                sys_shutdown(fd, SHUT_RDWR)
+            }
+            return TcpListener { fd: -1 }
+        }
+
+        return TcpListener { fd: fd }
+    }
+
+    /// Check if the listener is valid
+    pub fn is_valid(&self) -> bool {
+        return self.fd >= 0
+    }
+
+    /// Accept a new connection
+    /// Returns a TcpStream for the connected client
+    pub fn accept(&self) -> TcpStream {
+        if self.fd < 0 {
+            return TcpStream { fd: -1 }
+        }
+
+        // Accept with null addr/addrlen (we don't need client info)
+        let null_ptr = ptr_null<u8>()
+        let client_fd: i32 = -1
+        unsafe {
+            client_fd = sys_accept(self.fd, null_ptr, null_ptr)
+        }
+
+        return TcpStream { fd: client_fd }
+    }
+
+    /// Close the listener
+    pub fn close(~self) {
+        if self.fd >= 0 {
+            unsafe {
+                sys_shutdown(self.fd, SHUT_RDWR)
+            }
+            self.fd = -1
+        }
+    }
+}
+
+// ==================== TCP Stream ====================
+
+/// TcpStream - A connected TCP socket
+/// Provides read/write operations on a TCP connection
+/// Automatically closes the socket when dropped
+pub struct TcpStream {
+    fd: i32
+}
+
+impl TcpStream {
+    /// Connect to a remote address
+    /// Returns a TcpStream on success, with fd = -1 on failure
+    pub fn connect(addr: SocketAddrV4) -> TcpStream {
+        // Create socket
+        let fd: i32 = -1
+        unsafe {
+            fd = sys_socket(AF_INET, SOCK_STREAM, 0)
+        }
+
+        if fd < 0 {
+            return TcpStream { fd: -1 }
+        }
+
+        // Build sockaddr_in
+        let sockaddr_buf = addr.to_sockaddr_raw()
+
+        // Connect
+        let connect_result: i32 = -1
+        unsafe {
+            connect_result = sys_connect(fd, sockaddr_buf, 16)
+        }
+
+        // Free the buffer
+        dealloc(sockaddr_buf)
+
+        if connect_result < 0 {
+            unsafe {
+                sys_shutdown(fd, SHUT_RDWR)
+            }
+            return TcpStream { fd: -1 }
+        }
+
+        return TcpStream { fd: fd }
+    }
+
+    /// Check if the stream is valid
+    pub fn is_valid(&self) -> bool {
+        return self.fd >= 0
+    }
+
+    /// Read data into a raw buffer
+    /// Returns the number of bytes read, or -1 on error
+    pub fn read(&self, buf: *u8, len: i64) -> i64 {
+        if self.fd < 0 {
+            return -1
+        }
+
+        let result: i64 = 0
+        unsafe {
+            result = sys_recv(self.fd, buf, len, 0)
+        }
+        return result
+    }
+
+    /// Write data from a raw buffer
+    /// Returns the number of bytes written, or -1 on error
+    pub fn write(&self, buf: *u8, len: i64) -> i64 {
+        if self.fd < 0 {
+            return -1
+        }
+
+        let result: i64 = 0
+        unsafe {
+            result = sys_send(self.fd, buf, len, 0)
+        }
+        return result
+    }
+
+    /// Write a string slice
+    pub fn write_str(&self, s: Slice<u8>) -> i64 {
+        if self.fd < 0 {
+            return -1
+        }
+
+        let result: i64 = 0
+        unsafe {
+            result = sys_send(self.fd, s.ptr, s.len as i64, 0)
+        }
+        return result
+    }
+
+    /// Shutdown the socket
+    /// how: SHUT_RD, SHUT_WR, or SHUT_RDWR
+    pub fn shutdown(&self, how: i32) -> bool {
+        if self.fd < 0 {
+            return false
+        }
+
+        let result: i32 = 0
+        unsafe {
+            result = sys_shutdown(self.fd, how)
+        }
+        return result == 0
+    }
+
+    /// Close the stream
+    pub fn close(~self) {
+        if self.fd >= 0 {
+            unsafe {
+                sys_shutdown(self.fd, SHUT_RDWR)
+            }
+            self.fd = -1
+        }
+    }
+}
+
+// ==================== UDP Socket ====================
+
+/// UdpSocket - A UDP socket
+/// Provides connectionless datagram operations
+/// Automatically closes the socket when dropped
+pub struct UdpSocket {
+    fd: i32
+}
+
+impl UdpSocket {
+    /// Bind to a local address
+    /// Returns a UdpSocket on success, with fd = -1 on failure
+    pub fn bind(addr: SocketAddrV4) -> UdpSocket {
+        // Create socket
+        let fd: i32 = -1
+        unsafe {
+            fd = sys_socket(AF_INET, SOCK_DGRAM, 0)
+        }
+
+        if fd < 0 {
+            return UdpSocket { fd: -1 }
+        }
+
+        // Build sockaddr_in
+        let sockaddr_buf = addr.to_sockaddr_raw()
+
+        // Bind
+        let bind_result: i32 = -1
+        unsafe {
+            bind_result = sys_bind(fd, sockaddr_buf, 16)
+        }
+
+        // Free the buffer
+        dealloc(sockaddr_buf)
+
+        if bind_result < 0 {
+            unsafe {
+                sys_shutdown(fd, SHUT_RDWR)
+            }
+            return UdpSocket { fd: -1 }
+        }
+
+        return UdpSocket { fd: fd }
+    }
+
+    /// Create an unbound UDP socket
+    /// Useful for sending without binding to a specific port
+    pub fn unbound() -> UdpSocket {
+        let fd: i32 = -1
+        unsafe {
+            fd = sys_socket(AF_INET, SOCK_DGRAM, 0)
+        }
+        return UdpSocket { fd: fd }
+    }
+
+    /// Check if the socket is valid
+    pub fn is_valid(&self) -> bool {
+        return self.fd >= 0
+    }
+
+    /// Receive a datagram
+    /// Returns the number of bytes received, or -1 on error
+    pub fn recv(&self, buf: *u8, len: i64) -> i64 {
+        if self.fd < 0 {
+            return -1
+        }
+
+        let result: i64 = 0
+        let null_ptr = ptr_null<u8>()
+        unsafe {
+            result = sys_recvfrom(self.fd, buf, len, 0, null_ptr, null_ptr)
+        }
+        return result
+    }
+
+    /// Send a datagram to a specific address
+    /// Returns the number of bytes sent, or -1 on error
+    pub fn send_to(&self, buf: *u8, len: i64, addr: SocketAddrV4) -> i64 {
+        if self.fd < 0 {
+            return -1
+        }
+
+        // Build sockaddr_in for destination
+        let sockaddr_buf = addr.to_sockaddr_raw()
+
+        let result: i64 = 0
+        unsafe {
+            result = sys_sendto(self.fd, buf, len, 0, sockaddr_buf, 16)
+        }
+
+        // Free the buffer
+        dealloc(sockaddr_buf)
+
+        return result
+    }
+
+    /// Close the socket
+    pub fn close(~self) {
+        if self.fd >= 0 {
+            unsafe {
+                sys_shutdown(self.fd, SHUT_RDWR)
+            }
+            self.fd = -1
+        }
+    }
+}

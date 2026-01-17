@@ -1,0 +1,23 @@
+// Test std.net safe wrappers
+// This tests Ipv4Addr
+
+// Import the net module types
+use std.net.{Ipv4Addr}
+
+fn main() -> i32 {
+    // Test 1: Create an IPv4 address directly
+    print("Creating custom address 192.168.1.1...")
+    let custom = Ipv4Addr.new(192, 168, 1, 1)
+    let custom_bits = custom.to_bits()
+    // In network order: 192 + (168 << 8) + (1 << 16) + (1 << 24)
+    // = 0x0101A8C0 = 16885952
+    if custom_bits == 16885952 {
+        print(" OK\n")
+    } else {
+        print(" FAILED\n")
+        return 1
+    }
+
+    print("All std.net tests passed!\n")
+    return 0
+}

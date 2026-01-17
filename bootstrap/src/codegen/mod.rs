@@ -339,6 +339,81 @@ impl<'ctx> Codegen<'ctx> {
         // int madvise(void *addr, size_t length, int advice)
         let madvise_type = i32_type.fn_type(&[ptr_type.into(), i64_type.into(), i32_type.into()], false);
         self.module.add_function("madvise", madvise_type, None);
+
+        // Socket syscalls
+        // int socket(int domain, int type, int protocol)
+        let socket_type = i32_type.fn_type(&[i32_type.into(), i32_type.into(), i32_type.into()], false);
+        self.module.add_function("socket", socket_type, None);
+
+        // int bind(int sockfd, const struct sockaddr *addr, socklen_t addrlen)
+        let bind_type = i32_type.fn_type(&[i32_type.into(), ptr_type.into(), i32_type.into()], false);
+        self.module.add_function("bind", bind_type, None);
+
+        // int listen(int sockfd, int backlog)
+        let listen_type = i32_type.fn_type(&[i32_type.into(), i32_type.into()], false);
+        self.module.add_function("listen", listen_type, None);
+
+        // int accept(int sockfd, struct sockaddr *addr, socklen_t *addrlen)
+        let accept_type = i32_type.fn_type(&[i32_type.into(), ptr_type.into(), ptr_type.into()], false);
+        self.module.add_function("accept", accept_type, None);
+
+        // int connect(int sockfd, const struct sockaddr *addr, socklen_t addrlen)
+        let connect_type = i32_type.fn_type(&[i32_type.into(), ptr_type.into(), i32_type.into()], false);
+        self.module.add_function("connect", connect_type, None);
+
+        // ssize_t send(int sockfd, const void *buf, size_t len, int flags)
+        let send_type = i64_type.fn_type(&[i32_type.into(), ptr_type.into(), i64_type.into(), i32_type.into()], false);
+        self.module.add_function("send", send_type, None);
+
+        // ssize_t recv(int sockfd, void *buf, size_t len, int flags)
+        let recv_type = i64_type.fn_type(&[i32_type.into(), ptr_type.into(), i64_type.into(), i32_type.into()], false);
+        self.module.add_function("recv", recv_type, None);
+
+        // ssize_t sendto(int sockfd, const void *buf, size_t len, int flags, const struct sockaddr *dest_addr, socklen_t addrlen)
+        let sendto_type = i64_type.fn_type(&[
+            i32_type.into(),  // sockfd
+            ptr_type.into(),  // buf
+            i64_type.into(),  // len
+            i32_type.into(),  // flags
+            ptr_type.into(),  // dest_addr
+            i32_type.into(),  // addrlen
+        ], false);
+        self.module.add_function("sendto", sendto_type, None);
+
+        // ssize_t recvfrom(int sockfd, void *buf, size_t len, int flags, struct sockaddr *src_addr, socklen_t *addrlen)
+        let recvfrom_type = i64_type.fn_type(&[
+            i32_type.into(),  // sockfd
+            ptr_type.into(),  // buf
+            i64_type.into(),  // len
+            i32_type.into(),  // flags
+            ptr_type.into(),  // src_addr
+            ptr_type.into(),  // addrlen (pointer to socklen_t)
+        ], false);
+        self.module.add_function("recvfrom", recvfrom_type, None);
+
+        // int setsockopt(int sockfd, int level, int optname, const void *optval, socklen_t optlen)
+        let setsockopt_type = i32_type.fn_type(&[
+            i32_type.into(),  // sockfd
+            i32_type.into(),  // level
+            i32_type.into(),  // optname
+            ptr_type.into(),  // optval
+            i32_type.into(),  // optlen
+        ], false);
+        self.module.add_function("setsockopt", setsockopt_type, None);
+
+        // int getsockopt(int sockfd, int level, int optname, void *optval, socklen_t *optlen)
+        let getsockopt_type = i32_type.fn_type(&[
+            i32_type.into(),  // sockfd
+            i32_type.into(),  // level
+            i32_type.into(),  // optname
+            ptr_type.into(),  // optval
+            ptr_type.into(),  // optlen (pointer)
+        ], false);
+        self.module.add_function("getsockopt", getsockopt_type, None);
+
+        // int shutdown(int sockfd, int how)
+        let shutdown_type = i32_type.fn_type(&[i32_type.into(), i32_type.into()], false);
+        self.module.add_function("shutdown", shutdown_type, None);
     }
 
     /// Set the source directory for module resolution
