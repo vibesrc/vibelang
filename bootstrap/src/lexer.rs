@@ -664,11 +664,43 @@ impl<'a> Lexer<'a> {
             let val: f64 = num_str.parse().map_err(|_| LexError::InvalidNumber(self.line))?;
             Ok(TokenKind::Float(val))
         } else {
+            // Check for float suffix first (f32, f64) - allows 1f32 syntax like Rust
+            if self.try_parse_float_suffix() {
+                let val: f64 = num_str.parse().map_err(|_| LexError::InvalidNumber(self.line))?;
+                return Ok(TokenKind::Float(val));
+            }
             // Check for integer suffix (i8, i16, i32, i64, u8, u16, u32, u64)
             let suffix = self.try_parse_int_suffix();
             let val: i64 = num_str.parse().map_err(|_| LexError::InvalidNumber(self.line))?;
             Ok(TokenKind::Int(val, suffix))
         }
+    }
+
+    fn try_parse_float_suffix(&mut self) -> bool {
+        let start_pos = self.chars.clone();
+
+        if let Some('f') = self.peek_char() {
+            self.advance();
+
+            let mut size_str = String::new();
+            while let Some(d) = self.peek_char() {
+                if d.is_ascii_digit() {
+                    size_str.push(d);
+                    self.advance();
+                } else {
+                    break;
+                }
+            }
+
+            if size_str == "32" || size_str == "64" {
+                return true;
+            }
+
+            // Invalid suffix, restore position
+            self.chars = start_pos;
+        }
+
+        false
     }
 
     fn try_parse_int_suffix(&mut self) -> IntSuffix {

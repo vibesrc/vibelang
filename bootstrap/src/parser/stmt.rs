@@ -20,6 +20,11 @@ impl Parser {
     fn parse_block_inner_from(&mut self, start: crate::lexer::Span) -> Result<Block, ParseError> {
         let mut stmts = Vec::new();
         while !self.check(TokenKind::RBrace) {
+            // Skip optional semicolons between statements
+            while self.match_token(TokenKind::Semicolon) {}
+            if self.check(TokenKind::RBrace) {
+                break;
+            }
             stmts.push(self.parse_stmt()?);
         }
 
