@@ -5,9 +5,11 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use tower_lsp_server::ls_types::{Diagnostic, DiagnosticSeverity, Position, Range, Uri};
 use tower_lsp_server::Client;
-use crate::ast::Type;
+use crate::ast::{Item, Type};
 use crate::lexer::{Lexer, LexError, Span};
 use crate::parser::{ParseError, Parser};
+use crate::analysis;
+use crate::lsp::utils::semantic_error_to_diagnostic;
 
 use crate::lsp::types::{DocumentInfo, SymbolTable, EnumInfo, StructInfo, VariantData, VariantFieldsData};
 
@@ -35,9 +37,28 @@ impl Backend {
                 let mut parser = Parser::new(tokens);
                 match parser.parse_program() {
                     Ok(program) => {
-                        self.extract_symbols(&program, &mut symbols);
+                        // Use the shared semantic analyzer
+                        let analyzer = analysis::SemanticAnalyzer::new();
+                        let result = analyzer.analyze(&program);
+
+                        // Use symbols from the analyzer
+                        symbols = result.symbols;
+
+                        // Process imports to load std modules
+                        for item in &program.items {
+                            if let Item::Use(use_stmt) = item {
+                                self.process_import(use_stmt, &mut symbols);
+                            }
+                        }
+
+                        // Inject prelude symbols for LSP features
                         self.inject_prelude_symbols(&mut symbols);
-                        self.analyze_semantics(&program, &symbols, &mut diagnostics);
+
+                        // Convert semantic errors to LSP diagnostics
+                        for error in &result.errors {
+                            diagnostics.push(semantic_error_to_diagnostic(error, text));
+                        }
+
                         ast = Some(program);
                     }
                     Err(e) => {

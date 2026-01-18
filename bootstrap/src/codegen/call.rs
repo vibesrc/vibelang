@@ -371,9 +371,6 @@ impl<'ctx> Codegen<'ctx> {
             .get_function(&mono_name)
             .ok_or_else(|| CodegenError::UndefinedFunction(mono_name.clone()))?;
 
-        // Save borrow state - temporary borrows in function arguments should be released after the call
-        let borrows_before = self.borrowed_vars.clone();
-
         // Get parameter types for reference coercion
         let param_types = self.function_param_types.get(&mono_name).cloned();
 
@@ -384,42 +381,6 @@ impl<'ctx> Codegen<'ctx> {
             let expected_type = param_types.as_ref()
                 .and_then(|types| types.get(i))
                 .cloned();
-
-            // Check borrow/move type matching at call site
-            // ~expr can only be passed to ~T params, &expr to &T params, expr to T params
-            if let Some(ref param_ty) = expected_type {
-                match arg {
-                    Expr::RefMut { .. } => {
-                        // ~expr passed - parameter must be ~T
-                        if !matches!(param_ty, Type::RefMut(_)) {
-                            return Err(CodegenError::BorrowError(format!(
-                                "cannot pass mutable borrow '~' to parameter expecting owned value. \
-                                 Change function parameter to '~{}' or remove '~' from argument",
-                                self.type_name(param_ty)
-                            )));
-                        }
-                    }
-                    Expr::Ref { .. } => {
-                        // &expr passed - parameter must be &T
-                        if !matches!(param_ty, Type::Ref(_)) {
-                            return Err(CodegenError::BorrowError(format!(
-                                "cannot pass immutable borrow '&' to parameter expecting owned value. \
-                                 Change function parameter to '&{}' or remove '&' from argument",
-                                self.type_name(param_ty)
-                            )));
-                        }
-                    }
-                    _ => {
-                        // Plain expr passed - parameter must NOT be a reference type
-                        if matches!(param_ty, Type::Ref(_) | Type::RefMut(_)) {
-                            return Err(CodegenError::BorrowError(format!(
-                                "cannot pass owned value to parameter expecting a borrow. \
-                                 Add '&' or '~' to the argument"
-                            )));
-                        }
-                    }
-                }
-            }
 
             let arg_val = self.compile_expr_with_type(arg, expected_type.as_ref())?;
 
@@ -468,27 +429,12 @@ impl<'ctx> Codegen<'ctx> {
             compiled_args.push(coerced_val);
         }
 
-        // Track moves: if an argument is a struct variable passed by value, mark it as moved
-        for arg in args {
-            if let Expr::Ident(arg_name, _) = arg {
-                if let Some(var_info) = self.variables.get(arg_name) {
-                    // If the variable is a struct (not a reference), it's being moved
-                    if var_info.struct_name.is_some() && !var_info.is_ref && !var_info.is_mut_ref {
-                        self.moved_vars.insert(arg_name.clone());
-                    }
-                }
-            }
-        }
-
         let args_meta: Vec<_> = compiled_args.iter().map(|a| (*a).into()).collect();
 
         let call_site = self
             .builder
             .build_call(fn_value, &args_meta, "call")
             .unwrap();
-
-        // Restore borrow state - borrows for function arguments end when function returns
-        self.borrowed_vars = borrows_before;
 
         match call_site.try_as_basic_value() {
             inkwell::values::ValueKind::Basic(val) => Ok(val),
@@ -520,9 +466,6 @@ impl<'ctx> Codegen<'ctx> {
             .get_function(&mangled_name)
             .ok_or_else(|| CodegenError::UndefinedFunction(mangled_name.clone()))?;
 
-        // Save borrow state
-        let borrows_before = self.borrowed_vars.clone();
-
         // Get parameter types for reference coercion
         let param_types = self.function_param_types.get(&mangled_name).cloned();
 
@@ -533,42 +476,6 @@ impl<'ctx> Codegen<'ctx> {
             let expected_type = param_types.as_ref()
                 .and_then(|types| types.get(i))
                 .cloned();
-
-            // Check borrow/move type matching at call site
-            // ~expr can only be passed to ~T params, &expr to &T params, expr to T params
-            if let Some(ref param_ty) = expected_type {
-                match arg {
-                    Expr::RefMut { .. } => {
-                        // ~expr passed - parameter must be ~T
-                        if !matches!(param_ty, Type::RefMut(_)) {
-                            return Err(CodegenError::BorrowError(format!(
-                                "cannot pass mutable borrow '~' to parameter expecting owned value. \
-                                 Change function parameter to '~{}' or remove '~' from argument",
-                                self.type_name(param_ty)
-                            )));
-                        }
-                    }
-                    Expr::Ref { .. } => {
-                        // &expr passed - parameter must be &T
-                        if !matches!(param_ty, Type::Ref(_)) {
-                            return Err(CodegenError::BorrowError(format!(
-                                "cannot pass immutable borrow '&' to parameter expecting owned value. \
-                                 Change function parameter to '&{}' or remove '&' from argument",
-                                self.type_name(param_ty)
-                            )));
-                        }
-                    }
-                    _ => {
-                        // Plain expr passed - parameter must NOT be a reference type
-                        if matches!(param_ty, Type::Ref(_) | Type::RefMut(_)) {
-                            return Err(CodegenError::BorrowError(format!(
-                                "cannot pass owned value to parameter expecting a borrow. \
-                                 Add '&' or '~' to the argument"
-                            )));
-                        }
-                    }
-                }
-            }
 
             let arg_val = self.compile_expr_with_type(arg, expected_type.as_ref())?;
 
@@ -622,9 +529,6 @@ impl<'ctx> Codegen<'ctx> {
         let call_site = self.builder
             .build_call(fn_value, &args_meta, "static_method_call")
             .unwrap();
-
-        // Restore borrow state
-        self.borrowed_vars = borrows_before;
 
         match call_site.try_as_basic_value() {
             inkwell::values::ValueKind::Basic(val) => Ok(val),
@@ -754,9 +658,6 @@ impl<'ctx> Codegen<'ctx> {
             .get_function(&mangled_name)
             .ok_or_else(|| CodegenError::UndefinedFunction(mangled_name.clone()))?;
 
-        // Save borrow state
-        let borrows_before = self.borrowed_vars.clone();
-
         // Compile receiver as first argument (pass as pointer/reference)
         let receiver_val = if let Expr::Ident(name, _) = receiver {
             let var_info = self.variables.get(name).unwrap();
@@ -789,42 +690,6 @@ impl<'ctx> Codegen<'ctx> {
             let expected_type = param_types.as_ref()
                 .and_then(|types| types.get(i + 1))
                 .cloned();
-
-            // Check borrow/move type matching at call site
-            // ~expr can only be passed to ~T params, &expr to &T params, expr to T params
-            if let Some(ref param_ty) = expected_type {
-                match arg {
-                    Expr::RefMut { .. } => {
-                        // ~expr passed - parameter must be ~T
-                        if !matches!(param_ty, Type::RefMut(_)) {
-                            return Err(CodegenError::BorrowError(format!(
-                                "cannot pass mutable borrow '~' to parameter expecting owned value. \
-                                 Change function parameter to '~{}' or remove '~' from argument",
-                                self.type_name(param_ty)
-                            )));
-                        }
-                    }
-                    Expr::Ref { .. } => {
-                        // &expr passed - parameter must be &T
-                        if !matches!(param_ty, Type::Ref(_)) {
-                            return Err(CodegenError::BorrowError(format!(
-                                "cannot pass immutable borrow '&' to parameter expecting owned value. \
-                                 Change function parameter to '&{}' or remove '&' from argument",
-                                self.type_name(param_ty)
-                            )));
-                        }
-                    }
-                    _ => {
-                        // Plain expr passed - parameter must NOT be a reference type
-                        if matches!(param_ty, Type::Ref(_) | Type::RefMut(_)) {
-                            return Err(CodegenError::BorrowError(format!(
-                                "cannot pass owned value to parameter expecting a borrow. \
-                                 Add '&' or '~' to the argument"
-                            )));
-                        }
-                    }
-                }
-            }
 
             let arg_val = self.compile_expr_with_type(arg, expected_type.as_ref())?;
 
@@ -862,9 +727,6 @@ impl<'ctx> Codegen<'ctx> {
         let call_site = self.builder
             .build_call(fn_value, &args_meta, "method_call")
             .unwrap();
-
-        // Restore borrow state
-        self.borrowed_vars = borrows_before;
 
         match call_site.try_as_basic_value() {
             inkwell::values::ValueKind::Basic(val) => Ok(val),

@@ -1,6 +1,6 @@
 //! Memory operations - struct init, field access, references, arrays, indexing
 
-use super::{Codegen, CodegenError, EnumTypeInfo, BorrowState};
+use super::{Codegen, CodegenError, EnumTypeInfo};
 use crate::ast::*;
 use inkwell::values::{BasicValueEnum, PointerValue};
 use inkwell::types::{BasicTypeEnum, BasicType};
@@ -172,13 +172,6 @@ impl<'ctx> Codegen<'ctx> {
                 return Err(CodegenError::NotImplemented(
                     format!("generic enum unit variant '{}' requires explicit type arguments, e.g., {}<Type>.{}",
                             field, name, field)
-                ));
-            }
-
-            // Check for use-after-move
-            if self.moved_vars.contains(name) {
-                return Err(CodegenError::BorrowError(
-                    format!("use of moved value: '{}'", name)
                 ));
             }
 
@@ -488,36 +481,6 @@ impl<'ctx> Codegen<'ctx> {
         // The operand must be an lvalue (something we can take address of)
         match operand {
             Expr::Ident(name, _) => {
-                // Check for use-after-move
-                if self.moved_vars.contains(name) {
-                    return Err(CodegenError::BorrowError(
-                        format!("cannot borrow '{}' because it has been moved", name)
-                    ));
-                }
-
-                // Check for borrow conflicts
-                if let Some(current_borrow) = self.borrowed_vars.get(name) {
-                    match (current_borrow, mutable) {
-                        (BorrowState::Mutable, _) => {
-                            return Err(CodegenError::BorrowError(
-                                format!("cannot borrow '{}': already mutably borrowed", name)
-                            ));
-                        }
-                        (BorrowState::Shared, true) => {
-                            return Err(CodegenError::BorrowError(
-                                format!("cannot borrow '{}' as mutable: already borrowed as immutable", name)
-                            ));
-                        }
-                        (BorrowState::Shared, false) => {
-                            // Multiple shared borrows are OK
-                        }
-                    }
-                }
-
-                // Track this borrow
-                let new_state = if mutable { BorrowState::Mutable } else { BorrowState::Shared };
-                self.borrowed_vars.insert(name.clone(), new_state);
-
                 let var_info = self
                     .variables
                     .get(name)

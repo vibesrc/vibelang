@@ -156,10 +156,8 @@ impl<'ctx> Codegen<'ctx> {
         let entry = self.context.append_basic_block(fn_value, "entry");
         self.builder.position_at_end(entry);
 
-        // Clear variables and ownership state for new function scope
+        // Clear variables for new function scope
         self.variables.clear();
-        self.moved_vars.clear();
-        self.borrowed_vars.clear();
 
         // Allocate parameters
         for (i, param) in func.params.iter().enumerate() {

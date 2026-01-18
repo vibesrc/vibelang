@@ -1,6 +1,62 @@
 //! Utility functions for the Vibelang LSP
 
-use tower_lsp_server::ls_types::{SemanticTokenModifier, SemanticTokenType, SemanticTokensLegend};
+use tower_lsp_server::ls_types::{
+    Diagnostic, DiagnosticSeverity, Position, Range, SemanticTokenModifier, SemanticTokenType,
+    SemanticTokensLegend,
+};
+use crate::analysis::SemanticError;
+
+// Re-export shared type checking functions from analysis module
+pub use crate::analysis::{is_builtin_function, is_builtin_type, is_copy_type, is_prelude_type};
+
+/// Convert a SemanticError to an LSP Diagnostic
+pub fn semantic_error_to_diagnostic(error: &SemanticError, source: &str) -> Diagnostic {
+    let span = error.span();
+    let message = error.message();
+
+    // Convert byte offset to line/column
+    let (start_line, start_col) = offset_to_position(source, span.start);
+    let (end_line, end_col) = offset_to_position(source, span.end);
+
+    Diagnostic {
+        range: Range {
+            start: Position {
+                line: start_line,
+                character: start_col,
+            },
+            end: Position {
+                line: end_line,
+                character: end_col,
+            },
+        },
+        severity: Some(DiagnosticSeverity::ERROR),
+        message,
+        source: Some("vibelang".to_string()),
+        code: None,
+        code_description: None,
+        related_information: None,
+        tags: None,
+        data: None,
+    }
+}
+
+/// Convert a byte offset to (line, column) in a source string
+fn offset_to_position(source: &str, offset: usize) -> (u32, u32) {
+    let mut line = 0u32;
+    let mut col = 0u32;
+    for (i, ch) in source.char_indices() {
+        if i >= offset {
+            break;
+        }
+        if ch == '\n' {
+            line += 1;
+            col = 0;
+        } else {
+            col += 1;
+        }
+    }
+    (line, col)
+}
 
 /// Semantic token type indices (must match SEMANTIC_TOKEN_TYPES order)
 pub mod semantic_token_types {
@@ -38,74 +94,6 @@ pub fn semantic_token_legend() -> SemanticTokensLegend {
 
 pub fn is_ident_char(c: char) -> bool {
     c.is_alphanumeric() || c == '_'
-}
-
-pub fn is_builtin_type(name: &str) -> bool {
-    matches!(
-        name,
-        "i8" | "i16"
-            | "i32"
-            | "i64"
-            | "u8"
-            | "u16"
-            | "u32"
-            | "u64"
-            | "f32"
-            | "f64"
-            | "bool"
-            | "void"
-            | "Slice"
-    )
-}
-
-/// Types from the prelude that are always available
-pub fn is_prelude_type(name: &str) -> bool {
-    matches!(name, "Option" | "Result" | "Error")
-}
-
-pub fn is_builtin_function(name: &str) -> bool {
-    matches!(
-        name,
-        "print" | "println" | "panic"
-        | "malloc" | "realloc" | "free" | "memcpy"
-        | "sizeof" | "null"
-        | "ptr_null" | "ptr_is_null" | "ptr_write" | "ptr_read" | "ptr_add"
-        | "ptr_write_i64" | "ptr_read_i64"
-    )
-}
-
-/// Check if a type is a Copy type (implicitly duplicated, not moved)
-/// Copy types: all primitives, raw pointers, fixed arrays of Copy types
-pub fn is_copy_type(ty: &str) -> bool {
-    let ty = ty.trim();
-
-    // Primitive types are Copy
-    if matches!(
-        ty,
-        "i8" | "i16" | "i32" | "i64"
-        | "u8" | "u16" | "u32" | "u64"
-        | "f32" | "f64"
-        | "bool"
-        | "char"
-    ) {
-        return true;
-    }
-
-    // Raw pointers are Copy
-    if ty.starts_with('*') {
-        return true;
-    }
-
-    // Fixed-size arrays of Copy types are Copy (e.g., "i32[10]")
-    if let Some(bracket_pos) = ty.find('[') {
-        if ty.ends_with(']') {
-            let elem_type = &ty[..bracket_pos];
-            return is_copy_type(elem_type);
-        }
-    }
-
-    // Everything else (String, Vec, structs, enums with owned data) is not Copy
-    false
 }
 
 /// Standard library modules available for import (dynamically discovered)

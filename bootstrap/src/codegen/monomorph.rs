@@ -89,8 +89,6 @@ impl<'ctx> Codegen<'ctx> {
         // Save current compilation state
         let saved_function = self.current_function;
         let saved_variables = std::mem::take(&mut self.variables);
-        let saved_moved = std::mem::take(&mut self.moved_vars);
-        let saved_borrowed = std::mem::take(&mut self.borrowed_vars);
         let saved_block = self.builder.get_insert_block();
 
         // Declare and define the monomorphized function
@@ -100,8 +98,6 @@ impl<'ctx> Codegen<'ctx> {
         // Restore previous compilation state
         self.current_function = saved_function;
         self.variables = saved_variables;
-        self.moved_vars = saved_moved;
-        self.borrowed_vars = saved_borrowed;
         if let Some(block) = saved_block {
             self.builder.position_at_end(block);
         }
@@ -199,8 +195,6 @@ impl<'ctx> Codegen<'ctx> {
         // Save current compilation state
         let saved_function = self.current_function;
         let saved_variables = std::mem::take(&mut self.variables);
-        let saved_moved = std::mem::take(&mut self.moved_vars);
-        let saved_borrowed = std::mem::take(&mut self.borrowed_vars);
         let saved_block = self.builder.get_insert_block();
 
         // First pass: create monomorphized methods and declare them
@@ -272,8 +266,6 @@ impl<'ctx> Codegen<'ctx> {
         // Restore compilation state
         self.current_function = saved_function;
         self.variables = saved_variables;
-        self.moved_vars = saved_moved;
-        self.borrowed_vars = saved_borrowed;
         if let Some(block) = saved_block {
             self.builder.position_at_end(block);
         }
