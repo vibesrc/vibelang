@@ -281,5 +281,55 @@ impl Backend {
                 is_pub: true,
             });
         }
+
+        // Vec<T> struct (from std.collections)
+        if !symbols.structs.contains_key("Vec") {
+            symbols.structs.insert("Vec".to_string(), StructInfo {
+                name: "Vec".to_string(),
+                fields: vec![
+                    ("ptr".to_string(), "*T".to_string(), false),
+                    ("len".to_string(), "i64".to_string(), false),
+                    ("capacity".to_string(), "i64".to_string(), false),
+                ],
+                generics: vec!["T".to_string()],
+                span: prelude_span,
+                is_pub: true,
+            });
+        }
+
+        // String struct (from std.string)
+        if !symbols.structs.contains_key("String") {
+            symbols.structs.insert("String".to_string(), StructInfo {
+                name: "String".to_string(),
+                fields: vec![
+                    ("data".to_string(), "Vec<u8>".to_string(), false),
+                ],
+                generics: vec![],
+                span: prelude_span,
+                is_pub: true,
+            });
+        }
+
+        // Map<K, V> struct (from std.collections)
+        if !symbols.structs.contains_key("Map") {
+            symbols.structs.insert("Map".to_string(), StructInfo {
+                name: "Map".to_string(),
+                fields: vec![],  // Internal fields not exposed
+                generics: vec!["K".to_string(), "V".to_string()],
+                span: prelude_span,
+                is_pub: true,
+            });
+        }
+
+        // Set<T> struct (from std.collections)
+        if !symbols.structs.contains_key("Set") {
+            symbols.structs.insert("Set".to_string(), StructInfo {
+                name: "Set".to_string(),
+                fields: vec![],  // Internal fields not exposed
+                generics: vec!["T".to_string()],
+                span: prelude_span,
+                is_pub: true,
+            });
+        }
     }
 }

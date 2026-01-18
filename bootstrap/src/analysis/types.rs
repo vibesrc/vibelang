@@ -18,8 +18,10 @@ pub fn is_builtin_type(name: &str) -> bool {
 }
 
 /// Check if a type name is from the prelude (always available)
+/// Note: Vec and String are in the prelude but require explicit import for codegen
+/// due to their dependencies on std.mem. The analyzer accepts them as valid types.
 pub fn is_prelude_type(name: &str) -> bool {
-    matches!(name, "Option" | "Result" | "Error")
+    matches!(name, "Option" | "Result" | "Error" | "Vec" | "String" | "Map" | "Set")
 }
 
 /// Check if a function name is a built-in function
@@ -139,8 +141,12 @@ mod tests {
     fn test_prelude_types() {
         assert!(is_prelude_type("Option"));
         assert!(is_prelude_type("Result"));
+        assert!(is_prelude_type("Vec"));
+        assert!(is_prelude_type("String"));
+        assert!(is_prelude_type("Map"));
+        assert!(is_prelude_type("Set"));
         assert!(!is_prelude_type("i32"));
-        assert!(!is_prelude_type("Vec"));
+        assert!(!is_prelude_type("MyType"));
     }
 
     #[test]

@@ -386,6 +386,42 @@ impl Backend {
                     )),
                     ..Default::default()
                 });
+                completions.push(CompletionItem {
+                    label: "Vec".to_string(),
+                    kind: Some(CompletionItemKind::STRUCT),
+                    detail: Some("struct Vec<T> - growable array".to_string()),
+                    documentation: Some(tower_lsp_server::ls_types::Documentation::String(
+                        "Growable vector from std.collections (requires `use std.collections.{Vec}`)".to_string()
+                    )),
+                    ..Default::default()
+                });
+                completions.push(CompletionItem {
+                    label: "String".to_string(),
+                    kind: Some(CompletionItemKind::STRUCT),
+                    detail: Some("struct String - owned string".to_string()),
+                    documentation: Some(tower_lsp_server::ls_types::Documentation::String(
+                        "Owned string from std.string (requires `use std.string.{String}`)".to_string()
+                    )),
+                    ..Default::default()
+                });
+                completions.push(CompletionItem {
+                    label: "Map".to_string(),
+                    kind: Some(CompletionItemKind::STRUCT),
+                    detail: Some("struct Map<K, V> - hash map".to_string()),
+                    documentation: Some(tower_lsp_server::ls_types::Documentation::String(
+                        "Hash map from std.collections (requires `use std.collections.{Map}`)".to_string()
+                    )),
+                    ..Default::default()
+                });
+                completions.push(CompletionItem {
+                    label: "Set".to_string(),
+                    kind: Some(CompletionItemKind::STRUCT),
+                    detail: Some("struct Set<T> - hash set".to_string()),
+                    documentation: Some(tower_lsp_server::ls_types::Documentation::String(
+                        "Hash set from std.collections (requires `use std.collections.{Set}`)".to_string()
+                    )),
+                    ..Default::default()
+                });
 
                 // Keywords
                 for kw in &[
