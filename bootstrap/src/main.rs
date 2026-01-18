@@ -1,3 +1,4 @@
+use vibec::analysis::analyze;
 use vibec::codegen::Codegen;
 use vibec::parser::Parser;
 use std::path::{Path, PathBuf};
@@ -12,6 +13,7 @@ fn main() {
         eprintln!("  --emit=llvm    Output LLVM IR (.ll file)");
         eprintln!("  --emit=obj     Output object file (.o file)");
         eprintln!("  -o <file>      Output file name");
+        eprintln!("  --no-analyze   Skip semantic analysis (use codegen checks only)");
         std::process::exit(1);
     }
 
@@ -22,6 +24,7 @@ fn main() {
     let mut emit_obj = false;
     let mut output_name: Option<String> = None;
     let mut quiet = false;
+    let mut skip_analysis = false;
 
     let mut i = 2;
     while i < args.len() {
@@ -29,6 +32,7 @@ fn main() {
             "--emit=llvm" => emit_llvm = true,
             "--emit=obj" => emit_obj = true,
             "-q" | "--quiet" => quiet = true,
+            "--no-analyze" => skip_analysis = true,
             "-o" => {
                 i += 1;
                 if i < args.len() {
@@ -64,6 +68,20 @@ fn main() {
 
     if !quiet {
         println!("Parsed {} items", program.items.len());
+    }
+
+    // Run semantic analysis (unless skipped)
+    if !skip_analysis {
+        let analysis_result = analyze(&program);
+
+        if !analysis_result.errors.is_empty() {
+            for error in &analysis_result.errors {
+                let span = error.span();
+                eprintln!("error[{}:{}]: {}", span.line, span.column, error.message());
+            }
+            eprintln!("\nFound {} error(s)", analysis_result.errors.len());
+            std::process::exit(1);
+        }
     }
 
     // Generate code
