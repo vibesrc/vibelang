@@ -1,0 +1,58 @@
+// Test basic closure (anonymous function) syntax
+
+fn main() -> i32 {
+    // Single param
+    let double = fn(x) x * 2
+
+    // Multiple params
+    let add = fn(a, b) a + b
+
+    // With type annotations
+    let sub = fn(a: i32, b: i32) a - b
+
+    // With return type annotation
+    let typed = fn(x: i32) -> i32 x * 3
+
+    // Empty params
+    let get_ten = fn() 10
+
+    // Block body with explicit return
+    let complex = fn(x) {
+        let y = x * 2
+        return y + 1
+    }
+
+    // Test calling them
+    if double(5) != 10 {
+        print("FAIL: double(5) should be 10\n")
+        return 1
+    }
+
+    if add(3, 4) != 7 {
+        print("FAIL: add(3, 4) should be 7\n")
+        return 1
+    }
+
+    if sub(10, 3) != 7 {
+        print("FAIL: sub(10, 3) should be 7\n")
+        return 1
+    }
+
+    if typed(4) != 12 {
+        print("FAIL: typed(4) should be 12\n")
+        return 1
+    }
+
+    if get_ten() != 10 {
+        print("FAIL: get_ten() should be 10\n")
+        return 1
+    }
+
+    if complex(5) != 11 {
+        print("FAIL: complex(5) should be 11\n")
+        return 1
+    }
+
+    print("All closure tests passed!\n")
+    return 0
+}

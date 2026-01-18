@@ -108,6 +108,12 @@ impl<'ctx> Codegen<'ctx> {
                     .collect::<Result<_, _>>()?;
                 Ok(self.context.struct_type(&field_types, false).into())
             }
+            Type::Fn(_, _) => {
+                // Function types are fat pointers: {fn_ptr, env_ptr}
+                // This allows closures to capture environment
+                let ptr_type = self.context.ptr_type(AddressSpace::default());
+                Ok(self.context.struct_type(&[ptr_type.into(), ptr_type.into()], false).into())
+            }
             _ => Err(CodegenError::NotImplemented(format!(
                 "unsupported type '{:?}'. Supported types: i8, i16, i32, i64, u8, u16, u32, u64, \
                  f32, f64, bool, structs, enums, arrays, slices, and references", ty
@@ -199,6 +205,10 @@ impl<'ctx> Codegen<'ctx> {
             Type::Tuple(types) => {
                 let type_names: Vec<_> = types.iter().map(|t| self.type_name(t)).collect();
                 format!("tup_{}", type_names.join("_"))
+            }
+            Type::Fn(params, ret) => {
+                let param_names: Vec<_> = params.iter().map(|t| self.type_name(t)).collect();
+                format!("fn_{}_{}", param_names.join("_"), self.type_name(ret))
             }
             _ => "unknown".to_string(),
         }

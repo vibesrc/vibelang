@@ -1,6 +1,7 @@
 //! Vibelang code generation - LLVM IR emission via inkwell
 
 mod call;
+mod capture;
 mod define;
 mod expr;
 mod intrinsics;
@@ -73,6 +74,8 @@ pub struct Codegen<'ctx> {
     pub(crate) in_unsafe: bool,                             // Currently inside an unsafe block
     // Static variables (global constants)
     pub(crate) static_vars: HashMap<String, PointerValue<'ctx>>,
+    // Closure counter for unique naming
+    pub(crate) closure_counter: u64,
 }
 
 #[derive(Clone)]
@@ -144,6 +147,7 @@ impl<'ctx> Codegen<'ctx> {
             function_param_types: HashMap::new(),
             in_unsafe: false,
             static_vars: HashMap::new(),
+            closure_counter: 0,
         };
 
         // Declare intrinsics
@@ -192,6 +196,7 @@ impl<'ctx> Codegen<'ctx> {
             function_param_types: HashMap::new(),
             in_unsafe: false,
             static_vars: HashMap::new(),
+            closure_counter: 0,
         };
 
         // Declare intrinsics

@@ -1,0 +1,37 @@
+// Test closures that mutate captured variables
+
+fn main() -> i32 {
+    // Test: Mutable capture - counter
+    let count = 0
+    let increment = fn() -> i32 {
+        count = count + 1
+        return count
+    }
+
+    let r1 = increment()  // Should be 1
+    if r1 != 1 {
+        print("FAIL: first increment() should be 1, got ${r1}\n")
+        return 1
+    }
+
+    let r2 = increment()  // Should be 2
+    if r2 != 2 {
+        print("FAIL: second increment() should be 2, got ${r2}\n")
+        return 1
+    }
+
+    let r3 = increment()  // Should be 3
+    if r3 != 3 {
+        print("FAIL: third increment() should be 3, got ${r3}\n")
+        return 1
+    }
+
+    // Verify count was actually mutated
+    if count != 3 {
+        print("FAIL: count should be 3 after 3 increments, got ${count}\n")
+        return 1
+    }
+
+    print("All mutable capture tests passed!\n")
+    return 0
+}

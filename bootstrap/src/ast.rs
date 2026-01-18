@@ -165,6 +165,7 @@ pub enum Type {
     Array(Box<Type>, usize), // T[N]
     Slice(Box<Type>),        // Slice<T>
     Tuple(Vec<Type>),        // (T1, T2, ...)
+    Fn(Vec<Type>, Box<Type>), // fn(T1, T2) -> R
 
     // Named
     Named {
@@ -356,6 +357,18 @@ pub enum Expr {
         block: Block,
         span: Span,
     },
+    Closure {
+        params: Vec<(String, Option<Type>)>,
+        return_type: Option<Type>,
+        body: ClosureBody,
+        span: Span,
+    },
+}
+
+#[derive(Debug, Clone)]
+pub enum ClosureBody {
+    Expr(Box<Expr>),   // (x) => x + 1
+    Block(Block),       // (x) => { return x + 1 }
 }
 
 #[derive(Debug, Clone, Copy)]

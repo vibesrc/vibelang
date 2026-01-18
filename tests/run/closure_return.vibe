@@ -1,0 +1,52 @@
+// Test returning closures from functions
+
+// Returns a closure that adds n to its argument
+fn make_adder(n: i32) -> fn(i32) -> i32 {
+    return fn(x) x + n
+}
+
+// Returns a closure that multiplies by n
+fn make_multiplier(n: i32) -> fn(i32) -> i32 {
+    return fn(x) x * n
+}
+
+fn main() -> i32 {
+    // Test 1: make_adder
+    let add5 = make_adder(5)
+    let result1 = add5(10)
+    if result1 != 15 {
+        print("FAIL: add5(10) should be 15\n")
+        return 1
+    }
+
+    // Test 2: Different adder
+    let add100 = make_adder(100)
+    let result2 = add100(7)
+    if result2 != 107 {
+        print("FAIL: add100(7) should be 107\n")
+        return 1
+    }
+
+    // Test 3: make_multiplier
+    let triple = make_multiplier(3)
+    let result3 = triple(7)
+    if result3 != 21 {
+        print("FAIL: triple(7) should be 21\n")
+        return 1
+    }
+
+    // Test 4: Both adders still work independently
+    let r4a = add5(20)
+    let r4b = add100(20)
+    if r4a != 25 {
+        print("FAIL: add5(20) should be 25\n")
+        return 1
+    }
+    if r4b != 120 {
+        print("FAIL: add100(20) should be 120\n")
+        return 1
+    }
+
+    print("All return closure tests passed!\n")
+    return 0
+}

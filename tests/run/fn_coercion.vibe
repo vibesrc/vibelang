@@ -1,0 +1,74 @@
+// Test that named functions can be used where closure types are expected
+
+fn double(x: i32) -> i32 {
+    return x * 2
+}
+
+fn add(a: i32, b: i32) -> i32 {
+    return a + b
+}
+
+fn greet() {
+    print("Hello!\n")
+}
+
+// Higher-order function that takes a unary closure
+fn apply(f: fn(i32) -> i32, x: i32) -> i32 {
+    return f(x)
+}
+
+// Higher-order function that takes a binary closure
+fn combine(f: fn(i32, i32) -> i32, a: i32, b: i32) -> i32 {
+    return f(a, b)
+}
+
+// Higher-order function that takes a void closure
+fn run_action(f: fn() -> void) {
+    f()
+}
+
+fn main() -> i32 {
+    // Test 1: Pass named function to higher-order function
+    let r1 = apply(double, 21)
+    if r1 != 42 {
+        print("FAIL: apply(double, 21) should be 42, got ${r1}\n")
+        return 1
+    }
+
+    // Test 2: Pass binary function
+    let r2 = combine(add, 10, 32)
+    if r2 != 42 {
+        print("FAIL: combine(add, 10, 32) should be 42, got ${r2}\n")
+        return 1
+    }
+
+    // Test 3: Store named function in variable with closure type
+    let f: fn(i32) -> i32 = double
+    let r3 = f(21)
+    if r3 != 42 {
+        print("FAIL: f(21) should be 42, got ${r3}\n")
+        return 1
+    }
+
+    // Test 4: Pass void function
+    run_action(greet)
+
+    // Test 5: Use same function multiple times (thunk should be reused)
+    let r5a = apply(double, 5)
+    let r5b = apply(double, 10)
+    if r5a != 10 or r5b != 20 {
+        print("FAIL: double reuse failed\n")
+        return 1
+    }
+
+    // Test 6: Mix named functions and closures
+    let r6a = apply(double, 5)        // named function
+    let r6b = apply(fn(x) x * 3, 5)   // closure
+    if r6a != 10 or r6b != 15 {
+        print("FAIL: mixed function/closure failed\n")
+        return 1
+    }
+
+    print("All function coercion tests passed!\n")
+    return 0
+}

@@ -15,6 +15,11 @@
 - Move semantics for struct/tuple destructuring (source marked as moved)
 
 ## Planned
+- Closures (`(x) => expr`, `(x) => { block }`) - see `docs/proposals/closures.md`
+  - Phase 1: Basic closure parsing and codegen
+  - Phase 2: Capture semantics (borrow vs move)
+  - Phase 3: Higher-order functions (map, filter, fold)
+  - Phase 4: LSP support
 - Attributes and macros (`@` decorators, `!` function-like macros) - see `docs/proposals/macros.md`
   - Phase 1: Attribute parsing (`@name`, `@name(...)`)
   - Phase 2: Built-in derives (`@derive(Clone, Debug)`)

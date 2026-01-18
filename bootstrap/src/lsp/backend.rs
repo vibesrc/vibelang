@@ -183,6 +183,10 @@ impl Backend {
                 let type_strs: Vec<_> = types.iter().map(|t| self.type_to_string(t)).collect();
                 format!("({})", type_strs.join(", "))
             }
+            Type::Fn(params, return_type) => {
+                let param_strs: Vec<_> = params.iter().map(|t| self.type_to_string(t)).collect();
+                format!("fn({}) -> {}", param_strs.join(", "), self.type_to_string(return_type))
+            }
             Type::SelfType => "Self".to_string(),
         }
     }

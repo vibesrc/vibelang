@@ -316,6 +316,16 @@ impl Backend {
                 Literal::Char(_) => Some("char".to_string()),
                 Literal::String(_) => Some("Slice<u8>".to_string()),
             },
+            Expr::Closure { params, return_type, .. } => {
+                // Build closure type signature: (T1, T2) => R
+                let param_types: Vec<String> = params.iter().map(|(_, ty)| {
+                    ty.as_ref().map(|t| self.type_to_string(t)).unwrap_or_else(|| "?".to_string())
+                }).collect();
+                let ret_type = return_type.as_ref()
+                    .map(|t| self.type_to_string(t))
+                    .unwrap_or_else(|| "?".to_string());
+                Some(format!("({}) => {}", param_types.join(", "), ret_type))
+            }
             _ => None,
         }
     }

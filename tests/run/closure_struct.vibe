@@ -1,0 +1,41 @@
+// Test storing closures in structs
+
+struct Handler {
+    callback: fn(i32) -> i32
+}
+
+fn main() -> i32 {
+    // Test 1: Store a simple closure in a struct
+    let double = fn(x: i32) -> i32 { return x * 2 }
+    let h1 = Handler { callback: double }
+
+    // Extract the closure and call it
+    let f1 = h1.callback
+    let r1 = f1(5)
+    if r1 != 10 {
+        print("FAIL: f1(5) should be 10, got ${r1}\n")
+        return 1
+    }
+
+    // Test 2: Store a capturing closure
+    let multiplier = 3
+    let h2 = Handler { callback: fn(x: i32) -> i32 { return x * multiplier } }
+    let f2 = h2.callback
+    let r2 = f2(7)
+    if r2 != 21 {
+        print("FAIL: f2(7) should be 21, got ${r2}\n")
+        return 1
+    }
+
+    // Test 3: Replace the callback
+    let h3 = Handler { callback: fn(x: i32) -> i32 { return x + 100 } }
+    let f3 = h3.callback
+    let r3 = f3(5)
+    if r3 != 105 {
+        print("FAIL: f3(5) should be 105, got ${r3}\n")
+        return 1
+    }
+
+    print("All closure struct tests passed!\n")
+    return 0
+}

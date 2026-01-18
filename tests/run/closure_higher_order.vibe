@@ -1,0 +1,54 @@
+// Test higher-order functions with closures
+
+// A function that takes a closure and applies it
+fn apply(f: fn(i32) -> i32, x: i32) -> i32 {
+    return f(x)
+}
+
+// A function that takes a closure with two params
+fn combine(f: fn(i32, i32) -> i32, a: i32, b: i32) -> i32 {
+    return f(a, b)
+}
+
+fn main() -> i32 {
+    // Test 1: Pass a simple closure to apply
+    let result1 = apply(fn(x) x * 2, 21)
+    if result1 != 42 {
+        print("FAIL: apply(fn(x) x * 2, 21) should be 42\n")
+        return 1
+    }
+
+    // Test 2: Pass a closure that captures a variable
+    let multiplier = 10
+    let result2 = apply(fn(x) x * multiplier, 5)
+    if result2 != 50 {
+        print("FAIL: apply with capture should be 50\n")
+        return 1
+    }
+
+    // Test 3: Pass a two-param closure
+    let result3 = combine(fn(a, b) a + b, 3, 4)
+    if result3 != 7 {
+        print("FAIL: combine(fn(a, b) a + b, 3, 4) should be 7\n")
+        return 1
+    }
+
+    // Test 4: Pass a closure with captures to combine
+    let offset = 100
+    let result4 = combine(fn(a, b) a + b + offset, 3, 4)
+    if result4 != 107 {
+        print("FAIL: combine with capture should be 107\n")
+        return 1
+    }
+
+    // Test 5: Store closure in variable, then pass it
+    let double = fn(x: i32) x * 2
+    let result5 = apply(double, 10)
+    if result5 != 20 {
+        print("FAIL: apply(double, 10) should be 20\n")
+        return 1
+    }
+
+    print("All higher-order function tests passed!\n")
+    return 0
+}

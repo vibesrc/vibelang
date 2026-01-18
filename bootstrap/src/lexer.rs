@@ -113,6 +113,7 @@ pub enum Keyword {
     As,
     Defer,
     Unsafe,
+    Move,
 }
 
 #[derive(Debug, Clone)]
@@ -786,6 +787,7 @@ impl<'a> Lexer<'a> {
             "as" => TokenKind::Keyword(Keyword::As),
             "defer" => TokenKind::Keyword(Keyword::Defer),
             "unsafe" => TokenKind::Keyword(Keyword::Unsafe),
+            "move" => TokenKind::Keyword(Keyword::Move),
             _ => TokenKind::Ident(ident),
         }
     }

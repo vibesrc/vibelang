@@ -2,10 +2,38 @@
 
 use super::{ParseError, Parser};
 use crate::ast::Type;
-use crate::lexer::TokenKind;
+use crate::lexer::{Keyword, TokenKind};
 
 impl Parser {
     pub(crate) fn parse_type(&mut self) -> Result<Type, ParseError> {
+        // Function type: fn(T1, T2) -> R
+        if self.match_keyword(Keyword::Fn) {
+            self.expect(TokenKind::LParen)?;
+
+            let mut param_types = Vec::new();
+            if !self.check(TokenKind::RParen) {
+                loop {
+                    param_types.push(self.parse_type()?);
+                    if !self.match_token(TokenKind::Comma) {
+                        break;
+                    }
+                    if self.check(TokenKind::RParen) {
+                        break; // trailing comma
+                    }
+                }
+            }
+            self.expect(TokenKind::RParen)?;
+
+            // Return type: -> Type (optional, defaults to void)
+            let return_type = if self.match_token(TokenKind::Arrow) {
+                self.parse_type()?
+            } else {
+                Type::Void
+            };
+
+            return Ok(Type::Fn(param_types, Box::new(return_type)));
+        }
+
         // Tuple type: (T1, T2, ...)
         if self.match_token(TokenKind::LParen) {
             let mut types = Vec::new();

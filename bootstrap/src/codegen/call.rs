@@ -116,6 +116,68 @@ impl<'ctx> Codegen<'ctx> {
             )),
         };
 
+        // Check if this is a closure stored in a variable (fat pointer: {fn_ptr, env_ptr})
+        if let Some(var_info) = self.variables.get(name) {
+            if var_info.ty.is_struct_type() {
+                use inkwell::AddressSpace;
+                let ptr_type = self.context.ptr_type(AddressSpace::default());
+                let fat_ptr_type = self.context.struct_type(&[ptr_type.into(), ptr_type.into()], false);
+
+                // Check if it's a fat pointer struct (2 pointers)
+                let struct_type = var_info.ty.into_struct_type();
+                if struct_type.count_fields() == 2 {
+                    // Extract fn_ptr (index 0) and env_ptr (index 1)
+                    let fn_ptr_gep = self.builder
+                        .build_struct_gep(fat_ptr_type, var_info.ptr, 0, "fn_ptr_gep")
+                        .unwrap();
+                    let fn_ptr = self.builder
+                        .build_load(ptr_type, fn_ptr_gep, "fn_ptr")
+                        .unwrap()
+                        .into_pointer_value();
+
+                    let env_ptr_gep = self.builder
+                        .build_struct_gep(fat_ptr_type, var_info.ptr, 1, "env_ptr_gep")
+                        .unwrap();
+                    let env_ptr = self.builder
+                        .build_load(ptr_type, env_ptr_gep, "env_ptr")
+                        .unwrap();
+
+                    // Compile user arguments
+                    let mut compiled_args: Vec<BasicValueEnum> = Vec::new();
+                    for arg in args.iter() {
+                        compiled_args.push(self.compile_expr(arg)?);
+                    }
+
+                    // Build the function type: env_ptr first, then user args
+                    let mut param_types: Vec<inkwell::types::BasicMetadataTypeEnum> = Vec::new();
+                    param_types.push(ptr_type.into()); // env_ptr
+                    for arg in &compiled_args {
+                        param_types.push(arg.get_type().into());
+                    }
+                    let fn_type = self.context.i32_type().fn_type(&param_types, false);
+
+                    // Build args: env_ptr first, then user args
+                    let mut all_args: Vec<inkwell::values::BasicMetadataValueEnum> = Vec::new();
+                    all_args.push(env_ptr.into());
+                    for arg in &compiled_args {
+                        all_args.push((*arg).into());
+                    }
+
+                    // Build indirect call through function pointer
+                    let call_site = self.builder
+                        .build_indirect_call(fn_type, fn_ptr, &all_args, "closure_call")
+                        .unwrap();
+
+                    return match call_site.try_as_basic_value() {
+                        inkwell::values::ValueKind::Basic(val) => Ok(val),
+                        inkwell::values::ValueKind::Instruction(_) => {
+                            Ok(self.context.i32_type().const_zero().into())
+                        }
+                    };
+                }
+            }
+        }
+
         // Handle intrinsic functions
         if name == "print" {
             return self.compile_print_call(args);

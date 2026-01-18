@@ -390,6 +390,12 @@ impl Parser {
     fn parse_primary(&mut self) -> Result<Expr, ParseError> {
         let span = self.current_span();
 
+        // Check for `fn` keyword - anonymous function (closure)
+        if self.check(TokenKind::Keyword(Keyword::Fn)) {
+            self.advance();
+            return self.parse_closure(span);
+        }
+
         match self.peek_kind() {
             Some(TokenKind::Int(n, suffix)) => {
                 let n = *n;
@@ -511,6 +517,7 @@ impl Parser {
                 Ok(Expr::Ident(name, span))
             }
             Some(TokenKind::LParen) => {
+                // Could be: grouping (expr) or tuple (a, b)
                 self.advance();
 
                 // Empty tuple ()
@@ -765,6 +772,64 @@ impl Parser {
 
         false
     }
+
+    /// Parse an anonymous function (closure): fn(params) body or fn(params) -> Type body
+    fn parse_closure(&mut self, start: Span) -> Result<Expr, ParseError> {
+        self.expect(TokenKind::LParen)?;
+
+        // Parse parameters
+        let mut params = Vec::new();
+
+        if !self.check(TokenKind::RParen) {
+            loop {
+                let name = self.expect_ident()?;
+                let ty = if self.match_token(TokenKind::Colon) {
+                    Some(self.parse_type()?)
+                } else {
+                    None
+                };
+                params.push((name, ty));
+
+                if !self.match_token(TokenKind::Comma) {
+                    break;
+                }
+                if self.check(TokenKind::RParen) {
+                    break; // trailing comma
+                }
+            }
+        }
+
+        self.expect(TokenKind::RParen)?;
+
+        // Optional return type: -> Type
+        let return_type = if self.match_token(TokenKind::Arrow) {
+            Some(self.parse_type()?)
+        } else {
+            None
+        };
+
+        let body = self.parse_closure_body()?;
+
+        Ok(Expr::Closure {
+            params,
+            return_type,
+            body,
+            span: self.span_from(start),
+        })
+    }
+
+    /// Parse closure body: expression or block
+    fn parse_closure_body(&mut self) -> Result<ClosureBody, ParseError> {
+        if self.check(TokenKind::LBrace) {
+            // Block body - explicit return required
+            let block = self.parse_block()?;
+            Ok(ClosureBody::Block(block))
+        } else {
+            // Expression body - implicit return
+            let expr = self.parse_expr()?;
+            Ok(ClosureBody::Expr(Box::new(expr)))
+        }
+    }
 }
 
 // Helper trait for Expr
@@ -793,6 +858,7 @@ impl Expr {
             Expr::Range { span, .. } => *span,
             Expr::InterpolatedString { span, .. } => *span,
             Expr::Unsafe { span, .. } => *span,
+            Expr::Closure { span, .. } => *span,
         }
     }
 }

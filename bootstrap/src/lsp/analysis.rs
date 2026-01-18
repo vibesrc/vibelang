@@ -270,6 +270,29 @@ impl Backend {
                 self.extract_variables_from_expr(then_expr, symbols, span.start, span.end);
                 self.extract_variables_from_expr(else_expr, symbols, span.start, span.end);
             }
+            Expr::Closure { params, body, span, .. } => {
+                // Add closure parameters as variables scoped to the closure body
+                for (param_name, param_ty) in params {
+                    let ty_str = param_ty.as_ref().map(|t| self.type_to_string(t));
+                    symbols.variables.push(VariableInfo {
+                        name: param_name.clone(),
+                        ty: ty_str,
+                        span: *span,
+                        scope_start: span.start,
+                        scope_end: span.end,
+                        borrow_state: BorrowState::Owned,
+                    });
+                }
+                // Extract variables from closure body
+                match body {
+                    crate::ast::ClosureBody::Expr(expr) => {
+                        self.extract_variables_from_expr(expr, symbols, span.start, span.end);
+                    }
+                    crate::ast::ClosureBody::Block(block) => {
+                        self.extract_variables_from_block(block, symbols, span.start, span.end);
+                    }
+                }
+            }
             _ => {}
         }
     }
@@ -755,6 +778,24 @@ impl Backend {
                 self.analyze_expr(start, symbols, diagnostics, moved_vars, borrowed_vars);
                 self.analyze_expr(end, symbols, diagnostics, moved_vars, borrowed_vars);
             }
+            Expr::Closure { params, body, .. } => {
+                // Closure parameters create a new scope
+                // Smart capture: compiler infers capture mode
+
+                // Analyze the closure body
+                match body {
+                    crate::ast::ClosureBody::Expr(expr) => {
+                        self.analyze_expr(expr, symbols, diagnostics, moved_vars, borrowed_vars);
+                    }
+                    crate::ast::ClosureBody::Block(block) => {
+                        self.analyze_block(block, symbols, &[], diagnostics, moved_vars, borrowed_vars);
+                    }
+                }
+
+                // Smart capture: the compiler will determine capture mode based on usage
+                // For now, we don't mark anything as moved - full inference will come later
+                let _ = params; // suppress unused warning
+            }
             _ => {}
         }
     }
@@ -834,6 +875,16 @@ impl Backend {
                 } else {
                     None
                 }
+            }
+            Expr::Closure { params, return_type, .. } => {
+                // Build closure type signature: (T1, T2) => R
+                let param_types: Vec<String> = params.iter().map(|(_, ty)| {
+                    ty.as_ref().map(|t| self.type_to_string(t)).unwrap_or_else(|| "i32".to_string())
+                }).collect();
+                let ret_type = return_type.as_ref()
+                    .map(|t| self.type_to_string(t))
+                    .unwrap_or_else(|| "i32".to_string());
+                Some(format!("({}) => {}", param_types.join(", "), ret_type))
             }
             _ => None,
         }
@@ -1003,6 +1054,118 @@ impl Backend {
         self.extract_symbols(&program, &mut module_symbols);
 
         Some(module_symbols)
+    }
+
+    /// Get variables captured by a closure (variables referenced but not defined in the closure)
+    fn get_captured_variables(
+        &self,
+        body: &crate::ast::ClosureBody,
+        params: &[(String, Option<Type>)],
+        symbols: &SymbolTable,
+    ) -> Vec<String> {
+        let param_names: Vec<&str> = params.iter().map(|(n, _)| n.as_str()).collect();
+        let mut captured = Vec::new();
+
+        match body {
+            crate::ast::ClosureBody::Expr(expr) => {
+                self.collect_idents_from_expr(expr, &param_names, symbols, &mut captured);
+            }
+            crate::ast::ClosureBody::Block(block) => {
+                for stmt in &block.stmts {
+                    self.collect_idents_from_stmt(stmt, &param_names, symbols, &mut captured);
+                }
+            }
+        }
+
+        captured
+    }
+
+    /// Collect identifiers from an expression that might be captured
+    fn collect_idents_from_expr(
+        &self,
+        expr: &Expr,
+        local_vars: &[&str],
+        symbols: &SymbolTable,
+        captured: &mut Vec<String>,
+    ) {
+        match expr {
+            Expr::Ident(name, _) => {
+                // If it's not a local variable and exists in outer scope, it's captured
+                if !local_vars.contains(&name.as_str())
+                    && symbols.variables.iter().any(|v| &v.name == name)
+                    && !captured.contains(name)
+                {
+                    captured.push(name.clone());
+                }
+            }
+            Expr::Binary { left, right, .. } => {
+                self.collect_idents_from_expr(left, local_vars, symbols, captured);
+                self.collect_idents_from_expr(right, local_vars, symbols, captured);
+            }
+            Expr::Unary { operand, .. } => {
+                self.collect_idents_from_expr(operand, local_vars, symbols, captured);
+            }
+            Expr::Call { func, args, .. } => {
+                self.collect_idents_from_expr(func, local_vars, symbols, captured);
+                for arg in args {
+                    self.collect_idents_from_expr(arg, local_vars, symbols, captured);
+                }
+            }
+            Expr::MethodCall { receiver, args, .. } => {
+                self.collect_idents_from_expr(receiver, local_vars, symbols, captured);
+                for arg in args {
+                    self.collect_idents_from_expr(arg, local_vars, symbols, captured);
+                }
+            }
+            Expr::Field { object, .. } => {
+                self.collect_idents_from_expr(object, local_vars, symbols, captured);
+            }
+            Expr::Index { array, index, .. } => {
+                self.collect_idents_from_expr(array, local_vars, symbols, captured);
+                self.collect_idents_from_expr(index, local_vars, symbols, captured);
+            }
+            Expr::Block(block) => {
+                for stmt in &block.stmts {
+                    self.collect_idents_from_stmt(stmt, local_vars, symbols, captured);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// Collect identifiers from a statement
+    fn collect_idents_from_stmt(
+        &self,
+        stmt: &Stmt,
+        local_vars: &[&str],
+        symbols: &SymbolTable,
+        captured: &mut Vec<String>,
+    ) {
+        match stmt {
+            Stmt::Let { value, .. } => {
+                self.collect_idents_from_expr(value, local_vars, symbols, captured);
+            }
+            Stmt::Expr(expr) => {
+                self.collect_idents_from_expr(expr, local_vars, symbols, captured);
+            }
+            Stmt::Return { value, .. } => {
+                if let Some(v) = value {
+                    self.collect_idents_from_expr(v, local_vars, symbols, captured);
+                }
+            }
+            Stmt::If { condition, then_block, else_block, .. } => {
+                self.collect_idents_from_expr(condition, local_vars, symbols, captured);
+                for stmt in &then_block.stmts {
+                    self.collect_idents_from_stmt(stmt, local_vars, symbols, captured);
+                }
+                if let Some(else_b) = else_block {
+                    for stmt in &else_b.stmts {
+                        self.collect_idents_from_stmt(stmt, local_vars, symbols, captured);
+                    }
+                }
+            }
+            _ => {}
+        }
     }
 
     /// Get the path to the std library src directory
