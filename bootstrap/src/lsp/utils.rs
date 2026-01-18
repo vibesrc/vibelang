@@ -74,6 +74,40 @@ pub fn is_builtin_function(name: &str) -> bool {
     )
 }
 
+/// Check if a type is a Copy type (implicitly duplicated, not moved)
+/// Copy types: all primitives, raw pointers, fixed arrays of Copy types
+pub fn is_copy_type(ty: &str) -> bool {
+    let ty = ty.trim();
+
+    // Primitive types are Copy
+    if matches!(
+        ty,
+        "i8" | "i16" | "i32" | "i64"
+        | "u8" | "u16" | "u32" | "u64"
+        | "f32" | "f64"
+        | "bool"
+        | "char"
+    ) {
+        return true;
+    }
+
+    // Raw pointers are Copy
+    if ty.starts_with('*') {
+        return true;
+    }
+
+    // Fixed-size arrays of Copy types are Copy (e.g., "i32[10]")
+    if let Some(bracket_pos) = ty.find('[') {
+        if ty.ends_with(']') {
+            let elem_type = &ty[..bracket_pos];
+            return is_copy_type(elem_type);
+        }
+    }
+
+    // Everything else (String, Vec, structs, enums with owned data) is not Copy
+    false
+}
+
 /// Standard library modules available for import (dynamically discovered)
 pub fn std_modules() -> Vec<String> {
     // Try to find and list std modules dynamically

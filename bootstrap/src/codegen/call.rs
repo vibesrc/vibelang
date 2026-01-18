@@ -384,6 +384,43 @@ impl<'ctx> Codegen<'ctx> {
             let expected_type = param_types.as_ref()
                 .and_then(|types| types.get(i))
                 .cloned();
+
+            // Check borrow/move type matching at call site
+            // ~expr can only be passed to ~T params, &expr to &T params, expr to T params
+            if let Some(ref param_ty) = expected_type {
+                match arg {
+                    Expr::RefMut { .. } => {
+                        // ~expr passed - parameter must be ~T
+                        if !matches!(param_ty, Type::RefMut(_)) {
+                            return Err(CodegenError::BorrowError(format!(
+                                "cannot pass mutable borrow '~' to parameter expecting owned value. \
+                                 Change function parameter to '~{}' or remove '~' from argument",
+                                self.type_name(param_ty)
+                            )));
+                        }
+                    }
+                    Expr::Ref { .. } => {
+                        // &expr passed - parameter must be &T
+                        if !matches!(param_ty, Type::Ref(_)) {
+                            return Err(CodegenError::BorrowError(format!(
+                                "cannot pass immutable borrow '&' to parameter expecting owned value. \
+                                 Change function parameter to '&{}' or remove '&' from argument",
+                                self.type_name(param_ty)
+                            )));
+                        }
+                    }
+                    _ => {
+                        // Plain expr passed - parameter must NOT be a reference type
+                        if matches!(param_ty, Type::Ref(_) | Type::RefMut(_)) {
+                            return Err(CodegenError::BorrowError(format!(
+                                "cannot pass owned value to parameter expecting a borrow. \
+                                 Add '&' or '~' to the argument"
+                            )));
+                        }
+                    }
+                }
+            }
+
             let arg_val = self.compile_expr_with_type(arg, expected_type.as_ref())?;
 
             // Check if we need to coerce value to reference
@@ -496,6 +533,43 @@ impl<'ctx> Codegen<'ctx> {
             let expected_type = param_types.as_ref()
                 .and_then(|types| types.get(i))
                 .cloned();
+
+            // Check borrow/move type matching at call site
+            // ~expr can only be passed to ~T params, &expr to &T params, expr to T params
+            if let Some(ref param_ty) = expected_type {
+                match arg {
+                    Expr::RefMut { .. } => {
+                        // ~expr passed - parameter must be ~T
+                        if !matches!(param_ty, Type::RefMut(_)) {
+                            return Err(CodegenError::BorrowError(format!(
+                                "cannot pass mutable borrow '~' to parameter expecting owned value. \
+                                 Change function parameter to '~{}' or remove '~' from argument",
+                                self.type_name(param_ty)
+                            )));
+                        }
+                    }
+                    Expr::Ref { .. } => {
+                        // &expr passed - parameter must be &T
+                        if !matches!(param_ty, Type::Ref(_)) {
+                            return Err(CodegenError::BorrowError(format!(
+                                "cannot pass immutable borrow '&' to parameter expecting owned value. \
+                                 Change function parameter to '&{}' or remove '&' from argument",
+                                self.type_name(param_ty)
+                            )));
+                        }
+                    }
+                    _ => {
+                        // Plain expr passed - parameter must NOT be a reference type
+                        if matches!(param_ty, Type::Ref(_) | Type::RefMut(_)) {
+                            return Err(CodegenError::BorrowError(format!(
+                                "cannot pass owned value to parameter expecting a borrow. \
+                                 Add '&' or '~' to the argument"
+                            )));
+                        }
+                    }
+                }
+            }
+
             let arg_val = self.compile_expr_with_type(arg, expected_type.as_ref())?;
 
             // Check if we need to coerce value to reference
@@ -715,6 +789,43 @@ impl<'ctx> Codegen<'ctx> {
             let expected_type = param_types.as_ref()
                 .and_then(|types| types.get(i + 1))
                 .cloned();
+
+            // Check borrow/move type matching at call site
+            // ~expr can only be passed to ~T params, &expr to &T params, expr to T params
+            if let Some(ref param_ty) = expected_type {
+                match arg {
+                    Expr::RefMut { .. } => {
+                        // ~expr passed - parameter must be ~T
+                        if !matches!(param_ty, Type::RefMut(_)) {
+                            return Err(CodegenError::BorrowError(format!(
+                                "cannot pass mutable borrow '~' to parameter expecting owned value. \
+                                 Change function parameter to '~{}' or remove '~' from argument",
+                                self.type_name(param_ty)
+                            )));
+                        }
+                    }
+                    Expr::Ref { .. } => {
+                        // &expr passed - parameter must be &T
+                        if !matches!(param_ty, Type::Ref(_)) {
+                            return Err(CodegenError::BorrowError(format!(
+                                "cannot pass immutable borrow '&' to parameter expecting owned value. \
+                                 Change function parameter to '&{}' or remove '&' from argument",
+                                self.type_name(param_ty)
+                            )));
+                        }
+                    }
+                    _ => {
+                        // Plain expr passed - parameter must NOT be a reference type
+                        if matches!(param_ty, Type::Ref(_) | Type::RefMut(_)) {
+                            return Err(CodegenError::BorrowError(format!(
+                                "cannot pass owned value to parameter expecting a borrow. \
+                                 Add '&' or '~' to the argument"
+                            )));
+                        }
+                    }
+                }
+            }
+
             let arg_val = self.compile_expr_with_type(arg, expected_type.as_ref())?;
 
             // Check if we need to coerce value to reference

@@ -316,6 +316,8 @@ impl<'ctx> Codegen<'ctx> {
                     .get(name)
                     .ok_or_else(|| CodegenError::UndefinedVariable(name.clone()))?;
                 self.builder.build_store(var_info.ptr, rhs).unwrap();
+                // Reassignment revives a moved variable
+                self.moved_vars.remove(name);
                 return Ok(rhs);
             }
 

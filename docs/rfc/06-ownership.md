@@ -36,6 +36,21 @@ All primitives are Copy:
 - Raw pointers: `*T`
 - Fixed arrays of Copy types: `T[N]`
 
+Structs are NOT automatically Copy, even if all fields are Copy:
+
+```vibelang
+struct Point {
+    x: i32      // Copy
+    y: i32      // Copy
+}
+
+let a = Point { x: 1, y: 2 }
+let b = a                       // a is MOVED, not copied
+print(a.x)                      // ERROR: a was moved
+```
+
+This is intentional: adding a non-Copy field later shouldn't silently change semantics. Opt-in Copy for structs may be added in a future version.
+
 ## 6.3 Owned Types
 
 Owned types have single ownership. Assignment moves the value:
@@ -78,6 +93,85 @@ fn main() {
     let msg = String.from("hello")
     consume(msg)                    // msg moved into consume
     print(&msg)                     // ERROR: msg was moved
+}
+```
+
+### Call-Site Type Matching
+
+The argument syntax must match the parameter type:
+
+| Parameter | Argument | Valid? |
+|-----------|----------|--------|
+| `p: Point` | `foo(p)` | ✓ Move |
+| `p: ~Point` | `foo(~p)` | ✓ Mutable borrow |
+| `p: &Point` | `foo(&p)` | ✓ Read-only borrow |
+| `p: Point` | `foo(~p)` | ✗ Type mismatch |
+| `p: Point` | `foo(&p)` | ✗ Type mismatch |
+| `p: ~Point` | `foo(p)` | ✗ Type mismatch |
+
+```vibelang
+fn takes_owned(p: Point) { }
+fn takes_mut_borrow(p: ~Point) { }
+fn takes_borrow(p: &Point) { }
+
+fn main() {
+    let p = Point { x: 1, y: 2 }
+
+    takes_owned(p)              // OK: move
+    takes_mut_borrow(~p)        // ERROR: p was moved
+
+    let q = Point { x: 3, y: 4 }
+    takes_mut_borrow(~q)        // OK: mutable borrow
+    takes_borrow(&q)            // OK: read-only borrow after mut borrow ends
+
+    // Type mismatches:
+    let r = Point { x: 5, y: 6 }
+    takes_owned(~r)             // ERROR: cannot pass ~Point to Point param
+    takes_owned(&r)             // ERROR: cannot pass &Point to Point param
+}
+```
+
+### Modifying Owned Values
+
+Functions that take ownership can modify the value:
+
+```vibelang
+fn transform(p: Point, amount: i32) -> Point {
+    p.x = p.x + amount          // OK: we own p, can modify
+    p.y = p.y + amount
+    return p                    // return modified value
+}
+
+fn consume(p: Point) {
+    p.x = p.x + 1               // OK: we own it, can do whatever
+    // p dropped here - modification was intentional
+}
+```
+
+The caller consented to give up ownership by passing `p` (not `&p` or `~p`), so the function can modify, consume, or drop the value as needed.
+
+### Reassignment After Move
+
+Reassigning to a moved variable revives it:
+
+```vibelang
+fn main() {
+    let p = Point { x: 1, y: 2 }
+    let q = p                   // p moved to q
+    // p is invalid here
+
+    p = Point { x: 3, y: 4 }    // p revived with new value
+    print(p.x)                  // OK: p is valid again
+}
+```
+
+This enables the transform pattern:
+
+```vibelang
+fn main() {
+    let p = Point { x: 1, y: 2 }
+    p = transform(p, 10)        // move p in, get new p back
+    print(p.x)                  // OK: p was reassigned
 }
 ```
 

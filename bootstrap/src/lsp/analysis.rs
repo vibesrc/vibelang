@@ -11,7 +11,7 @@ use crate::lsp::types::{
     BorrowState, EnumInfo, FunctionInfo, ImportedItem, ImportedItemKind, MethodInfo, StructInfo, SymbolTable, VariableInfo,
     VariantData, VariantFieldsData,
 };
-use crate::lsp::utils::{is_builtin_function, is_builtin_type, is_prelude_type};
+use crate::lsp::utils::{is_builtin_function, is_builtin_type, is_copy_type, is_prelude_type};
 use crate::lsp::Backend;
 
 impl Backend {
@@ -643,7 +643,19 @@ impl Backend {
 
                     if !is_builtin {
                         if let Expr::Ident(name, span) = arg {
-                            moved_vars.insert(name.clone(), *span);
+                            // Only mark as moved if the type is NOT a Copy type
+                            // Copy types (primitives, raw pointers) are implicitly duplicated
+                            let is_copy = symbols
+                                .variables
+                                .iter()
+                                .find(|v| &v.name == name)
+                                .and_then(|v| v.ty.as_ref())
+                                .map(|ty| is_copy_type(ty))
+                                .unwrap_or(false);
+
+                            if !is_copy {
+                                moved_vars.insert(name.clone(), *span);
+                            }
                         }
                     }
                 }
