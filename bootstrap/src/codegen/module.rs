@@ -282,6 +282,27 @@ impl<'ctx> Codegen<'ctx> {
                 Item::Struct(s) if s.is_pub => { public_items.insert(s.name.clone()); }
                 Item::Enum(e) if e.is_pub => { public_items.insert(e.name.clone()); }
                 Item::Static(s) if s.is_pub => { public_items.insert(s.name.clone()); }
+                // Handle pub use re-exports
+                Item::Use(u) if u.is_pub => {
+                    match &u.items {
+                        ImportItems::Named(items) => {
+                            for import_item in items {
+                                let name = import_item.alias.as_ref().unwrap_or(&import_item.name);
+                                public_items.insert(name.clone());
+                            }
+                        }
+                        ImportItems::Glob => {
+                            // For glob re-exports, we'd need to resolve the source module
+                            // For now, mark that everything from this module could be public
+                        }
+                        ImportItems::Module => {
+                            // Module re-export - the module name itself is public
+                            if let Some(module_name) = u.path.last() {
+                                public_items.insert(module_name.clone());
+                            }
+                        }
+                    }
+                }
                 _ => {}
             }
         }

@@ -8,7 +8,7 @@
 //!
 //! Both the LSP and codegen use this analyzer.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use crate::ast::*;
 use crate::lexer::Span;
 use super::borrow::{BorrowChecker, BorrowState};
@@ -37,6 +37,8 @@ pub struct SemanticAnalyzer {
     borrows: BorrowChecker,
     /// Current function's generic type parameters
     current_type_params: Vec<String>,
+    /// Type names imported via `use` statements (treated as valid)
+    imported_types: HashSet<String>,
 }
 
 impl SemanticAnalyzer {
@@ -48,6 +50,7 @@ impl SemanticAnalyzer {
             ownership: OwnershipTracker::new(),
             borrows: BorrowChecker::new(),
             current_type_params: Vec::new(),
+            imported_types: HashSet::new(),
         }
     }
 
@@ -632,12 +635,15 @@ impl SemanticAnalyzer {
             }
 
             Expr::StructInit { name, fields, span, .. } => {
-                // Check struct exists
+                // Check struct exists (including imported types)
                 let base_name = name.split('<').next().unwrap_or(name);
-                if !self.symbols.structs.contains_key(base_name)
-                    && !self.symbols.enums.contains_key(base_name)
-                    && !is_prelude_type(base_name)
-                {
+                let is_valid = self.symbols.structs.contains_key(base_name)
+                    || self.symbols.enums.contains_key(base_name)
+                    || is_prelude_type(base_name)
+                    || self.imported_types.contains(base_name)
+                    || self.imported_types.contains("*"); // Glob import
+
+                if !is_valid {
                     self.errors.push(SemanticError::UndefinedType {
                         name: name.clone(),
                         span: *span,
@@ -715,12 +721,16 @@ impl SemanticAnalyzer {
     fn check_type(&mut self, ty: &Type, span: &Span) {
         match ty {
             Type::Named { name, generics } => {
-                if !self.current_type_params.contains(name)
-                    && !self.symbols.structs.contains_key(name)
-                    && !self.symbols.enums.contains_key(name)
-                    && !is_builtin_type(name)
-                    && !is_prelude_type(name)
-                {
+                // Check if type is valid: builtin, prelude, type param, user-defined, or imported
+                let is_valid = self.current_type_params.contains(name)
+                    || self.symbols.structs.contains_key(name)
+                    || self.symbols.enums.contains_key(name)
+                    || is_builtin_type(name)
+                    || is_prelude_type(name)
+                    || self.imported_types.contains(name)
+                    || self.imported_types.contains("*"); // Glob import - be lenient
+
+                if !is_valid {
                     self.errors.push(SemanticError::UndefinedType {
                         name: name.clone(),
                         span: *span,
@@ -742,17 +752,34 @@ impl SemanticAnalyzer {
     }
 
     fn check_duplicate_imports(&mut self, use_stmt: &Use) {
-        if let ImportItems::Named(items) = &use_stmt.items {
-            let mut seen: HashMap<String, Span> = HashMap::new();
-            for item in items {
-                let name = item.alias.as_ref().unwrap_or(&item.name);
-                if seen.contains_key(name) {
-                    self.errors.push(SemanticError::DuplicateImport {
-                        name: name.clone(),
-                        span: item.span,
-                    });
-                } else {
-                    seen.insert(name.clone(), item.span);
+        match &use_stmt.items {
+            ImportItems::Named(items) => {
+                let mut seen: HashMap<String, Span> = HashMap::new();
+                for item in items {
+                    let name = item.alias.as_ref().unwrap_or(&item.name);
+                    if seen.contains_key(name) {
+                        self.errors.push(SemanticError::DuplicateImport {
+                            name: name.clone(),
+                            span: item.span,
+                        });
+                    } else {
+                        seen.insert(name.clone(), item.span);
+                    }
+                    // Track this as an imported type (could be struct, enum, or function)
+                    self.imported_types.insert(name.clone());
+                }
+            }
+            ImportItems::Glob => {
+                // Glob imports - we can't know the names statically without loading the module
+                // Mark that we have glob imports so we're lenient with unknown types
+                // Use a sentinel value to indicate glob import presence
+                self.imported_types.insert("*".to_string());
+            }
+            ImportItems::Module => {
+                // Module import (e.g., `use std.fs` for `fs.File`)
+                // The module name becomes available as a namespace prefix
+                if let Some(module_name) = use_stmt.path.last() {
+                    self.imported_types.insert(module_name.clone());
                 }
             }
         }
