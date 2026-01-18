@@ -1,0 +1,920 @@
+//! Semantic analyzer for Vibelang
+//!
+//! Performs a single pass over the AST to:
+//! - Build the symbol table (functions, structs, enums, variables, methods)
+//! - Track ownership (moves) and borrows per scope
+//! - Validate types and borrow rules
+//! - Collect all semantic errors
+//!
+//! Both the LSP and codegen use this analyzer.
+
+use std::collections::HashMap;
+use crate::ast::*;
+use crate::lexer::Span;
+use super::borrow::{BorrowChecker, BorrowState};
+use super::ownership::{OwnershipTracker, is_copy_type};
+use super::symbols::*;
+use super::errors::{SemanticError, BorrowKind};
+use super::types::{is_builtin_type, is_builtin_function, is_prelude_type};
+
+/// Result of semantic analysis
+pub struct AnalysisResult {
+    /// The populated symbol table
+    pub symbols: SymbolTable,
+    /// All semantic errors found
+    pub errors: Vec<SemanticError>,
+}
+
+/// Semantic analyzer that walks the AST and validates semantic rules
+pub struct SemanticAnalyzer {
+    /// The symbol table being built
+    symbols: SymbolTable,
+    /// Collected errors
+    errors: Vec<SemanticError>,
+    /// Ownership tracker for the current function
+    ownership: OwnershipTracker,
+    /// Borrow checker for the current function
+    borrows: BorrowChecker,
+    /// Current function's generic type parameters
+    current_type_params: Vec<String>,
+}
+
+impl SemanticAnalyzer {
+    /// Create a new semantic analyzer
+    pub fn new() -> Self {
+        Self {
+            symbols: SymbolTable::new(),
+            errors: Vec::new(),
+            ownership: OwnershipTracker::new(),
+            borrows: BorrowChecker::new(),
+            current_type_params: Vec::new(),
+        }
+    }
+
+    /// Analyze a program and return the result
+    pub fn analyze(mut self, program: &Program) -> AnalysisResult {
+        // First pass: extract all symbols (types, functions, etc.)
+        self.extract_symbols(program);
+
+        // Second pass: analyze semantics (types, borrows, moves)
+        self.analyze_semantics(program);
+
+        AnalysisResult {
+            symbols: self.symbols,
+            errors: self.errors,
+        }
+    }
+
+    /// Analyze a program, using an existing symbol table (for incremental analysis)
+    pub fn analyze_with_symbols(mut self, program: &Program, symbols: SymbolTable) -> AnalysisResult {
+        self.symbols = symbols;
+        self.analyze_semantics(program);
+        AnalysisResult {
+            symbols: self.symbols,
+            errors: self.errors,
+        }
+    }
+
+    // ========================================================================
+    // Symbol Extraction (First Pass)
+    // ========================================================================
+
+    fn extract_symbols(&mut self, program: &Program) {
+        for item in &program.items {
+            match item {
+                Item::Function(func) => {
+                    self.extract_function(func);
+                }
+                Item::Struct(s) => {
+                    self.extract_struct(s);
+                }
+                Item::Enum(e) => {
+                    self.extract_enum(e);
+                }
+                Item::Impl(impl_block) => {
+                    self.extract_impl(impl_block);
+                }
+                Item::Use(use_stmt) => {
+                    self.check_duplicate_imports(use_stmt);
+                }
+                _ => {}
+            }
+        }
+    }
+
+    fn extract_function(&mut self, func: &Function) {
+        let params: Vec<(String, String)> = func
+            .params
+            .iter()
+            .map(|p| (p.name.clone(), self.type_to_string(&p.ty)))
+            .collect();
+
+        self.symbols.functions.insert(
+            func.name.clone(),
+            FunctionInfo {
+                name: func.name.clone(),
+                params,
+                return_type: func.return_type.as_ref().map(|t| self.type_to_string(t)),
+                generics: func.generics.clone(),
+                span: func.span,
+                is_pub: func.is_pub,
+            },
+        );
+
+        // Extract variables from function body
+        self.extract_variables_from_block(&func.body, func.span.start, func.span.end);
+
+        // Add function parameters as variables
+        for param in &func.params {
+            let borrow_state = match &param.ty {
+                Type::Ref(_) => BorrowState::Borrowed,
+                Type::RefMut(_) => BorrowState::MutBorrowed,
+                _ => BorrowState::Owned,
+            };
+            self.symbols.variables.push(VariableInfo {
+                name: param.name.clone(),
+                ty: Some(self.type_to_string(&param.ty)),
+                span: param.span,
+                scope_start: func.span.start,
+                scope_end: func.span.end,
+                borrow_state,
+            });
+        }
+    }
+
+    fn extract_struct(&mut self, s: &Struct) {
+        let fields: Vec<(String, String, bool)> = s
+            .fields
+            .iter()
+            .map(|f| (f.name.clone(), self.type_to_string(&f.ty), f.is_pub))
+            .collect();
+
+        self.symbols.structs.insert(
+            s.name.clone(),
+            StructInfo {
+                name: s.name.clone(),
+                fields,
+                generics: s.generics.clone(),
+                span: s.span,
+                is_pub: s.is_pub,
+            },
+        );
+    }
+
+    fn extract_enum(&mut self, e: &Enum) {
+        let variants: Vec<VariantData> = e
+            .variants
+            .iter()
+            .map(|v| VariantData {
+                name: v.name.clone(),
+                fields: match &v.fields {
+                    VariantFields::Unit => VariantFieldsData::Unit,
+                    VariantFields::Tuple(types) => VariantFieldsData::Tuple(
+                        types.iter().map(|t| self.type_to_string(t)).collect(),
+                    ),
+                    VariantFields::Struct(fields) => VariantFieldsData::Struct(
+                        fields
+                            .iter()
+                            .map(|f| (f.name.clone(), self.type_to_string(&f.ty)))
+                            .collect(),
+                    ),
+                },
+                span: v.span,
+            })
+            .collect();
+
+        self.symbols.enums.insert(
+            e.name.clone(),
+            EnumInfo {
+                name: e.name.clone(),
+                variants,
+                generics: e.generics.clone(),
+                span: e.span,
+                is_pub: e.is_pub,
+            },
+        );
+    }
+
+    fn extract_impl(&mut self, impl_block: &Impl) {
+        let type_name = self.type_to_string(&impl_block.target);
+        let methods: Vec<MethodInfo> = impl_block
+            .methods
+            .iter()
+            .map(|m| MethodInfo {
+                name: m.name.clone(),
+                params: m
+                    .params
+                    .iter()
+                    .map(|p| (p.name.clone(), self.type_to_string(&p.ty)))
+                    .collect(),
+                return_type: m.return_type.as_ref().map(|t| self.type_to_string(t)),
+                span: m.span,
+            })
+            .collect();
+
+        self.symbols.methods.entry(type_name).or_default().extend(methods);
+    }
+
+    fn extract_variables_from_block(&mut self, block: &Block, scope_start: usize, scope_end: usize) {
+        for stmt in &block.stmts {
+            match stmt {
+                Stmt::Let { name, ty, value, span, .. } => {
+                    let inferred_ty = if let Some(t) = ty {
+                        Some(self.type_to_string(t))
+                    } else {
+                        self.infer_type_from_expr(value)
+                    };
+
+                    self.symbols.variables.push(VariableInfo {
+                        name: name.clone(),
+                        ty: inferred_ty,
+                        span: *span,
+                        scope_start,
+                        scope_end,
+                        borrow_state: BorrowState::Owned,
+                    });
+                }
+                Stmt::If { then_block, else_block, span, .. } => {
+                    self.extract_variables_from_block(then_block, span.start, span.end);
+                    if let Some(else_b) = else_block {
+                        self.extract_variables_from_block(else_b, span.start, span.end);
+                    }
+                }
+                Stmt::While { body, span, .. } => {
+                    self.extract_variables_from_block(body, span.start, span.end);
+                }
+                Stmt::For { name, body, span, .. } => {
+                    self.symbols.variables.push(VariableInfo {
+                        name: name.clone(),
+                        ty: None,
+                        span: *span,
+                        scope_start: span.start,
+                        scope_end: span.end,
+                        borrow_state: BorrowState::Owned,
+                    });
+                    self.extract_variables_from_block(body, span.start, span.end);
+                }
+                Stmt::Match { arms, .. } => {
+                    for arm in arms {
+                        self.extract_variables_from_pattern(&arm.pattern, arm.span.start, arm.span.end);
+                        self.extract_variables_from_expr(&arm.body, arm.span.start, arm.span.end);
+                    }
+                }
+                Stmt::Expr(expr) => {
+                    self.extract_variables_from_expr(expr, scope_start, scope_end);
+                }
+                _ => {}
+            }
+        }
+    }
+
+    fn extract_variables_from_pattern(&mut self, pattern: &Pattern, scope_start: usize, scope_end: usize) {
+        match pattern {
+            Pattern::Ident(name) if name != "_" => {
+                self.symbols.variables.push(VariableInfo {
+                    name: name.clone(),
+                    ty: None,
+                    span: Span { start: scope_start, end: scope_end, line: 0, column: 0 },
+                    scope_start,
+                    scope_end,
+                    borrow_state: BorrowState::Owned,
+                });
+            }
+            Pattern::Enum { fields, .. } => {
+                for field in fields {
+                    self.extract_variables_from_pattern(field, scope_start, scope_end);
+                }
+            }
+            Pattern::Struct { fields, .. } => {
+                for (_, field_pattern) in fields {
+                    self.extract_variables_from_pattern(field_pattern, scope_start, scope_end);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn extract_variables_from_expr(&mut self, expr: &Expr, scope_start: usize, scope_end: usize) {
+        match expr {
+            Expr::Block(block) => {
+                self.extract_variables_from_block(block, scope_start, scope_end);
+            }
+            Expr::If { then_expr, else_expr, span, .. } => {
+                self.extract_variables_from_expr(then_expr, span.start, span.end);
+                self.extract_variables_from_expr(else_expr, span.start, span.end);
+            }
+            Expr::Closure { params, body, span, .. } => {
+                for (param_name, param_ty) in params {
+                    let ty_str = param_ty.as_ref().map(|t| self.type_to_string(t));
+                    self.symbols.variables.push(VariableInfo {
+                        name: param_name.clone(),
+                        ty: ty_str,
+                        span: *span,
+                        scope_start: span.start,
+                        scope_end: span.end,
+                        borrow_state: BorrowState::Owned,
+                    });
+                }
+                match body {
+                    ClosureBody::Expr(expr) => {
+                        self.extract_variables_from_expr(expr, span.start, span.end);
+                    }
+                    ClosureBody::Block(block) => {
+                        self.extract_variables_from_block(block, span.start, span.end);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    // ========================================================================
+    // Semantic Analysis (Second Pass)
+    // ========================================================================
+
+    fn analyze_semantics(&mut self, program: &Program) {
+        for item in &program.items {
+            if let Item::Function(func) = item {
+                self.analyze_function(func);
+            }
+        }
+    }
+
+    fn analyze_function(&mut self, func: &Function) {
+        // Reset state for new function
+        self.ownership.clear();
+        self.borrows.release_borrows();
+        self.current_type_params = func.generics.clone();
+
+        // Check parameter types
+        for param in &func.params {
+            self.check_type(&param.ty, &param.span);
+        }
+
+        // Check return type
+        if let Some(ref ret_ty) = func.return_type {
+            self.check_type(ret_ty, &func.span);
+        }
+
+        // Analyze function body
+        self.analyze_block(&func.body);
+    }
+
+    fn analyze_block(&mut self, block: &Block) {
+        for stmt in &block.stmts {
+            self.analyze_stmt(stmt);
+        }
+    }
+
+    fn analyze_stmt(&mut self, stmt: &Stmt) {
+        match stmt {
+            Stmt::Let { name, ty, value, span, .. } => {
+                // Check declared type
+                if let Some(declared_ty) = ty {
+                    self.check_type(declared_ty, span);
+
+                    // Check type mismatch
+                    if let Some(expr_ty) = self.infer_type_from_expr(value) {
+                        let declared_str = self.type_to_string(declared_ty);
+                        if !self.types_compatible(&declared_str, &expr_ty) {
+                            self.errors.push(SemanticError::TypeMismatch {
+                                expected: declared_str,
+                                found: expr_ty,
+                                span: *span,
+                            });
+                        }
+                    }
+                }
+
+                // Analyze the value expression (may move values)
+                self.analyze_expr(value);
+
+                // Track move if assigning from another variable
+                if let Expr::Ident(src_name, src_span) = value {
+                    if let Some(var_ty) = self.get_variable_type(src_name) {
+                        if !is_copy_type(&var_ty) {
+                            self.ownership.mark_moved(src_name, *src_span);
+                        }
+                    }
+                }
+
+                // Reassignment restores ownership
+                self.ownership.restore(name);
+            }
+
+            Stmt::Expr(expr) => {
+                // Save borrow state, analyze, restore (expression borrows are temporary)
+                let saved_borrows = self.borrows.snapshot();
+                self.analyze_expr(expr);
+                self.borrows.restore(saved_borrows);
+            }
+
+            Stmt::Return { value, .. } => {
+                if let Some(v) = value {
+                    self.analyze_expr(v);
+                }
+            }
+
+            Stmt::If { condition, then_block, else_block, .. } => {
+                self.analyze_expr(condition);
+
+                // Analyze branches with ownership tracking
+                let ownership_before = self.ownership.snapshot();
+                let borrows_before = self.borrows.snapshot();
+
+                self.analyze_block(then_block);
+                let ownership_after_then = self.ownership.snapshot();
+
+                if let Some(else_b) = else_block {
+                    self.ownership.restore_from(ownership_before.clone());
+                    self.borrows.restore(borrows_before.clone());
+                    self.analyze_block(else_b);
+
+                    // Merge: variable is moved if moved in either branch
+                    self.ownership.merge(&ownership_after_then);
+                }
+            }
+
+            Stmt::While { condition, body, .. } => {
+                self.analyze_expr(condition);
+                self.analyze_block(body);
+            }
+
+            Stmt::For { iter, body, .. } => {
+                self.analyze_expr(iter);
+                self.analyze_block(body);
+            }
+
+            Stmt::Match { value, arms, .. } => {
+                self.analyze_expr(value);
+                for arm in arms {
+                    self.analyze_expr(&arm.body);
+                }
+            }
+
+            Stmt::Defer { expr, .. } => {
+                self.analyze_expr(expr);
+            }
+
+            _ => {}
+        }
+    }
+
+    fn analyze_expr(&mut self, expr: &Expr) {
+        match expr {
+            Expr::Ident(name, span) => {
+                // Check use-after-move
+                if let Err(e) = self.ownership.check_use(name, *span) {
+                    self.errors.push(e);
+                    return;
+                }
+
+                // Check variable exists
+                let var_exists = self.symbols.variables.iter().any(|v| &v.name == name)
+                    || self.symbols.functions.contains_key(name);
+
+                if !var_exists && name != "self" && !is_builtin_function(name) {
+                    if !self.symbols.structs.contains_key(name) && !self.symbols.enums.contains_key(name) {
+                        self.errors.push(SemanticError::UndefinedVariable {
+                            name: name.clone(),
+                            span: *span,
+                        });
+                    }
+                }
+            }
+
+            Expr::Binary { left, right, op, span } => {
+                self.analyze_expr(left);
+                self.analyze_expr(right);
+
+                let is_assignment = matches!(op,
+                    BinOp::Assign | BinOp::AddAssign | BinOp::SubAssign |
+                    BinOp::MulAssign | BinOp::DivAssign | BinOp::ModAssign |
+                    BinOp::BitAndAssign | BinOp::BitOrAssign | BinOp::BitXorAssign |
+                    BinOp::ShlAssign | BinOp::ShrAssign
+                );
+
+                if is_assignment {
+                    // Reassignment restores ownership
+                    if let Expr::Ident(name, _) = left.as_ref() {
+                        self.ownership.restore(name);
+                    }
+
+                    // Check mutation through shared reference
+                    if let Expr::Field { object, .. } = left.as_ref() {
+                        if let Expr::Ident(var_name, _) = object.as_ref() {
+                            if let Some(var) = self.symbols.variables.iter().find(|v| &v.name == var_name) {
+                                if var.borrow_state == BorrowState::Borrowed {
+                                    self.errors.push(SemanticError::MutationThroughSharedRef {
+                                        name: var_name.clone(),
+                                        span: *span,
+                                    });
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            Expr::Unary { operand, .. } => {
+                self.analyze_expr(operand);
+            }
+
+            Expr::Call { func, args, span, .. } => {
+                self.analyze_expr(func);
+
+                // Get function info for validation
+                let func_info = if let Expr::Ident(name, _) = func.as_ref() {
+                    self.symbols.functions.get(name).cloned()
+                } else {
+                    None
+                };
+
+                // Check argument count
+                if let Some(ref info) = func_info {
+                    if args.len() != info.params.len() {
+                        self.errors.push(SemanticError::ArgumentCountMismatch {
+                            function: info.name.clone(),
+                            expected: info.params.len(),
+                            found: args.len(),
+                            span: *span,
+                        });
+                    }
+                }
+
+                // Analyze arguments and check borrow/move matching
+                for (i, arg) in args.iter().enumerate() {
+                    self.analyze_expr(arg);
+
+                    // Check borrow type matching at call site
+                    if let Some(ref info) = func_info {
+                        if let Some((_, param_ty)) = info.params.get(i) {
+                            self.check_call_site_borrow_match(arg, param_ty, span);
+                        }
+                    }
+
+                    // Track moves for non-copy arguments
+                    if let Expr::Ident(name, arg_span) = arg {
+                        if let Some(var_ty) = self.get_variable_type(name) {
+                            if !is_copy_type(&var_ty) && !self.is_reference_arg(arg) {
+                                self.ownership.mark_moved(name, *arg_span);
+                            }
+                        }
+                    }
+                }
+            }
+
+            Expr::MethodCall { receiver, args, .. } => {
+                self.analyze_expr(receiver);
+                for arg in args {
+                    self.analyze_expr(arg);
+                }
+            }
+
+            Expr::Field { object, .. } => {
+                self.analyze_expr(object);
+
+                // Check use-after-move for field access
+                if let Expr::Ident(name, span) = object.as_ref() {
+                    if let Err(e) = self.ownership.check_use(name, *span) {
+                        self.errors.push(e);
+                    }
+                }
+            }
+
+            Expr::Index { array, index, .. } => {
+                self.analyze_expr(array);
+                self.analyze_expr(index);
+            }
+
+            Expr::Ref { operand, span } => {
+                if let Expr::Ident(name, _) = operand.as_ref() {
+                    // Check borrow of moved value
+                    if let Some(move_span) = self.ownership.is_moved(name) {
+                        self.errors.push(SemanticError::BorrowOfMovedValue {
+                            name: name.clone(),
+                            borrow_span: *span,
+                            move_span,
+                        });
+                        return;
+                    }
+
+                    // Check borrow conflicts
+                    if let Err(e) = self.borrows.try_borrow(name, false, *span) {
+                        self.errors.push(e);
+                    }
+                }
+                self.analyze_expr(operand);
+            }
+
+            Expr::RefMut { operand, span } => {
+                if let Expr::Ident(name, _) = operand.as_ref() {
+                    // Check borrow of moved value
+                    if let Some(move_span) = self.ownership.is_moved(name) {
+                        self.errors.push(SemanticError::BorrowOfMovedValue {
+                            name: name.clone(),
+                            borrow_span: *span,
+                            move_span,
+                        });
+                        return;
+                    }
+
+                    // Check borrow conflicts
+                    if let Err(e) = self.borrows.try_borrow(name, true, *span) {
+                        self.errors.push(e);
+                    }
+                }
+                self.analyze_expr(operand);
+            }
+
+            Expr::Deref { operand, .. } => {
+                self.analyze_expr(operand);
+            }
+
+            Expr::StructInit { name, fields, span, .. } => {
+                // Check struct exists
+                let base_name = name.split('<').next().unwrap_or(name);
+                if !self.symbols.structs.contains_key(base_name)
+                    && !self.symbols.enums.contains_key(base_name)
+                    && !is_prelude_type(base_name)
+                {
+                    self.errors.push(SemanticError::UndefinedType {
+                        name: name.clone(),
+                        span: *span,
+                    });
+                } else if let Some(struct_info) = self.symbols.structs.get(base_name).cloned() {
+                    // Check fields
+                    let provided_fields: Vec<_> = fields.iter().map(|(n, _)| n.as_str()).collect();
+                    for (field_name, _, _) in &struct_info.fields {
+                        if !provided_fields.contains(&field_name.as_str()) {
+                            self.errors.push(SemanticError::MissingField {
+                                struct_name: name.clone(),
+                                field_name: field_name.clone(),
+                                span: *span,
+                            });
+                        }
+                    }
+                    let known_fields: Vec<_> = struct_info.fields.iter().map(|(n, _, _)| n.as_str()).collect();
+                    for (field_name, _) in fields {
+                        if !known_fields.contains(&field_name.as_str()) {
+                            self.errors.push(SemanticError::UnknownField {
+                                struct_name: name.clone(),
+                                field_name: field_name.clone(),
+                                span: *span,
+                            });
+                        }
+                    }
+                }
+
+                // Analyze field expressions
+                for (_, expr) in fields {
+                    self.analyze_expr(expr);
+                }
+            }
+
+            Expr::ArrayInit { elements, .. } => {
+                for elem in elements {
+                    self.analyze_expr(elem);
+                }
+            }
+
+            Expr::Block(block) => {
+                self.analyze_block(block);
+            }
+
+            Expr::Try { operand, .. } => {
+                self.analyze_expr(operand);
+            }
+
+            Expr::Range { start, end, .. } => {
+                self.analyze_expr(start);
+                self.analyze_expr(end);
+            }
+
+            Expr::Closure { body, .. } => {
+                match body {
+                    ClosureBody::Expr(expr) => self.analyze_expr(expr),
+                    ClosureBody::Block(block) => self.analyze_block(block),
+                }
+            }
+
+            Expr::If { condition, then_expr, else_expr, .. } => {
+                self.analyze_expr(condition);
+                self.analyze_expr(then_expr);
+                self.analyze_expr(else_expr);
+            }
+
+            _ => {}
+        }
+    }
+
+    // ========================================================================
+    // Helper Methods
+    // ========================================================================
+
+    fn check_type(&mut self, ty: &Type, span: &Span) {
+        match ty {
+            Type::Named { name, generics } => {
+                if !self.current_type_params.contains(name)
+                    && !self.symbols.structs.contains_key(name)
+                    && !self.symbols.enums.contains_key(name)
+                    && !is_builtin_type(name)
+                    && !is_prelude_type(name)
+                {
+                    self.errors.push(SemanticError::UndefinedType {
+                        name: name.clone(),
+                        span: *span,
+                    });
+                }
+                for g in generics {
+                    self.check_type(g, span);
+                }
+            }
+            Type::Ref(inner)
+            | Type::RefMut(inner)
+            | Type::Pointer(inner)
+            | Type::Array(inner, _)
+            | Type::Slice(inner) => {
+                self.check_type(inner, span);
+            }
+            _ => {}
+        }
+    }
+
+    fn check_duplicate_imports(&mut self, use_stmt: &Use) {
+        if let ImportItems::Named(items) = &use_stmt.items {
+            let mut seen: HashMap<String, Span> = HashMap::new();
+            for item in items {
+                let name = item.alias.as_ref().unwrap_or(&item.name);
+                if seen.contains_key(name) {
+                    self.errors.push(SemanticError::DuplicateImport {
+                        name: name.clone(),
+                        span: item.span,
+                    });
+                } else {
+                    seen.insert(name.clone(), item.span);
+                }
+            }
+        }
+    }
+
+    /// Check that borrow operators at call site match parameter expectations
+    fn check_call_site_borrow_match(&mut self, arg: &Expr, param_ty: &str, call_span: &Span) {
+        let param_is_mut_ref = param_ty.starts_with('~');
+        let param_is_ref = param_ty.starts_with('&');
+
+        match arg {
+            Expr::RefMut { span, .. } => {
+                if !param_is_mut_ref {
+                    self.errors.push(SemanticError::BorrowConflict {
+                        name: "argument".to_string(),
+                        existing: BorrowKind::Mutable,
+                        requested: if param_is_ref { BorrowKind::Shared } else { BorrowKind::Shared },
+                        existing_span: *span,
+                        request_span: *call_span,
+                    });
+                }
+            }
+            Expr::Ref { span, .. } => {
+                if !param_is_ref {
+                    self.errors.push(SemanticError::BorrowConflict {
+                        name: "argument".to_string(),
+                        existing: BorrowKind::Shared,
+                        requested: if param_is_mut_ref { BorrowKind::Mutable } else { BorrowKind::Shared },
+                        existing_span: *span,
+                        request_span: *call_span,
+                    });
+                }
+            }
+            _ => {
+                // Plain argument passed to reference parameter
+                if param_is_ref || param_is_mut_ref {
+                    // This is allowed - auto-borrow at call site
+                }
+            }
+        }
+    }
+
+    fn is_reference_arg(&self, arg: &Expr) -> bool {
+        matches!(arg, Expr::Ref { .. } | Expr::RefMut { .. })
+    }
+
+    fn get_variable_type(&self, name: &str) -> Option<String> {
+        self.symbols.variables.iter()
+            .find(|v| v.name == name)
+            .and_then(|v| v.ty.clone())
+    }
+
+    fn types_compatible(&self, expected: &str, actual: &str) -> bool {
+        if expected == actual {
+            return true;
+        }
+
+        // Integer literal coercion
+        let integer_types = ["i8", "i16", "i32", "i64", "u8", "u16", "u32", "u64"];
+        if integer_types.contains(&expected) && integer_types.contains(&actual) {
+            return true;
+        }
+
+        // Check base type matches for generics
+        let expected_base = expected.split('<').next().unwrap_or(expected);
+        let actual_base = actual.split('<').next().unwrap_or(actual);
+
+        expected_base == actual_base
+    }
+
+    fn type_to_string(&self, ty: &Type) -> String {
+        match ty {
+            Type::Named { name, generics } => {
+                if generics.is_empty() {
+                    name.clone()
+                } else {
+                    let generic_strs: Vec<_> = generics.iter().map(|g| self.type_to_string(g)).collect();
+                    format!("{}<{}>", name, generic_strs.join(", "))
+                }
+            }
+            Type::Ref(inner) => format!("&{}", self.type_to_string(inner)),
+            Type::RefMut(inner) => format!("~{}", self.type_to_string(inner)),
+            Type::Pointer(inner) => format!("*{}", self.type_to_string(inner)),
+            Type::Array(inner, size) => format!("{}[{}]", self.type_to_string(inner), size),
+            Type::Slice(inner) => format!("Slice<{}>", self.type_to_string(inner)),
+            Type::Tuple(types) => {
+                let type_strs: Vec<_> = types.iter().map(|t| self.type_to_string(t)).collect();
+                format!("({})", type_strs.join(", "))
+            }
+            Type::Fn(params, return_type) => {
+                let param_strs: Vec<_> = params.iter().map(|t| self.type_to_string(t)).collect();
+                let ret = self.type_to_string(return_type);
+                format!("fn({}) -> {}", param_strs.join(", "), ret)
+            }
+            // Handle primitive types
+            Type::I8 => "i8".to_string(),
+            Type::I16 => "i16".to_string(),
+            Type::I32 => "i32".to_string(),
+            Type::I64 => "i64".to_string(),
+            Type::U8 => "u8".to_string(),
+            Type::U16 => "u16".to_string(),
+            Type::U32 => "u32".to_string(),
+            Type::U64 => "u64".to_string(),
+            Type::F32 => "f32".to_string(),
+            Type::F64 => "f64".to_string(),
+            Type::Bool => "bool".to_string(),
+            Type::Char => "char".to_string(),
+            Type::Void => "void".to_string(),
+            Type::SelfType => "Self".to_string(),
+        }
+    }
+
+    fn infer_type_from_expr(&self, expr: &Expr) -> Option<String> {
+        match expr {
+            Expr::Literal(lit, _) => {
+                let ty = match lit {
+                    Literal::Int(_, suffix) => match suffix {
+                        IntSuffix::I8 => "i8",
+                        IntSuffix::I16 => "i16",
+                        IntSuffix::I32 => "i32",
+                        IntSuffix::I64 => "i64",
+                        IntSuffix::U8 => "u8",
+                        IntSuffix::U16 => "u16",
+                        IntSuffix::U32 => "u32",
+                        IntSuffix::U64 => "u64",
+                        IntSuffix::None => "i32",
+                    },
+                    Literal::Float(_) => "f64",
+                    Literal::Bool(_) => "bool",
+                    Literal::Char(_) => "char",
+                    Literal::String(_) => "Slice<u8>",
+                };
+                Some(ty.to_string())
+            }
+            Expr::Ident(name, _) => self.get_variable_type(name),
+            Expr::Call { func, .. } => {
+                if let Expr::Ident(name, _) = func.as_ref() {
+                    self.symbols.functions.get(name).and_then(|f| f.return_type.clone())
+                } else {
+                    None
+                }
+            }
+            Expr::StructInit { name, generics, .. } => {
+                if generics.is_empty() {
+                    Some(name.clone())
+                } else {
+                    let generic_strs: Vec<_> = generics.iter().map(|g| self.type_to_string(g)).collect();
+                    Some(format!("{}<{}>", name, generic_strs.join(", ")))
+                }
+            }
+            _ => None,
+        }
+    }
+}
+
+impl Default for SemanticAnalyzer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Convenience function to analyze a program
+pub fn analyze(program: &Program) -> AnalysisResult {
+    SemanticAnalyzer::new().analyze(program)
+}

@@ -25,13 +25,6 @@ use inkwell::AddressSpace;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
-/// Tracks the borrow state of a variable
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub(crate) enum BorrowState {
-    Shared,    // Has one or more & borrows
-    Mutable,   // Has a single ~ borrow
-}
-
 pub struct Codegen<'ctx> {
     pub(crate) context: &'ctx Context,
     pub(crate) module: Module<'ctx>,
@@ -41,9 +34,6 @@ pub struct Codegen<'ctx> {
     pub(crate) current_function_return_type: Option<Type>,
     pub(crate) struct_types: HashMap<String, StructTypeInfo<'ctx>>,
     pub(crate) enum_types: HashMap<String, EnumTypeInfo<'ctx>>,
-    // Ownership tracking
-    pub(crate) moved_vars: HashSet<String>,              // Variables that have been moved
-    pub(crate) borrowed_vars: HashMap<String, BorrowState>, // Active borrows on variables
     // Generic definitions (stored for monomorphization)
     pub(crate) generic_structs: HashMap<String, Struct>,
     pub(crate) generic_enums: HashMap<String, Enum>,
@@ -125,8 +115,6 @@ impl<'ctx> Codegen<'ctx> {
             current_function_return_type: None,
             struct_types: HashMap::new(),
             enum_types: HashMap::new(),
-            moved_vars: HashSet::new(),
-            borrowed_vars: HashMap::new(),
             generic_structs: HashMap::new(),
             generic_enums: HashMap::new(),
             generic_functions: HashMap::new(),
@@ -174,8 +162,6 @@ impl<'ctx> Codegen<'ctx> {
             current_function_return_type: None,
             struct_types: HashMap::new(),
             enum_types: HashMap::new(),
-            moved_vars: HashSet::new(),
-            borrowed_vars: HashMap::new(),
             generic_structs: HashMap::new(),
             generic_enums: HashMap::new(),
             generic_functions: HashMap::new(),
