@@ -574,7 +574,7 @@ impl Backend {
             Err(_) => return vec![],
         };
 
-        // Extract public items
+        // Extract public items (including pub use re-exports)
         let mut items = Vec::new();
         for item in &program.items {
             match item {
@@ -586,6 +586,17 @@ impl Backend {
                 }
                 Item::Function(f) if f.is_pub => {
                     items.push((f.name.clone(), "fn".to_string()));
+                }
+                // Handle pub use re-exports (e.g., pub use std.collections.vec.{Vec})
+                Item::Use(u) if u.is_pub => {
+                    if let crate::ast::ImportItems::Named(import_items) = &u.items {
+                        for import_item in import_items {
+                            let name = import_item.alias.as_ref().unwrap_or(&import_item.name);
+                            // We don't know the exact kind, but struct/enum are common
+                            // Use a generic "type" label
+                            items.push((name.clone(), "type".to_string()));
+                        }
+                    }
                 }
                 _ => {}
             }
