@@ -2,8 +2,9 @@
 
 use std.mem.{alloc, dealloc}
 use std.collections.vec.{Vec}
-// Import hash module to get Hash trait impls for primitives
+// Import hash and cmp modules to get trait impls for primitives
 use std.hash
+use std.cmp
 
 // Default number of buckets
 static DEFAULT_CAPACITY: i64 = 16
@@ -17,7 +18,9 @@ struct Entry<K, V> {
 
 /// Map<K, V> - hash map using separate chaining
 ///
-/// Keys must implement the Hash trait. The hash is computed automatically.
+/// Keys must implement the Hash and Eq traits.
+/// The hash is computed automatically via key.hash().
+/// Equality is checked via key.eq() (or == operator).
 /// Example:
 ///   let map = Map<i64, Slice<u8>>.new()
 ///   map.insert(42, "hello")
@@ -28,7 +31,7 @@ pub struct Map<K, V> {
     len: i64
 }
 
-impl<K: Hash> Map<K, V> {
+impl<K: Hash + Eq> Map<K, V> {
     /// Create a new empty map
     pub fn new() -> Map<K, V> {
         return Map<K, V>.with_capacity(DEFAULT_CAPACITY)

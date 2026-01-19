@@ -1,38 +1,38 @@
 use std.collections.{Map}
 
 fn main() {
-    // Map with i64 keys - Hash trait is used automatically
-    let scores = Map<i64, i64>.new()
+    // Map with string keys - Hash and Eq traits are used automatically
+    let scores = Map<str, i64>.new()
 
     // Insert some key-value pairs
-    scores.insert(1, 100)
-    scores.insert(2, 200)
-    scores.insert(3, 300)
+    scores.insert("alice", 100)
+    scores.insert("bob", 200)
+    scores.insert("charlie", 300)
 
     println("Map has ${scores.len()} entries")
 
-    // Look up values
-    let key2: i64 = 2
-    match scores.get(&key2) {
+    // Look up values (need to store key in variable to take reference)
+    let key_bob: str = "bob"
+    match scores.get(&key_bob) {
         Option.Some(val) => {
-            println("Score for key 2: ${val}")
+            println("Score for bob: ${val}")
         }
         Option.None => {
-            println("Key 2 not found")
+            println("bob not found")
         }
     }
 
     // Check if key exists
-    let key3: i64 = 3
-    if scores.contains(&key3) {
-        println("Key 3 exists")
+    let key_charlie: str = "charlie"
+    if scores.contains(&key_charlie) {
+        println("charlie exists")
     }
 
     // Remove a key
-    let key1: i64 = 1
-    match scores.remove(&key1) {
+    let key_alice: str = "alice"
+    match scores.remove(&key_alice) {
         Option.Some(val) => {
-            println("Removed key 1 with value ${val}")
+            println("Removed alice with value ${val}")
         }
         Option.None => {}
     }

@@ -332,6 +332,14 @@ impl<'ctx> Codegen<'ctx> {
         }
     }
 
+    /// Get the type name from an expression for Eq trait dispatch
+    /// This is used by compile_binary to look up the `eq` method
+    pub(crate) fn get_type_name_for_eq(&self, expr: &Expr) -> Result<Option<String>, CodegenError> {
+        // Try to get the AST type of the expression
+        let ty = self.get_expr_type(expr)?;
+        Ok(self.get_type_name_from_ast(&ty))
+    }
+
     /// Extract the Ok type (T) from Result<T, E> or the Some type from Option<T>
     pub(crate) fn get_result_ok_type(&self, ty: &Type) -> Option<Type> {
         match ty {

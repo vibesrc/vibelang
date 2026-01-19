@@ -1,0 +1,51 @@
+// std.cmp - Comparison functions and Eq trait implementations
+//
+// Provides equality comparisons for primitive types and slices.
+
+// =============================================================================
+// Eq trait implementations for primitive types
+// =============================================================================
+
+impl Eq for i32 {
+    fn eq(&self, other: &i32) -> bool {
+        return *self == *other
+    }
+}
+
+impl Eq for i64 {
+    fn eq(&self, other: &i64) -> bool {
+        return *self == *other
+    }
+}
+
+impl Eq for bool {
+    fn eq(&self, other: &bool) -> bool {
+        return *self == *other
+    }
+}
+
+/// Eq implementation for byte slices (strings)
+/// Compares length first, then each byte
+impl Eq for Slice<u8> {
+    fn eq(&self, other: &Slice<u8>) -> bool {
+        // Different lengths means not equal
+        if self.len != other.len {
+            return false
+        }
+
+        // Compare each byte
+        let i: i64 = 0
+        while i < self.len {
+            unsafe {
+                let a = ptr_read<u8>(ptr_add<u8>(self.ptr, i))
+                let b = ptr_read<u8>(ptr_add<u8>(other.ptr, i))
+                if a != b {
+                    return false
+                }
+            }
+            i = i + 1
+        }
+
+        return true
+    }
+}

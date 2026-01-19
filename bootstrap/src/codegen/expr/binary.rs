@@ -161,6 +161,76 @@ impl<'ctx> Codegen<'ctx> {
             return Ok(result.into());
         }
 
+        // Handle struct value comparison via Eq trait
+        if lhs.is_struct_value() || rhs.is_struct_value() {
+            if matches!(op, BinOp::Eq | BinOp::Ne) {
+                // Try to get the type name for Eq trait dispatch
+                if let Some(type_name) = self.get_type_name_for_eq(left)? {
+                    // Check if this type has an `eq` method
+                    if let Some(eq_method) = self.type_methods
+                        .get(&type_name)
+                        .and_then(|methods| methods.get("eq"))
+                        .cloned()
+                    {
+                        // Call Type__eq(&lhs, &rhs)
+                        let fn_value = self.module
+                            .get_function(&eq_method)
+                            .ok_or_else(|| CodegenError::UndefinedFunction(eq_method.clone()))?;
+
+                        // Create temporary storage for both operands and pass pointers
+                        // Always allocate temps since values may be struct or primitive
+                        let lhs_ptr = {
+                            let temp = self.builder.build_alloca(lhs.get_type(), "eq_lhs").unwrap();
+                            self.builder.build_store(temp, lhs).unwrap();
+                            temp
+                        };
+
+                        let rhs_ptr = {
+                            let temp = self.builder.build_alloca(rhs.get_type(), "eq_rhs").unwrap();
+                            self.builder.build_store(temp, rhs).unwrap();
+                            temp
+                        };
+
+                        let call_site = self.builder
+                            .build_call(fn_value, &[lhs_ptr.into(), rhs_ptr.into()], "eq_result")
+                            .unwrap();
+
+                        let eq_result = match call_site.try_as_basic_value() {
+                            inkwell::values::ValueKind::Basic(val) => val,
+                            inkwell::values::ValueKind::Instruction(_) => {
+                                return Err(CodegenError::NotImplemented(
+                                    "Eq::eq must return a value".to_string()
+                                ));
+                            }
+                        };
+
+                        // For !=, negate the result
+                        if matches!(op, BinOp::Ne) {
+                            let bool_val = eq_result.into_int_value();
+                            let negated = self.builder.build_int_compare(
+                                inkwell::IntPredicate::EQ,
+                                bool_val,
+                                self.context.bool_type().const_zero(),
+                                "ne_result"
+                            ).unwrap();
+                            return Ok(negated.into());
+                        }
+
+                        return Ok(eq_result);
+                    }
+                }
+
+                // No Eq impl found - fail with a clear error
+                return Err(CodegenError::NotImplemented(
+                    format!("cannot compare struct values with '==' without Eq trait implementation")
+                ));
+            }
+
+            return Err(CodegenError::NotImplemented(
+                format!("binary operator '{:?}' not supported for struct types", op)
+            ));
+        }
+
         let lhs_int = lhs.into_int_value();
         let rhs_int = rhs.into_int_value();
 
