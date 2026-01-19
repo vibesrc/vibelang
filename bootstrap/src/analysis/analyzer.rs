@@ -56,6 +56,9 @@ impl SemanticAnalyzer {
 
     /// Analyze a program and return the result
     pub fn analyze(mut self, program: &Program) -> AnalysisResult {
+        // Inject prelude symbols so type inference works for Vec, String, etc.
+        self.inject_prelude_symbols();
+
         // First pass: extract all symbols (types, functions, etc.)
         self.extract_symbols(program);
 
@@ -1082,6 +1085,177 @@ impl SemanticAnalyzer {
                 self.infer_type_from_expr(then_expr)
             }
             _ => None,
+        }
+    }
+
+    /// Inject prelude types and their methods into the symbol table
+    /// This allows type inference to work for Vec.new(), String.from(), etc.
+    fn inject_prelude_symbols(&mut self) {
+        let prelude_span = Span { start: 0, end: 0, line: 0, column: 0 };
+
+        // Vec<T> struct
+        if !self.symbols.structs.contains_key("Vec") {
+            self.symbols.structs.insert("Vec".to_string(), StructInfo {
+                name: "Vec".to_string(),
+                fields: vec![
+                    ("ptr".to_string(), "*T".to_string(), false),
+                    ("len".to_string(), "i64".to_string(), false),
+                    ("capacity".to_string(), "i64".to_string(), false),
+                ],
+                generics: vec!["T".to_string()],
+                span: prelude_span,
+                is_pub: true,
+            });
+        }
+
+        // Vec<T> methods
+        if !self.symbols.methods.contains_key("Vec") {
+            self.symbols.methods.insert("Vec".to_string(), vec![
+                MethodInfo {
+                    name: "new".to_string(),
+                    params: vec![],
+                    return_type: Some("Vec<T>".to_string()),
+                    span: prelude_span,
+                },
+                MethodInfo {
+                    name: "with_capacity".to_string(),
+                    params: vec![("cap".to_string(), "i64".to_string())],
+                    return_type: Some("Vec<T>".to_string()),
+                    span: prelude_span,
+                },
+                MethodInfo {
+                    name: "len".to_string(),
+                    params: vec![("self".to_string(), "&Vec<T>".to_string())],
+                    return_type: Some("i64".to_string()),
+                    span: prelude_span,
+                },
+                MethodInfo {
+                    name: "push".to_string(),
+                    params: vec![
+                        ("self".to_string(), "~Vec<T>".to_string()),
+                        ("value".to_string(), "T".to_string()),
+                    ],
+                    return_type: None,
+                    span: prelude_span,
+                },
+                MethodInfo {
+                    name: "pop".to_string(),
+                    params: vec![("self".to_string(), "~Vec<T>".to_string())],
+                    return_type: Some("Option<T>".to_string()),
+                    span: prelude_span,
+                },
+                MethodInfo {
+                    name: "get".to_string(),
+                    params: vec![
+                        ("self".to_string(), "&Vec<T>".to_string()),
+                        ("index".to_string(), "i64".to_string()),
+                    ],
+                    return_type: Some("Option<T>".to_string()),
+                    span: prelude_span,
+                },
+            ]);
+        }
+
+        // String struct
+        if !self.symbols.structs.contains_key("String") {
+            self.symbols.structs.insert("String".to_string(), StructInfo {
+                name: "String".to_string(),
+                fields: vec![("data".to_string(), "Vec<u8>".to_string(), false)],
+                generics: vec![],
+                span: prelude_span,
+                is_pub: true,
+            });
+        }
+
+        // String methods
+        if !self.symbols.methods.contains_key("String") {
+            self.symbols.methods.insert("String".to_string(), vec![
+                MethodInfo {
+                    name: "new".to_string(),
+                    params: vec![],
+                    return_type: Some("String".to_string()),
+                    span: prelude_span,
+                },
+                MethodInfo {
+                    name: "from".to_string(),
+                    params: vec![("s".to_string(), "&Slice<u8>".to_string())],
+                    return_type: Some("String".to_string()),
+                    span: prelude_span,
+                },
+                MethodInfo {
+                    name: "len".to_string(),
+                    params: vec![("self".to_string(), "&String".to_string())],
+                    return_type: Some("i64".to_string()),
+                    span: prelude_span,
+                },
+            ]);
+        }
+
+        // Option<T> enum
+        if !self.symbols.enums.contains_key("Option") {
+            self.symbols.enums.insert("Option".to_string(), EnumInfo {
+                name: "Option".to_string(),
+                variants: vec![
+                    VariantData {
+                        name: "Some".to_string(),
+                        fields: VariantFieldsData::Tuple(vec!["T".to_string()]),
+                        span: prelude_span,
+                    },
+                    VariantData {
+                        name: "None".to_string(),
+                        fields: VariantFieldsData::Unit,
+                        span: prelude_span,
+                    },
+                ],
+                generics: vec!["T".to_string()],
+                span: prelude_span,
+                is_pub: true,
+            });
+        }
+
+        // Result<T, E> enum
+        if !self.symbols.enums.contains_key("Result") {
+            self.symbols.enums.insert("Result".to_string(), EnumInfo {
+                name: "Result".to_string(),
+                variants: vec![
+                    VariantData {
+                        name: "Ok".to_string(),
+                        fields: VariantFieldsData::Tuple(vec!["T".to_string()]),
+                        span: prelude_span,
+                    },
+                    VariantData {
+                        name: "Err".to_string(),
+                        fields: VariantFieldsData::Tuple(vec!["E".to_string()]),
+                        span: prelude_span,
+                    },
+                ],
+                generics: vec!["T".to_string(), "E".to_string()],
+                span: prelude_span,
+                is_pub: true,
+            });
+        }
+
+        // Error struct
+        if !self.symbols.structs.contains_key("Error") {
+            self.symbols.structs.insert("Error".to_string(), StructInfo {
+                name: "Error".to_string(),
+                fields: vec![("message".to_string(), "Slice<u8>".to_string(), true)],
+                generics: vec![],
+                span: prelude_span,
+                is_pub: true,
+            });
+        }
+
+        // Error methods
+        if !self.symbols.methods.contains_key("Error") {
+            self.symbols.methods.insert("Error".to_string(), vec![
+                MethodInfo {
+                    name: "new".to_string(),
+                    params: vec![("message".to_string(), "Slice<u8>".to_string())],
+                    return_type: Some("Error".to_string()),
+                    span: prelude_span,
+                },
+            ]);
         }
     }
 }
