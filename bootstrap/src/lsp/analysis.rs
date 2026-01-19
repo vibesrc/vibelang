@@ -128,10 +128,12 @@ impl Backend {
 
     /// Load and parse a std library module, returning its symbol table
     fn load_std_module(&self, path: &[String]) -> Option<SymbolTable> {
-        let std_path = self.get_std_library_path()?;
+        let std_src_path = self.get_std_library_path()?;
+        // Get the std root (parent of src)
+        let stdlib_path = std_src_path.parent().map(|p| p.to_path_buf());
 
         // Build the file path: std/src/module/mod.vibe
-        let mut file_path = std_path;
+        let mut file_path = std_src_path.clone();
         for component in path {
             file_path.push(component);
         }
@@ -144,8 +146,13 @@ impl Backend {
         let mut parser = Parser::new(tokens);
         let program = parser.parse_program().ok()?;
 
-        // Use the shared analyzer to extract symbols from the module
-        let analyzer = crate::analysis::SemanticAnalyzer::new();
+        // Use the shared analyzer with the stdlib path for import resolution
+        let source_dir = file_path.parent().map(|p| p.to_path_buf());
+        let analyzer = crate::analysis::SemanticAnalyzer::with_paths(
+            stdlib_path,
+            source_dir,
+            None, // No project root for std modules
+        );
         let result = analyzer.analyze(&program);
 
         Some(result.symbols)

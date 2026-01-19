@@ -31,14 +31,28 @@ impl Backend {
         let mut symbols = SymbolTable::default();
         let ast;
 
+        // Get file path info for the analyzer
+        let uri_path = uri.path().as_str();
+        let file_path: Option<std::path::PathBuf> = if uri_path.starts_with('/') {
+            Some(std::path::PathBuf::from(uri_path))
+        } else {
+            None
+        };
+        let source_dir = file_path.as_ref().and_then(|p: &std::path::PathBuf| p.parent().map(|d: &std::path::Path| d.to_path_buf()));
+        let stdlib_path = self.find_stdlib_path();
+
         let mut lexer = Lexer::new(text);
         match lexer.tokenize() {
             Ok(tokens) => {
                 let mut parser = Parser::new(tokens);
                 match parser.parse_program() {
                     Ok(program) => {
-                        // Use the shared semantic analyzer
-                        let analyzer = analysis::SemanticAnalyzer::new();
+                        // Use the shared semantic analyzer with paths for import resolution
+                        let analyzer = analysis::SemanticAnalyzer::with_paths(
+                            stdlib_path,
+                            source_dir,
+                            None, // TODO: detect project root from vibe.toml
+                        );
                         let result = analyzer.analyze(&program);
 
                         // Use symbols from the analyzer
@@ -85,6 +99,48 @@ impl Backend {
             symbols,
             diagnostics,
         }
+    }
+
+    /// Find the stdlib path (for SemanticAnalyzer)
+    fn find_stdlib_path(&self) -> Option<std::path::PathBuf> {
+        // Check VIBELANG_STD environment variable
+        if let Ok(path) = std::env::var("VIBELANG_STD") {
+            let path = std::path::PathBuf::from(path);
+            if path.exists() {
+                return Some(path);
+            }
+        }
+
+        // Check legacy VIBELANG_STDLIB
+        if let Ok(path) = std::env::var("VIBELANG_STDLIB") {
+            let path = std::path::PathBuf::from(path);
+            if path.exists() {
+                return Some(path);
+            }
+        }
+
+        // Try relative to executable
+        if let Ok(exe) = std::env::current_exe() {
+            if let Some(exe_dir) = exe.parent() {
+                // ../std (installed layout)
+                let stdlib = exe_dir.join("../std");
+                if stdlib.exists() {
+                    return stdlib.canonicalize().ok();
+                }
+                // ../../std (development layout)
+                let stdlib = exe_dir.join("../../std");
+                if stdlib.exists() {
+                    return stdlib.canonicalize().ok();
+                }
+                // ../../../std (from target/release)
+                let stdlib = exe_dir.join("../../../std");
+                if stdlib.exists() {
+                    return stdlib.canonicalize().ok();
+                }
+            }
+        }
+
+        None
     }
 
     pub fn lex_error_to_diagnostic(&self, err: &LexError) -> Diagnostic {

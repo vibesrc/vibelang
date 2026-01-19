@@ -14,6 +14,11 @@ impl Backend {
         let offset = self.position_to_offset(&doc.text, position);
         let word = self.get_word_at_position(&doc.text, position)?;
 
+        // Method - check if preceded by a dot
+        if let Some(method_hover) = self.get_method_hover(doc, position, &word) {
+            return Some(method_hover);
+        }
+
         // Variable
         for var in &doc.symbols.variables {
             if var.name == word && var.scope_start <= offset && offset <= var.scope_end {
@@ -166,6 +171,128 @@ impl Backend {
         }
 
         None
+    }
+
+    /// Get hover info for a method call (word preceded by a dot)
+    fn get_method_hover(&self, doc: &DocumentInfo, position: Position, word: &str) -> Option<Hover> {
+        // Get the line and check if word is preceded by a dot
+        let line = doc.text.lines().nth(position.line as usize)?;
+        let col = position.character as usize;
+        let chars: Vec<char> = line.chars().collect();
+
+        // Find start of the word
+        let mut start = col;
+        while start > 0 && is_ident_char(chars[start - 1]) {
+            start -= 1;
+        }
+
+        // Check if preceded by a dot
+        if start == 0 || chars[start - 1] != '.' {
+            return None;
+        }
+
+        // Find the receiver name (before the dot)
+        let mut receiver_end = start - 1;
+        let mut receiver_start = receiver_end;
+
+        // Skip whitespace
+        while receiver_start > 0 && chars[receiver_start - 1].is_whitespace() {
+            receiver_start -= 1;
+            receiver_end = receiver_start;
+        }
+
+        // Get the receiver identifier or closing paren/bracket
+        while receiver_start > 0 && is_ident_char(chars[receiver_start - 1]) {
+            receiver_start -= 1;
+        }
+
+        let receiver_name: String = chars[receiver_start..receiver_end].iter().collect();
+
+        if receiver_name.is_empty() {
+            // Search all methods in the symbol table
+            return self.find_method_in_all_types(doc, word);
+        }
+
+        // Try to find the receiver's type
+        let receiver_type = self.find_receiver_type(doc, &receiver_name, position);
+
+        if let Some(ref ty) = receiver_type {
+            // Extract base type name (strip generics and refs)
+            let base_type = ty
+                .trim_start_matches('&')
+                .trim_start_matches('~')
+                .trim_start_matches('*')
+                .split('<')
+                .next()
+                .unwrap_or(ty);
+
+            // Look up method in the type's methods
+            if let Some(methods) = doc.symbols.methods.get(base_type) {
+                if let Some(method_info) = methods.iter().find(|m| m.name == word) {
+                    return Some(self.format_method_hover(base_type, method_info));
+                }
+            }
+        }
+
+        // Fallback: search all types for this method
+        self.find_method_in_all_types(doc, word)
+    }
+
+    /// Find receiver's type by looking it up in variables
+    fn find_receiver_type(&self, doc: &DocumentInfo, name: &str, position: Position) -> Option<String> {
+        let offset = self.position_to_offset(&doc.text, position);
+
+        // Look up variable
+        for var in &doc.symbols.variables {
+            if var.name == name && var.scope_start <= offset && offset <= var.scope_end {
+                return var.ty.clone();
+            }
+        }
+
+        // Check if it's a type name (static method call)
+        if doc.symbols.structs.contains_key(name) || doc.symbols.enums.contains_key(name) {
+            return Some(name.to_string());
+        }
+
+        None
+    }
+
+    /// Search for a method name in all types
+    fn find_method_in_all_types(&self, doc: &DocumentInfo, method_name: &str) -> Option<Hover> {
+        for (type_name, methods) in &doc.symbols.methods {
+            if let Some(method_info) = methods.iter().find(|m| m.name == method_name) {
+                return Some(self.format_method_hover(type_name, method_info));
+            }
+        }
+        None
+    }
+
+    /// Format a method as hover info
+    fn format_method_hover(&self, type_name: &str, method_info: &crate::lsp::types::MethodInfo) -> Hover {
+        let params_str: Vec<_> = method_info
+            .params
+            .iter()
+            .map(|(n, t)| format!("{}: {}", n, t))
+            .collect();
+
+        let return_type = method_info.return_type.as_deref().unwrap_or("void");
+
+        let sig = format!(
+            "fn {}({}) -> {}",
+            method_info.name,
+            params_str.join(", "),
+            return_type
+        );
+
+        let content = format!("**Method** on `{}`\n\n```vibe\n{}\n```", type_name, sig);
+
+        Hover {
+            contents: HoverContents::Markup(MarkupContent {
+                kind: MarkupKind::Markdown,
+                value: content,
+            }),
+            range: None,
+        }
     }
 
     pub fn get_definition(&self, doc: &DocumentInfo, uri: &Uri, position: Position) -> Option<Location> {

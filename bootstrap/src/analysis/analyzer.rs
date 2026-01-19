@@ -9,8 +9,10 @@
 //! Both the LSP and codegen use this analyzer.
 
 use std::collections::{HashMap, HashSet};
+use std::path::PathBuf;
 use crate::ast::*;
 use crate::lexer::Span;
+use crate::parser::Parser;
 use super::borrow::{BorrowChecker, BorrowState};
 use super::ownership::{OwnershipTracker, is_copy_type};
 use super::symbols::*;
@@ -39,11 +41,32 @@ pub struct SemanticAnalyzer {
     current_type_params: Vec<String>,
     /// Type names imported via `use` statements (treated as valid)
     imported_types: HashSet<String>,
+    /// Path to the standard library (for std.* imports)
+    stdlib_path: Option<PathBuf>,
+    /// Directory of the current source file (for relative imports)
+    source_dir: Option<PathBuf>,
+    /// Project root directory (for src.*, lib.*, dep.* imports)
+    project_root: Option<PathBuf>,
+    /// Set of already-loaded module paths (prevent infinite recursion)
+    loaded_modules: HashSet<String>,
 }
 
 impl SemanticAnalyzer {
     /// Create a new semantic analyzer
     pub fn new() -> Self {
+        // Try to find stdlib from environment
+        let stdlib_path = std::env::var("VIBELANG_STD")
+            .ok()
+            .map(PathBuf::from)
+            .or_else(|| {
+                // Fallback: look relative to executable
+                std::env::current_exe().ok().and_then(|exe| {
+                    let parent = exe.parent()?;
+                    let std_dir = parent.parent()?.parent()?.join("std");
+                    if std_dir.exists() { Some(std_dir) } else { None }
+                })
+            });
+
         Self {
             symbols: SymbolTable::new(),
             errors: Vec::new(),
@@ -51,12 +74,35 @@ impl SemanticAnalyzer {
             borrows: BorrowChecker::new(),
             current_type_params: Vec::new(),
             imported_types: HashSet::new(),
+            stdlib_path,
+            source_dir: None,
+            project_root: None,
+            loaded_modules: HashSet::new(),
+        }
+    }
+
+    /// Create a new semantic analyzer with explicit path context
+    pub fn with_paths(stdlib_path: Option<PathBuf>, source_dir: Option<PathBuf>, project_root: Option<PathBuf>) -> Self {
+        Self {
+            symbols: SymbolTable::new(),
+            errors: Vec::new(),
+            ownership: OwnershipTracker::new(),
+            borrows: BorrowChecker::new(),
+            current_type_params: Vec::new(),
+            imported_types: HashSet::new(),
+            stdlib_path,
+            source_dir,
+            project_root,
+            loaded_modules: HashSet::new(),
         }
     }
 
     /// Analyze a program and return the result
     pub fn analyze(mut self, program: &Program) -> AnalysisResult {
-        // Inject prelude symbols so type inference works for Vec, String, etc.
+        // Load the prelude module to get Vec, String, Option, Result, etc.
+        self.load_prelude();
+
+        // Inject hardcoded prelude symbols as fallback (in case stdlib not found)
         self.inject_prelude_symbols();
 
         // First pass: extract all symbols (types, functions, etc.)
@@ -68,6 +114,16 @@ impl SemanticAnalyzer {
         AnalysisResult {
             symbols: self.symbols,
             errors: self.errors,
+        }
+    }
+
+    /// Load the prelude module from stdlib
+    fn load_prelude(&mut self) {
+        if let Some(stdlib_path) = self.stdlib_path.clone() {
+            let prelude_path = stdlib_path.join("src").join("prelude.vibe");
+            if prelude_path.exists() {
+                self.load_module(&prelude_path);
+            }
         }
     }
 
@@ -103,7 +159,7 @@ impl SemanticAnalyzer {
                     self.extract_impl(impl_block);
                 }
                 Item::Use(use_stmt) => {
-                    self.check_duplicate_imports(use_stmt);
+                    self.process_import(use_stmt);
                 }
                 _ => {}
             }
@@ -216,7 +272,10 @@ impl SemanticAnalyzer {
     }
 
     fn extract_impl(&mut self, impl_block: &Impl) {
-        let type_name = self.type_to_string(&impl_block.target);
+        // Get the full type string, then extract just the base type name
+        // e.g., "Map<K, V>" -> "Map" so methods are registered under "Map"
+        let full_type = self.type_to_string(&impl_block.target);
+        let (type_name, _) = self.parse_generic_type(&full_type);
         let methods: Vec<MethodInfo> = impl_block
             .methods
             .iter()
@@ -822,6 +881,17 @@ impl SemanticAnalyzer {
         }
     }
 
+    /// Process an import statement - resolve the module path, load it, and extract symbols
+    fn process_import(&mut self, use_stmt: &Use) {
+        // Check for duplicate imports first
+        self.check_duplicate_imports(use_stmt);
+
+        // Try to resolve and load the module
+        if let Some(module_path) = self.resolve_module_path(use_stmt) {
+            self.load_module(&module_path);
+        }
+    }
+
     fn check_duplicate_imports(&mut self, use_stmt: &Use) {
         match &use_stmt.items {
             ImportItems::Named(items) => {
@@ -854,6 +924,213 @@ impl SemanticAnalyzer {
                 }
             }
         }
+    }
+
+    /// Resolve a module path based on the import prefix
+    fn resolve_module_path(&self, use_stmt: &Use) -> Option<PathBuf> {
+        match use_stmt.prefix {
+            ImportPrefix::Std => self.resolve_std_import(&use_stmt.path),
+            ImportPrefix::Src => self.resolve_src_import(&use_stmt.path),
+            ImportPrefix::Lib => self.resolve_lib_import(&use_stmt.path),
+            ImportPrefix::Dep => self.resolve_dep_import(&use_stmt.path),
+            ImportPrefix::Relative => self.resolve_relative_import(&use_stmt.path),
+        }
+    }
+
+    /// Resolve a std.* import (standard library)
+    fn resolve_std_import(&self, path: &[String]) -> Option<PathBuf> {
+        let stdlib_path = self.stdlib_path.as_ref()?;
+        if path.is_empty() {
+            return None;
+        }
+
+        let src_dir = stdlib_path.join("src");
+        let mod_name = &path[0];
+        let mod_dir = src_dir.join(mod_name);
+
+        // Check if module directory exists (std/src/X/)
+        if mod_dir.exists() && mod_dir.is_dir() {
+            let remaining_path = &path[1..];
+            if remaining_path.is_empty() {
+                // Look for mod.vibe
+                let mod_vibe = mod_dir.join("mod.vibe");
+                if mod_vibe.exists() {
+                    return Some(mod_vibe);
+                }
+            } else {
+                // Look for specific file
+                if let Some(path) = self.find_module_file(&mod_dir, remaining_path) {
+                    return Some(path);
+                }
+            }
+        }
+
+        // Fallback to flat file: std/src/X.vibe
+        self.find_module_file(&src_dir, path)
+    }
+
+    /// Resolve a src.* import (project src directory)
+    fn resolve_src_import(&self, path: &[String]) -> Option<PathBuf> {
+        let project_root = self.project_root.as_ref()?;
+        let src_dir = project_root.join("src");
+        self.find_module_file(&src_dir, path)
+    }
+
+    /// Resolve a lib.* import (local workspace packages)
+    fn resolve_lib_import(&self, path: &[String]) -> Option<PathBuf> {
+        let project_root = self.project_root.as_ref()?;
+        if path.is_empty() {
+            return None;
+        }
+
+        let pkg_name = &path[0];
+        let lib_dir = project_root.join("lib").join(pkg_name);
+        if !lib_dir.exists() {
+            return None;
+        }
+
+        let pkg_src_dir = lib_dir.join("src");
+        let remaining = &path[1..];
+
+        if remaining.is_empty() {
+            // Import from root of package
+            let lib_vibe = pkg_src_dir.join("lib.vibe");
+            if lib_vibe.exists() {
+                return Some(lib_vibe);
+            }
+            let mod_vibe = pkg_src_dir.join("mod.vibe");
+            if mod_vibe.exists() {
+                return Some(mod_vibe);
+            }
+            None
+        } else {
+            self.find_module_file(&pkg_src_dir, remaining)
+        }
+    }
+
+    /// Resolve a dep.* import (vendored dependencies)
+    fn resolve_dep_import(&self, path: &[String]) -> Option<PathBuf> {
+        let project_root = self.project_root.as_ref()?;
+        if path.is_empty() {
+            return None;
+        }
+
+        let dep_name = &path[0];
+        let dep_dir = project_root.join("dep").join(dep_name);
+        if !dep_dir.exists() {
+            return None;
+        }
+
+        let dep_src_dir = dep_dir.join("src");
+        let remaining = &path[1..];
+
+        if remaining.is_empty() {
+            let lib_vibe = dep_src_dir.join("lib.vibe");
+            if lib_vibe.exists() {
+                return Some(lib_vibe);
+            }
+            let mod_vibe = dep_src_dir.join("mod.vibe");
+            if mod_vibe.exists() {
+                return Some(mod_vibe);
+            }
+            None
+        } else {
+            self.find_module_file(&dep_src_dir, remaining)
+        }
+    }
+
+    /// Resolve a relative import (relative to current file)
+    fn resolve_relative_import(&self, path: &[String]) -> Option<PathBuf> {
+        let source_dir = self.source_dir.as_ref()?;
+        self.find_module_file(source_dir, path)
+    }
+
+    /// Find a module file given a base directory and path segments
+    fn find_module_file(&self, base_dir: &PathBuf, path: &[String]) -> Option<PathBuf> {
+        if path.is_empty() {
+            return None;
+        }
+
+        let mut current_dir = base_dir.clone();
+        for segment in &path[..path.len() - 1] {
+            current_dir = current_dir.join(segment);
+        }
+
+        let last_segment = &path[path.len() - 1];
+
+        // Try <name>.vibe first
+        let file_path = current_dir.join(format!("{}.vibe", last_segment));
+        if file_path.exists() {
+            return Some(file_path);
+        }
+
+        // Try <name>/mod.vibe for directory modules
+        let dir_mod_path = current_dir.join(last_segment).join("mod.vibe");
+        if dir_mod_path.exists() {
+            return Some(dir_mod_path);
+        }
+
+        None
+    }
+
+    /// Load a module file and extract its symbols
+    fn load_module(&mut self, path: &PathBuf) {
+        let path_str = path.to_string_lossy().to_string();
+
+        // Check if already loaded (prevent infinite recursion)
+        if self.loaded_modules.contains(&path_str) {
+            return;
+        }
+        self.loaded_modules.insert(path_str);
+
+        // Read and parse the module
+        let source = match std::fs::read_to_string(path) {
+            Ok(s) => s,
+            Err(_) => return, // Silently skip if can't read
+        };
+
+        let program = match Parser::parse(&source) {
+            Ok(p) => p,
+            Err(_) => return, // Silently skip if can't parse
+        };
+
+        // Save current source_dir
+        let old_source_dir = self.source_dir.clone();
+        self.source_dir = path.parent().map(|p| p.to_path_buf());
+
+        // Extract symbols from this module (including its imports)
+        for item in &program.items {
+            match item {
+                Item::Function(func) if func.is_pub => {
+                    self.extract_function_signature(func);
+                }
+                Item::Struct(s) if s.is_pub => {
+                    self.extract_struct(s);
+                }
+                Item::Enum(e) if e.is_pub => {
+                    self.extract_enum(e);
+                }
+                Item::Impl(impl_block) => {
+                    self.extract_impl(impl_block);
+                }
+                Item::Use(use_stmt) => {
+                    // Process nested imports (for pub use re-exports)
+                    if use_stmt.is_pub {
+                        self.process_import(use_stmt);
+                    } else {
+                        // Still need to load the module for private imports
+                        // to get the impl blocks
+                        if let Some(module_path) = self.resolve_module_path(use_stmt) {
+                            self.load_module(&module_path);
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        // Restore source_dir
+        self.source_dir = old_source_dir;
     }
 
     /// Check that borrow operators at call site match parameter expectations

@@ -1,4 +1,4 @@
-use vibec::analysis::analyze;
+use vibec::analysis::SemanticAnalyzer;
 use vibec::codegen::Codegen;
 use vibec::parser::Parser;
 use std::path::{Path, PathBuf};
@@ -72,7 +72,13 @@ fn main() {
 
     // Run semantic analysis (unless skipped)
     if !skip_analysis {
-        let analysis_result = analyze(&program);
+        // Set up paths for the analyzer
+        let source_path = Path::new(filename).canonicalize().unwrap_or_else(|_| PathBuf::from(filename));
+        let source_dir = source_path.parent().map(|p| p.to_path_buf());
+        let stdlib_path = find_stdlib_path();
+
+        let analyzer = SemanticAnalyzer::with_paths(stdlib_path, source_dir, None);
+        let analysis_result = analyzer.analyze(&program);
 
         if !analysis_result.errors.is_empty() {
             for error in &analysis_result.errors {
@@ -168,4 +174,46 @@ fn main() {
             }
         }
     }
+}
+
+/// Find the stdlib path for the semantic analyzer
+fn find_stdlib_path() -> Option<PathBuf> {
+    // Check VIBELANG_STD environment variable
+    if let Ok(path) = std::env::var("VIBELANG_STD") {
+        let path = PathBuf::from(path);
+        if path.exists() {
+            return Some(path);
+        }
+    }
+
+    // Check legacy VIBELANG_STDLIB
+    if let Ok(path) = std::env::var("VIBELANG_STDLIB") {
+        let path = PathBuf::from(path);
+        if path.exists() {
+            return Some(path);
+        }
+    }
+
+    // Try relative to executable
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(exe_dir) = exe.parent() {
+            // ../std (installed layout)
+            let stdlib = exe_dir.join("../std");
+            if stdlib.exists() {
+                return stdlib.canonicalize().ok();
+            }
+            // ../../std (development layout)
+            let stdlib = exe_dir.join("../../std");
+            if stdlib.exists() {
+                return stdlib.canonicalize().ok();
+            }
+            // ../../../std (from target/release)
+            let stdlib = exe_dir.join("../../../std");
+            if stdlib.exists() {
+                return stdlib.canonicalize().ok();
+            }
+        }
+    }
+
+    None
 }
