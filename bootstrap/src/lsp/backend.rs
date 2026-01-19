@@ -11,7 +11,7 @@ use crate::parser::{ParseError, Parser};
 use crate::analysis;
 use crate::lsp::utils::semantic_error_to_diagnostic;
 
-use crate::lsp::types::{DocumentInfo, SymbolTable, EnumInfo, StructInfo, VariantData, VariantFieldsData};
+use crate::lsp::types::{DocumentInfo, SymbolTable, EnumInfo, StructInfo, MethodInfo, VariantData, VariantFieldsData};
 
 pub struct Backend {
     pub client: Client,
@@ -282,6 +282,18 @@ impl Backend {
             });
         }
 
+        // Error methods
+        if !symbols.methods.contains_key("Error") {
+            symbols.methods.insert("Error".to_string(), vec![
+                MethodInfo {
+                    name: "new".to_string(),
+                    params: vec![("message".to_string(), "Slice<u8>".to_string())],
+                    return_type: Some("Error".to_string()),
+                    span: prelude_span,
+                },
+            ]);
+        }
+
         // Vec<T> struct (from std.collections)
         if !symbols.structs.contains_key("Vec") {
             symbols.structs.insert("Vec".to_string(), StructInfo {
@@ -297,6 +309,94 @@ impl Backend {
             });
         }
 
+        // Vec<T> methods
+        if !symbols.methods.contains_key("Vec") {
+            symbols.methods.insert("Vec".to_string(), vec![
+                MethodInfo {
+                    name: "new".to_string(),
+                    params: vec![],
+                    return_type: Some("Vec<T>".to_string()),
+                    span: prelude_span,
+                },
+                MethodInfo {
+                    name: "with_capacity".to_string(),
+                    params: vec![("cap".to_string(), "i64".to_string())],
+                    return_type: Some("Vec<T>".to_string()),
+                    span: prelude_span,
+                },
+                MethodInfo {
+                    name: "len".to_string(),
+                    params: vec![("self".to_string(), "&Vec<T>".to_string())],
+                    return_type: Some("i64".to_string()),
+                    span: prelude_span,
+                },
+                MethodInfo {
+                    name: "is_empty".to_string(),
+                    params: vec![("self".to_string(), "&Vec<T>".to_string())],
+                    return_type: Some("bool".to_string()),
+                    span: prelude_span,
+                },
+                MethodInfo {
+                    name: "capacity".to_string(),
+                    params: vec![("self".to_string(), "&Vec<T>".to_string())],
+                    return_type: Some("i64".to_string()),
+                    span: prelude_span,
+                },
+                MethodInfo {
+                    name: "as_ptr".to_string(),
+                    params: vec![("self".to_string(), "&Vec<T>".to_string())],
+                    return_type: Some("*T".to_string()),
+                    span: prelude_span,
+                },
+                MethodInfo {
+                    name: "push".to_string(),
+                    params: vec![
+                        ("self".to_string(), "~Vec<T>".to_string()),
+                        ("value".to_string(), "T".to_string()),
+                    ],
+                    return_type: None,
+                    span: prelude_span,
+                },
+                MethodInfo {
+                    name: "pop".to_string(),
+                    params: vec![("self".to_string(), "~Vec<T>".to_string())],
+                    return_type: Some("Option<T>".to_string()),
+                    span: prelude_span,
+                },
+                MethodInfo {
+                    name: "get".to_string(),
+                    params: vec![
+                        ("self".to_string(), "&Vec<T>".to_string()),
+                        ("index".to_string(), "i64".to_string()),
+                    ],
+                    return_type: Some("Option<T>".to_string()),
+                    span: prelude_span,
+                },
+                MethodInfo {
+                    name: "set".to_string(),
+                    params: vec![
+                        ("self".to_string(), "~Vec<T>".to_string()),
+                        ("index".to_string(), "i64".to_string()),
+                        ("value".to_string(), "T".to_string()),
+                    ],
+                    return_type: None,
+                    span: prelude_span,
+                },
+                MethodInfo {
+                    name: "clear".to_string(),
+                    params: vec![("self".to_string(), "~Vec<T>".to_string())],
+                    return_type: None,
+                    span: prelude_span,
+                },
+                MethodInfo {
+                    name: "free".to_string(),
+                    params: vec![("self".to_string(), "~Vec<T>".to_string())],
+                    return_type: None,
+                    span: prelude_span,
+                },
+            ]);
+        }
+
         // String struct (from std.string)
         if !symbols.structs.contains_key("String") {
             symbols.structs.insert("String".to_string(), StructInfo {
@@ -308,6 +408,147 @@ impl Backend {
                 span: prelude_span,
                 is_pub: true,
             });
+        }
+
+        // String methods
+        if !symbols.methods.contains_key("String") {
+            symbols.methods.insert("String".to_string(), vec![
+                MethodInfo {
+                    name: "new".to_string(),
+                    params: vec![],
+                    return_type: Some("String".to_string()),
+                    span: prelude_span,
+                },
+                MethodInfo {
+                    name: "with_capacity".to_string(),
+                    params: vec![("cap".to_string(), "i64".to_string())],
+                    return_type: Some("String".to_string()),
+                    span: prelude_span,
+                },
+                MethodInfo {
+                    name: "from".to_string(),
+                    params: vec![("s".to_string(), "&Slice<u8>".to_string())],
+                    return_type: Some("String".to_string()),
+                    span: prelude_span,
+                },
+                MethodInfo {
+                    name: "len".to_string(),
+                    params: vec![("self".to_string(), "&String".to_string())],
+                    return_type: Some("i64".to_string()),
+                    span: prelude_span,
+                },
+                MethodInfo {
+                    name: "capacity".to_string(),
+                    params: vec![("self".to_string(), "&String".to_string())],
+                    return_type: Some("i64".to_string()),
+                    span: prelude_span,
+                },
+                MethodInfo {
+                    name: "is_empty".to_string(),
+                    params: vec![("self".to_string(), "&String".to_string())],
+                    return_type: Some("bool".to_string()),
+                    span: prelude_span,
+                },
+                MethodInfo {
+                    name: "as_bytes".to_string(),
+                    params: vec![("self".to_string(), "&String".to_string())],
+                    return_type: Some("Slice<u8>".to_string()),
+                    span: prelude_span,
+                },
+                MethodInfo {
+                    name: "push".to_string(),
+                    params: vec![
+                        ("self".to_string(), "~String".to_string()),
+                        ("byte".to_string(), "u8".to_string()),
+                    ],
+                    return_type: Some("String".to_string()),
+                    span: prelude_span,
+                },
+                MethodInfo {
+                    name: "push_str".to_string(),
+                    params: vec![
+                        ("self".to_string(), "~String".to_string()),
+                        ("s".to_string(), "&Slice<u8>".to_string()),
+                    ],
+                    return_type: Some("String".to_string()),
+                    span: prelude_span,
+                },
+                MethodInfo {
+                    name: "clear".to_string(),
+                    params: vec![("self".to_string(), "~String".to_string())],
+                    return_type: Some("String".to_string()),
+                    span: prelude_span,
+                },
+                MethodInfo {
+                    name: "trim".to_string(),
+                    params: vec![("self".to_string(), "&String".to_string())],
+                    return_type: Some("String".to_string()),
+                    span: prelude_span,
+                },
+                MethodInfo {
+                    name: "to_lowercase".to_string(),
+                    params: vec![("self".to_string(), "&String".to_string())],
+                    return_type: Some("String".to_string()),
+                    span: prelude_span,
+                },
+                MethodInfo {
+                    name: "to_uppercase".to_string(),
+                    params: vec![("self".to_string(), "&String".to_string())],
+                    return_type: Some("String".to_string()),
+                    span: prelude_span,
+                },
+                MethodInfo {
+                    name: "contains".to_string(),
+                    params: vec![
+                        ("self".to_string(), "&String".to_string()),
+                        ("needle".to_string(), "&Slice<u8>".to_string()),
+                    ],
+                    return_type: Some("bool".to_string()),
+                    span: prelude_span,
+                },
+                MethodInfo {
+                    name: "starts_with".to_string(),
+                    params: vec![
+                        ("self".to_string(), "&String".to_string()),
+                        ("prefix".to_string(), "&Slice<u8>".to_string()),
+                    ],
+                    return_type: Some("bool".to_string()),
+                    span: prelude_span,
+                },
+                MethodInfo {
+                    name: "ends_with".to_string(),
+                    params: vec![
+                        ("self".to_string(), "&String".to_string()),
+                        ("suffix".to_string(), "&Slice<u8>".to_string()),
+                    ],
+                    return_type: Some("bool".to_string()),
+                    span: prelude_span,
+                },
+                MethodInfo {
+                    name: "find".to_string(),
+                    params: vec![
+                        ("self".to_string(), "&String".to_string()),
+                        ("needle".to_string(), "&Slice<u8>".to_string()),
+                    ],
+                    return_type: Some("Option<i64>".to_string()),
+                    span: prelude_span,
+                },
+                MethodInfo {
+                    name: "split".to_string(),
+                    params: vec![
+                        ("self".to_string(), "&String".to_string()),
+                        ("delim".to_string(), "&Slice<u8>".to_string()),
+                    ],
+                    return_type: Some("Vec<String>".to_string()),
+                    span: prelude_span,
+                },
+                MethodInfo {
+                    name: "lines".to_string(),
+                    params: vec![("self".to_string(), "&String".to_string())],
+                    return_type: Some("Vec<String>".to_string()),
+                    span: prelude_span,
+                },
+            ]);
         }
 
         // Map<K, V> struct (from std.collections)
