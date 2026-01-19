@@ -592,10 +592,52 @@ impl SemanticAnalyzer {
                 }
             }
 
-            Expr::MethodCall { receiver, args, .. } => {
+            Expr::MethodCall { receiver, method, args, span } => {
                 self.analyze_expr(receiver);
                 for arg in args {
                     self.analyze_expr(arg);
+                }
+
+                // Type check method arguments against generic type parameters
+                if let Some(receiver_type) = self.infer_type_from_expr(receiver) {
+                    let (base_type, type_args) = self.parse_generic_type(&receiver_type);
+
+                    // Look up method info
+                    if let Some(methods) = self.symbols.methods.get(&base_type).cloned() {
+                        if let Some(method_info) = methods.iter().find(|m| &m.name == method) {
+                            // Get the struct's generic parameters (e.g., ["K", "V"] for Map)
+                            let type_params = self.symbols.structs.get(&base_type)
+                                .map(|s| s.generics.clone())
+                                .unwrap_or_default();
+
+                            // Check each argument (skip self parameter)
+                            let params_without_self: Vec<_> = method_info.params.iter()
+                                .filter(|(name, _)| name != "self")
+                                .collect();
+
+                            for (i, arg) in args.iter().enumerate() {
+                                if let Some((param_name, param_type)) = params_without_self.get(i) {
+                                    // Substitute type parameters with concrete types
+                                    let expected_type = self.substitute_type_params(
+                                        param_type,
+                                        &type_params,
+                                        &type_args
+                                    );
+
+                                    // Infer the argument's type
+                                    if let Some(arg_type) = self.infer_type_from_expr(arg) {
+                                        if !self.types_compatible(&expected_type, &arg_type) {
+                                            self.errors.push(SemanticError::TypeMismatch {
+                                                expected: expected_type,
+                                                found: arg_type,
+                                                span: *span,
+                                            });
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
             }
 
@@ -1315,6 +1357,65 @@ impl SemanticAnalyzer {
                 },
             ]);
         }
+    }
+
+    /// Parse a type string like "Map<i64, i64>" into base type and generic args
+    fn parse_generic_type(&self, ty: &str) -> (String, Vec<String>) {
+        if let Some(open) = ty.find('<') {
+            if let Some(close) = ty.rfind('>') {
+                let base = ty[..open].to_string();
+                let generics_str = &ty[open + 1..close];
+                // Simple parsing - split by comma but respect nested generics
+                let generics = self.split_generic_args(generics_str);
+                return (base, generics);
+            }
+        }
+        (ty.to_string(), Vec::new())
+    }
+
+    /// Split generic args string, respecting nested generics
+    fn split_generic_args(&self, s: &str) -> Vec<String> {
+        let mut result = Vec::new();
+        let mut current = String::new();
+        let mut depth = 0;
+        for c in s.chars() {
+            match c {
+                '<' => { depth += 1; current.push(c); }
+                '>' => { depth -= 1; current.push(c); }
+                ',' if depth == 0 => {
+                    result.push(current.trim().to_string());
+                    current = String::new();
+                }
+                _ => current.push(c),
+            }
+        }
+        if !current.trim().is_empty() {
+            result.push(current.trim().to_string());
+        }
+        result
+    }
+
+    /// Substitute generic type parameters in a type string
+    /// e.g., substitute_type_params("K", ["K", "V"], ["i64", "String"]) -> "i64"
+    fn substitute_type_params(&self, ty: &str, params: &[String], args: &[String]) -> String {
+        // Direct match for type parameters
+        for (i, param) in params.iter().enumerate() {
+            if ty == param {
+                if let Some(arg) = args.get(i) {
+                    return arg.clone();
+                }
+            }
+        }
+        // Handle generic types like Vec<K>
+        let (base, generics) = self.parse_generic_type(ty);
+        if !generics.is_empty() {
+            let substituted_generics: Vec<_> = generics
+                .iter()
+                .map(|g| self.substitute_type_params(g, params, args))
+                .collect();
+            return format!("{}<{}>", base, substituted_generics.join(", "));
+        }
+        ty.to_string()
     }
 }
 
