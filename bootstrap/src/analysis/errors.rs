@@ -102,6 +102,21 @@ pub enum SemanticError {
         operation: String,
         span: Span,
     },
+
+    /// Type does not implement required trait bound
+    TraitBoundNotSatisfied {
+        type_name: String,
+        trait_name: String,
+        span: Span,
+    },
+
+    /// Trait implementation is missing required method
+    MissingTraitMethod {
+        trait_name: String,
+        method_name: String,
+        type_name: String,
+        span: Span,
+    },
 }
 
 /// The kind of borrow (for error messages)
@@ -138,6 +153,8 @@ impl SemanticError {
             SemanticError::UnknownField { span, .. } => *span,
             SemanticError::DuplicateImport { span, .. } => *span,
             SemanticError::UnsafeRequired { span, .. } => *span,
+            SemanticError::TraitBoundNotSatisfied { span, .. } => *span,
+            SemanticError::MissingTraitMethod { span, .. } => *span,
         }
     }
 
@@ -209,6 +226,18 @@ impl SemanticError {
             }
             SemanticError::UnsafeRequired { operation, .. } => {
                 format!("'{}' requires unsafe block", operation)
+            }
+            SemanticError::TraitBoundNotSatisfied { type_name, trait_name, .. } => {
+                format!(
+                    "type '{}' does not implement trait '{}'",
+                    type_name, trait_name
+                )
+            }
+            SemanticError::MissingTraitMethod { trait_name, method_name, type_name, .. } => {
+                format!(
+                    "impl of trait '{}' for '{}' is missing method '{}'",
+                    trait_name, type_name, method_name
+                )
             }
         }
     }

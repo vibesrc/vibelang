@@ -42,6 +42,8 @@ pub struct FunctionInfo {
     pub return_type: Option<String>,
     /// Generic type parameters
     pub generics: Vec<String>,
+    /// Trait bounds: (type_param, trait_name) e.g., [("T", "Hash"), ("T", "Eq")]
+    pub bounds: Vec<(String, String)>,
     /// Location in source
     pub span: Span,
     /// Whether the function is public

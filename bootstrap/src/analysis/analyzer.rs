@@ -192,6 +192,7 @@ impl SemanticAnalyzer {
                 params,
                 return_type: func.return_type.as_ref().map(|t| self.type_to_string(t)),
                 generics: func.generics.clone(),
+                bounds: func.bounds.clone(),
                 span: func.span,
                 is_pub: func.is_pub,
             },
@@ -327,8 +328,25 @@ impl SemanticAnalyzer {
             })
             .collect();
 
-        // If this is a trait impl, record it in trait_impls
+        // If this is a trait impl, validate all required methods are implemented
         if let Some(ref trait_name) = impl_block.trait_name {
+            if let Some(trait_info) = self.symbols.traits.get(trait_name).cloned() {
+                let impl_method_names: std::collections::HashSet<_> =
+                    impl_block.methods.iter().map(|m| m.name.as_str()).collect();
+
+                for trait_method in &trait_info.methods {
+                    if !trait_method.has_default && !impl_method_names.contains(trait_method.name.as_str()) {
+                        self.errors.push(SemanticError::MissingTraitMethod {
+                            trait_name: trait_name.clone(),
+                            method_name: trait_method.name.clone(),
+                            type_name: type_name.clone(),
+                            span: impl_block.span,
+                        });
+                    }
+                }
+            }
+
+            // Record the impl
             let method_names: Vec<String> = impl_block.methods.iter().map(|m| m.name.clone()).collect();
             self.symbols.trait_impls.insert((type_name.clone(), trait_name.clone()), method_names);
         }
@@ -649,7 +667,7 @@ impl SemanticAnalyzer {
                 self.analyze_expr(operand);
             }
 
-            Expr::Call { func, args, span, .. } => {
+            Expr::Call { func, type_args, args, span } => {
                 self.analyze_expr(func);
 
                 // Get function info for validation
@@ -658,6 +676,18 @@ impl SemanticAnalyzer {
                 } else {
                     None
                 };
+
+                // Check trait bounds if generic call
+                if let Some(ref info) = func_info {
+                    if !info.bounds.is_empty() && !type_args.is_empty() {
+                        self.check_trait_bounds(
+                            &info.generics,
+                            type_args,
+                            &info.bounds,
+                            *span,
+                        );
+                    }
+                }
 
                 // Check argument count
                 if let Some(ref info) = func_info {
@@ -920,6 +950,33 @@ impl SemanticAnalyzer {
                 self.check_type(inner, span);
             }
             _ => {}
+        }
+    }
+
+    /// Check that type arguments satisfy trait bounds
+    fn check_trait_bounds(
+        &mut self,
+        type_params: &[String],
+        type_args: &[Type],
+        bounds: &[(String, String)],
+        span: Span,
+    ) {
+        for (param, trait_name) in bounds {
+            // Find which type argument corresponds to this parameter
+            if let Some(idx) = type_params.iter().position(|p| p == param) {
+                if let Some(arg_type) = type_args.get(idx) {
+                    let type_name = self.type_to_string(arg_type);
+                    // Check if type implements trait
+                    let key = (type_name.clone(), trait_name.clone());
+                    if !self.symbols.trait_impls.contains_key(&key) {
+                        self.errors.push(SemanticError::TraitBoundNotSatisfied {
+                            type_name,
+                            trait_name: trait_name.clone(),
+                            span,
+                        });
+                    }
+                }
+            }
         }
     }
 

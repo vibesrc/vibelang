@@ -1,0 +1,16 @@
+// Test: Trait implementation missing required method
+// Expected error: impl of trait 'Debug' for 'Foo' is missing method 'debug'
+
+trait Debug {
+    fn debug(&self) -> Slice<u8>
+}
+
+struct Foo { x: i32 }
+
+impl Debug for Foo {
+    // Missing debug() method - should error
+}
+
+fn main() {
+    let f = Foo { x: 42 }
+}

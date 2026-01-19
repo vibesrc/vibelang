@@ -1,0 +1,18 @@
+// Test: Type does not implement required trait bound
+// Expected error: type 'Point' does not implement trait 'Hash'
+
+trait Hash {
+    fn hash(&self) -> u64
+}
+
+struct Point { x: i32, y: i32 }
+// Point does NOT implement Hash
+
+fn hash_it<T: Hash>(value: &T) -> u64 {
+    value.hash()
+}
+
+fn main() {
+    let p = Point { x: 1, y: 2 }
+    hash_it<Point>(&p)  // Should error: Point does not implement Hash
+}

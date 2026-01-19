@@ -1,0 +1,24 @@
+// Test: Trait bound is satisfied - should compile successfully
+
+trait Hash {
+    fn hash(&self) -> u64
+}
+
+struct Point { x: i32, y: i32 }
+
+impl Hash for Point {
+    fn hash(&self) -> u64 {
+        // Simple hash combining x and y
+        (self.x as u64) * 31 + (self.y as u64)
+    }
+}
+
+fn hash_it<T: Hash>(value: &T) -> u64 {
+    value.hash()
+}
+
+fn main() {
+    let p = Point { x: 1, y: 2 }
+    let h = hash_it<Point>(&p)  // Should work: Point implements Hash
+    print("${h}")
+}
