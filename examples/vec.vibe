@@ -1,0 +1,8 @@
+
+fn main() {
+    let arr = Vec<u8>.new()
+    arr.push(65)
+    arr.push(66)
+    arr.push(67)
+    println("Vec test ${arr.len()}")
+}

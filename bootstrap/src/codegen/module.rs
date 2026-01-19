@@ -244,7 +244,7 @@ impl<'ctx> Codegen<'ctx> {
     }
 
     /// Load a module from a file path
-    fn load_module_from_path(&mut self, path: &PathBuf, _is_pub: bool) -> Result<(), CodegenError> {
+    pub(crate) fn load_module_from_path(&mut self, path: &PathBuf, _is_pub: bool) -> Result<(), CodegenError> {
         let path_str = path.to_string_lossy().to_string();
 
         // Check if already loaded

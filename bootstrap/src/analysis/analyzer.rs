@@ -496,9 +496,12 @@ impl SemanticAnalyzer {
                 if !var_exists && name != "self" && !is_builtin_function(name) {
                     // Allow struct/enum names for static method calls (e.g., Vec.new())
                     // Also allow prelude types (Vec, String, Option, etc.)
+                    // Also allow imported items from `use` statements
                     let is_type_name = self.symbols.structs.contains_key(name)
                         || self.symbols.enums.contains_key(name)
-                        || is_prelude_type(name);
+                        || is_prelude_type(name)
+                        || self.imported_types.contains(name)
+                        || self.imported_types.contains("*"); // Glob import
                     if !is_type_name {
                         self.errors.push(SemanticError::UndefinedVariable {
                             name: name.clone(),
@@ -656,7 +659,7 @@ impl SemanticAnalyzer {
                 self.analyze_expr(operand);
             }
 
-            Expr::StructInit { name, fields, span, .. } => {
+            Expr::StructInit { name, generics, fields, span, .. } => {
                 // Check struct exists (including imported types)
                 let base_name = name.split('<').next().unwrap_or(name);
                 let is_valid = self.symbols.structs.contains_key(base_name)
@@ -671,25 +674,29 @@ impl SemanticAnalyzer {
                         span: *span,
                     });
                 } else if let Some(struct_info) = self.symbols.structs.get(base_name).cloned() {
-                    // Check fields
-                    let provided_fields: Vec<_> = fields.iter().map(|(n, _)| n.as_str()).collect();
-                    for (field_name, _, _) in &struct_info.fields {
-                        if !provided_fields.contains(&field_name.as_str()) {
-                            self.errors.push(SemanticError::MissingField {
-                                struct_name: name.clone(),
-                                field_name: field_name.clone(),
-                                span: *span,
-                            });
+                    // Skip field checks if no fields provided AND it has generics
+                    // This allows Vec<u8>.new() syntax (type with generics used for static method call)
+                    if !fields.is_empty() || generics.is_empty() {
+                        // Check fields
+                        let provided_fields: Vec<_> = fields.iter().map(|(n, _)| n.as_str()).collect();
+                        for (field_name, _, _) in &struct_info.fields {
+                            if !provided_fields.contains(&field_name.as_str()) {
+                                self.errors.push(SemanticError::MissingField {
+                                    struct_name: name.clone(),
+                                    field_name: field_name.clone(),
+                                    span: *span,
+                                });
+                            }
                         }
-                    }
-                    let known_fields: Vec<_> = struct_info.fields.iter().map(|(n, _, _)| n.as_str()).collect();
-                    for (field_name, _) in fields {
-                        if !known_fields.contains(&field_name.as_str()) {
-                            self.errors.push(SemanticError::UnknownField {
-                                struct_name: name.clone(),
-                                field_name: field_name.clone(),
-                                span: *span,
-                            });
+                        let known_fields: Vec<_> = struct_info.fields.iter().map(|(n, _, _)| n.as_str()).collect();
+                        for (field_name, _) in fields {
+                            if !known_fields.contains(&field_name.as_str()) {
+                                self.errors.push(SemanticError::UnknownField {
+                                    struct_name: name.clone(),
+                                    field_name: field_name.clone(),
+                                    span: *span,
+                                });
+                            }
                         }
                     }
                 }
@@ -938,17 +945,68 @@ impl SemanticAnalyzer {
             }
             Expr::Ident(name, _) => self.get_variable_type(name),
             Expr::Call { func, .. } => {
+                // Direct function call: foo()
                 if let Expr::Ident(name, _) = func.as_ref() {
-                    self.symbols.functions.get(name).and_then(|f| f.return_type.clone())
-                } else {
-                    None
+                    return self.symbols.functions.get(name).and_then(|f| f.return_type.clone());
                 }
+                // Static method call on generic type: Vec<u8>.new()
+                // Parses as Call { func: Field { object: StructInit, field: method } }
+                if let Expr::Field { object, field, .. } = func.as_ref() {
+                    if let Expr::StructInit { name, generics, fields, .. } = object.as_ref() {
+                        if fields.is_empty() && !generics.is_empty() {
+                            // Build the full generic type
+                            let generic_strs: Vec<_> = generics.iter().map(|g| self.type_to_string(g)).collect();
+                            let full_type = format!("{}<{}>", name, generic_strs.join(", "));
+
+                            // Look up method return type
+                            if let Some(methods) = self.symbols.methods.get(name) {
+                                if let Some(method_info) = methods.iter().find(|m| &m.name == field) {
+                                    return method_info.return_type.as_ref().map(|ty| {
+                                        // Replace Self or Vec<T> with concrete type
+                                        if ty == "Self" || ty.starts_with(&format!("{}<", name)) {
+                                            full_type.clone()
+                                        } else {
+                                            ty.clone()
+                                        }
+                                    });
+                                }
+                            }
+                            // Even without method info, return type is the generic struct
+                            return Some(full_type);
+                        }
+                    }
+                }
+                None
             }
             Expr::MethodCall { receiver, method, .. } => {
+                // Check if receiver is a generic type (e.g., Vec<u8>.new())
+                if let Expr::StructInit { name, generics, fields, .. } = receiver.as_ref() {
+                    if fields.is_empty() && !generics.is_empty() {
+                        // Static method call on a generic type: Vec<u8>.new()
+                        // Look up the method return type
+                        if let Some(methods) = self.symbols.methods.get(name) {
+                            if let Some(method_info) = methods.iter().find(|m| &m.name == method) {
+                                let generic_strs: Vec<_> = generics.iter().map(|g| self.type_to_string(g)).collect();
+                                let full_type = format!("{}<{}>", name, generic_strs.join(", "));
+                                // Replace 'Self', 'Vec<T>', etc. with the concrete type
+                                return method_info.return_type.as_ref().map(|ty| {
+                                    if ty == "Self" || ty.starts_with(&format!("{}<", name)) {
+                                        full_type.clone()
+                                    } else {
+                                        ty.clone()
+                                    }
+                                });
+                            }
+                        }
+                        // Even if method not found, we know the type is the generic struct
+                        let generic_strs: Vec<_> = generics.iter().map(|g| self.type_to_string(g)).collect();
+                        return Some(format!("{}<{}>", name, generic_strs.join(", ")));
+                    }
+                }
                 // Get receiver type
                 if let Expr::Ident(type_name, _) = receiver.as_ref() {
                     // Check if it's a static method call on a type (e.g., String.from())
-                    if self.symbols.structs.contains_key(type_name) || self.symbols.enums.contains_key(type_name) {
+                    if self.symbols.structs.contains_key(type_name) || self.symbols.enums.contains_key(type_name) || is_prelude_type(type_name) {
                         // Look up the method return type
                         if let Some(methods) = self.symbols.methods.get(type_name) {
                             if let Some(method_info) = methods.iter().find(|m| &m.name == method) {

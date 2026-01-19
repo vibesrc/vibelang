@@ -427,97 +427,10 @@ impl<'ctx> Codegen<'ctx> {
             None => return Ok(()),
         };
 
-        // Load types from std/src/types/mod.vibe (Option, Result, Error, Slice)
-        let types_mod = stdlib_path.join("src").join("types").join("mod.vibe");
-        if types_mod.exists() {
-            self.load_prelude_file(&types_mod)?;
-        }
-
-        // Note: Vec and String require explicit import due to dependencies on std.mem
-        // A proper prelude system would need to resolve module dependencies
-
-        Ok(())
-    }
-
-    /// Load a prelude file and extract definitions
-    fn load_prelude_file(&mut self, path: &PathBuf) -> Result<(), CodegenError> {
-        let path_str = path.to_string_lossy().to_string();
-
-        // Check if already loaded
-        if self.loaded_modules.contains(&path_str) {
-            return Ok(());
-        }
-        self.loaded_modules.insert(path_str.clone());
-
-        // Read and parse the prelude file
-        let source = std::fs::read_to_string(path)
-            .map_err(|e| CodegenError::NotImplemented(format!("failed to read prelude '{}': {}", path.display(), e)))?;
-
-        let prelude_program = crate::parser::Parser::parse(&source)
-            .map_err(|e| CodegenError::NotImplemented(format!("failed to parse prelude '{}': {}", path.display(), e)))?;
-
-        // Track public items from this module (needed for later 'use' statements)
-        let mut public_items = std::collections::HashSet::new();
-        for item in &prelude_program.items {
-            match item {
-                Item::Function(f) if f.is_pub => { public_items.insert(f.name.clone()); }
-                Item::Struct(s) if s.is_pub => { public_items.insert(s.name.clone()); }
-                Item::Enum(e) if e.is_pub => { public_items.insert(e.name.clone()); }
-                Item::Static(s) if s.is_pub => { public_items.insert(s.name.clone()); }
-                _ => {}
-            }
-        }
-        self.module_public_items.insert(path_str, public_items);
-
-        // Process items from prelude - first pass: define types
-        for item in &prelude_program.items {
-            match item {
-                Item::Struct(s) if s.is_pub => {
-                    if s.generics.is_empty() {
-                        self.define_struct(s)?;
-                    } else {
-                        self.generic_structs.insert(s.name.clone(), s.clone());
-                    }
-                }
-                Item::Enum(e) if e.is_pub => {
-                    if e.generics.is_empty() {
-                        self.define_enum(e)?;
-                    } else {
-                        self.generic_enums.insert(e.name.clone(), e.clone());
-                    }
-                }
-                _ => {}
-            }
-        }
-
-        // Second pass: declare functions and impl methods
-        for item in &prelude_program.items {
-            match item {
-                Item::Function(func) if func.is_pub => {
-                    if func.generics.is_empty() {
-                        self.declare_function(func)?;
-                    } else {
-                        self.generic_functions.insert(func.name.clone(), func.clone());
-                    }
-                }
-                Item::Impl(impl_block) => {
-                    self.declare_impl_methods(impl_block)?;
-                }
-                _ => {}
-            }
-        }
-
-        // Third pass: compile function bodies
-        for item in &prelude_program.items {
-            match item {
-                Item::Function(func) if func.is_pub && func.generics.is_empty() => {
-                    self.compile_function(func)?;
-                }
-                Item::Impl(impl_block) => {
-                    self.compile_impl_methods(impl_block)?;
-                }
-                _ => {}
-            }
+        // Load the prelude which contains `pub use` statements for Vec, String, etc.
+        let prelude_file = stdlib_path.join("src").join("prelude.vibe");
+        if prelude_file.exists() {
+            self.load_module_from_path(&prelude_file, true)?;
         }
 
         Ok(())

@@ -23,7 +23,7 @@ impl Backend {
                     BorrowState::MutBorrowed => "mutably borrowed (~)",
                     BorrowState::Moved => "moved",
                 };
-                let ty_str = var.ty.as_deref().unwrap_or("(inferred)");
+                let ty_str = var.ty.as_deref().unwrap_or("unknown");
                 let content = format!(
                     "**Variable** `{}`\n\n**Type:** `{}`\n\n**State:** {}",
                     word, ty_str, borrow_info
@@ -230,6 +230,29 @@ impl Backend {
             }
             Expr::Call { func, .. } => {
                 if let Expr::Field { object, field, .. } = func.as_ref() {
+                    // Static method call on generic type: Vec<u8>.new()
+                    if let Expr::StructInit { name, generics, fields, .. } = object.as_ref() {
+                        if fields.is_empty() && !generics.is_empty() {
+                            let generic_strs: Vec<_> = generics.iter().map(|g| self.type_to_string(g)).collect();
+                            let full_type = format!("{}<{}>", name, generic_strs.join(", "));
+
+                            // Look up method return type
+                            if let Some(syms) = symbols {
+                                if let Some(methods) = syms.methods.get(name.as_str()) {
+                                    if let Some(method_info) = methods.iter().find(|m| &m.name == field) {
+                                        if let Some(ref ret_ty) = method_info.return_type {
+                                            if ret_ty == "Self" || ret_ty.starts_with(&format!("{}<", name)) {
+                                                return Some(full_type);
+                                            }
+                                            return Some(ret_ty.clone());
+                                        }
+                                    }
+                                }
+                            }
+                            return Some(full_type);
+                        }
+                    }
+                    // Enum variant constructor
                     if let Expr::Ident(enum_name, _) = object.as_ref() {
                         return Some(enum_name.clone());
                     }
@@ -239,6 +262,31 @@ impl Backend {
                 }
             }
             Expr::MethodCall { receiver, method, .. } => {
+                // Static method call on a generic type (e.g., Vec<u8>.new())
+                if let Expr::StructInit { name, generics, fields, .. } = receiver.as_ref() {
+                    if fields.is_empty() && !generics.is_empty() {
+                        // Build the full generic type name
+                        let generic_strs: Vec<_> = generics.iter().map(|g| self.type_to_string(g)).collect();
+                        let full_type = format!("{}<{}>", name, generic_strs.join(", "));
+
+                        // Look up method return type
+                        if let Some(syms) = symbols {
+                            if let Some(methods) = syms.methods.get(name.as_str()) {
+                                if let Some(method_info) = methods.iter().find(|m| &m.name == method) {
+                                    if let Some(ref ret_ty) = method_info.return_type {
+                                        // Replace Self or generic return types with concrete type
+                                        if ret_ty == "Self" || ret_ty.starts_with(&format!("{}<", name)) {
+                                            return Some(full_type);
+                                        }
+                                        return Some(ret_ty.clone());
+                                    }
+                                }
+                            }
+                        }
+                        // Even without method info, the return type is the generic struct
+                        return Some(full_type);
+                    }
+                }
                 // Static method call on a type (e.g., String.from(), Vec.new())
                 if let Expr::Ident(type_name, _) = receiver.as_ref() {
                     // Look up the method return type from symbols

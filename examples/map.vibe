@@ -1,0 +1,40 @@
+use std.collections.{Map}
+use std.hash.{hash_i64}
+
+fn main() {
+    let scores = Map<i64, i64>.new()
+
+    // Insert some key-value pairs
+    scores.insert("abc", 100)
+    scores.insert("b", 200)
+    scores.insert("c", 300)
+
+    println("Map has ${scores.len()} entries")
+
+    // Look up values
+    match scores.get(2, hash_i64(2)) {
+        Option.Some(val) => {
+            println("Score for key 2: ${val}")
+        }
+        Option.None => {
+            println("Key 2 not found")
+        }
+    }
+
+    // Check if key exists
+    if scores.contains(3, hash_i64(3)) {
+        println("Key 3 exists")
+    }
+
+    // Remove a key
+    match scores.remove(1, hash_i64(1)) {
+        Option.Some(val) => {
+            println("Removed key 1 with value ${val}")
+        }
+        Option.None => {}
+    }
+
+    println("Map now has ${scores.len()} entries")
+
+    scores.free()
+}

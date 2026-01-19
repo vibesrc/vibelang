@@ -124,6 +124,18 @@ impl<'ctx> Codegen<'ctx> {
                         return self.compile_static_method_call(name, method, args);
                     }
 
+                    // Check if this is a static method call on a generic struct (e.g., Vec.new())
+                    // For generic structs without explicit type args, we need to infer the type
+                    // from context or use a default monomorphization
+                    if self.generic_structs.contains_key(name) {
+                        // Try to infer type arguments from function return type expectation
+                        // For now, we require explicit type args for generic structs
+                        return Err(CodegenError::NotImplemented(format!(
+                            "static method call on generic struct '{}' requires explicit type args (e.g., {}<T>.{}())",
+                            name, name, method
+                        )));
+                    }
+
                     // Check for array .len() method
                     if method == "len" && args.is_empty() {
                         if let Some(var_info) = self.variables.get(name) {
