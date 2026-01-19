@@ -117,6 +117,13 @@ pub enum SemanticError {
         type_name: String,
         span: Span,
     },
+
+    /// Method not found on type (including generic types with trait bounds)
+    UndefinedMethod {
+        type_name: String,
+        method_name: String,
+        span: Span,
+    },
 }
 
 /// The kind of borrow (for error messages)
@@ -155,6 +162,7 @@ impl SemanticError {
             SemanticError::UnsafeRequired { span, .. } => *span,
             SemanticError::TraitBoundNotSatisfied { span, .. } => *span,
             SemanticError::MissingTraitMethod { span, .. } => *span,
+            SemanticError::UndefinedMethod { span, .. } => *span,
         }
     }
 
@@ -237,6 +245,12 @@ impl SemanticError {
                 format!(
                     "impl of trait '{}' for '{}' is missing method '{}'",
                     trait_name, type_name, method_name
+                )
+            }
+            SemanticError::UndefinedMethod { type_name, method_name, .. } => {
+                format!(
+                    "method '{}' not found on type '{}'",
+                    method_name, type_name
                 )
             }
         }

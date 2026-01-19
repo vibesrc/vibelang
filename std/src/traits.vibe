@@ -20,10 +20,10 @@ pub trait Eq {
     fn eq(&self, other: &Self) -> bool
 }
 
-/// Hash trait - Types that can be hashed to a u64 value.
+/// Hash trait - Types that can be hashed to an i64 value.
 /// Used for HashMap keys and HashSet elements.
 pub trait Hash {
-    fn hash(&self) -> u64
+    fn hash(&self) -> i64
 }
 
 /// Debug trait - Types that can produce a debug representation.

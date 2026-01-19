@@ -1,0 +1,24 @@
+// Test trait method dispatch on generic types - multiple methods
+
+trait Printable {
+    fn to_str(&self) -> i64
+    fn double(&self) -> i64
+}
+
+impl Printable for i64 {
+    fn to_str(&self) -> i64 { *self }
+    fn double(&self) -> i64 { *self * 2 }
+}
+
+fn print_it<T: Printable>(x: &T) -> i64 {
+    x.to_str()
+}
+
+fn double_it<T: Printable>(x: &T) -> i64 {
+    x.double()
+}
+
+fn main() {
+    let val: i64 = 21
+    print("${print_it(&val)}-${double_it(&val)}")
+}

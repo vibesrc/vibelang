@@ -294,6 +294,44 @@ impl<'ctx> Codegen<'ctx> {
         }
     }
 
+    /// Get the type name from an AST type for method lookup
+    /// This handles primitives, structs, enums, and references
+    pub(crate) fn get_type_name_from_ast(&self, ty: &Type) -> Option<String> {
+        match ty {
+            // Unwrap references to get the inner type name
+            Type::Ref(inner) | Type::RefMut(inner) => {
+                self.get_type_name_from_ast(inner)
+            }
+            // Primitives - return their name for trait impl lookup
+            Type::I8 => Some("i8".to_string()),
+            Type::I16 => Some("i16".to_string()),
+            Type::I32 => Some("i32".to_string()),
+            Type::I64 => Some("i64".to_string()),
+            Type::U8 => Some("u8".to_string()),
+            Type::U16 => Some("u16".to_string()),
+            Type::U32 => Some("u32".to_string()),
+            Type::U64 => Some("u64".to_string()),
+            Type::F32 => Some("f32".to_string()),
+            Type::F64 => Some("f64".to_string()),
+            Type::Bool => Some("bool".to_string()),
+            Type::Char => Some("char".to_string()),
+            // Named types (structs, enums)
+            Type::Named { name, generics } => {
+                if !generics.is_empty() {
+                    Some(self.mangle_name(name, generics))
+                } else {
+                    Some(name.clone())
+                }
+            }
+            // Slices
+            Type::Slice(inner) => {
+                Some(self.mangle_name("Slice", &[inner.as_ref().clone()]))
+            }
+            // Other types
+            _ => None,
+        }
+    }
+
     /// Extract the Ok type (T) from Result<T, E> or the Some type from Option<T>
     pub(crate) fn get_result_ok_type(&self, ty: &Type) -> Option<Type> {
         match ty {
@@ -335,6 +373,19 @@ impl<'ctx> Codegen<'ctx> {
                     Some(self.mangle_name(name, generics))
                 }
             }
+            // Primitives - return their name for trait impl support
+            Type::I8 => Some("i8".to_string()),
+            Type::I16 => Some("i16".to_string()),
+            Type::I32 => Some("i32".to_string()),
+            Type::I64 => Some("i64".to_string()),
+            Type::U8 => Some("u8".to_string()),
+            Type::U16 => Some("u16".to_string()),
+            Type::U32 => Some("u32".to_string()),
+            Type::U64 => Some("u64".to_string()),
+            Type::F32 => Some("f32".to_string()),
+            Type::F64 => Some("f64".to_string()),
+            Type::Bool => Some("bool".to_string()),
+            Type::Char => Some("char".to_string()),
             _ => None,
         }
     }
@@ -630,6 +681,16 @@ impl<'ctx> Codegen<'ctx> {
                 }
                 // Fallback
                 Ok(Type::I32)
+            }
+            Expr::Ref { operand, .. } => {
+                // Reference expression: &expr
+                let inner_type = self.get_expr_type(operand)?;
+                Ok(Type::Ref(Box::new(inner_type)))
+            }
+            Expr::RefMut { operand, .. } => {
+                // Mutable reference expression: ~expr
+                let inner_type = self.get_expr_type(operand)?;
+                Ok(Type::RefMut(Box::new(inner_type)))
             }
             _ => {
                 // For other expressions, try to infer

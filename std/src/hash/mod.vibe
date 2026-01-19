@@ -112,3 +112,26 @@ pub fn hash_combine(h1: i64, h2: i64) -> i64 {
     let h = h1 ^ h2
     return h * FNV_PRIME
 }
+
+// =============================================================================
+// Hash trait implementations for primitive types
+// =============================================================================
+
+impl Hash for i32 {
+    fn hash(&self) -> i64 {
+        return hash_i32(*self)
+    }
+}
+
+impl Hash for i64 {
+    fn hash(&self) -> i64 {
+        return hash_i64(*self)
+    }
+}
+
+/// Hash implementation for byte slices (strings)
+impl Hash for Slice<u8> {
+    fn hash(&self) -> i64 {
+        return hash_bytes(self)
+    }
+}

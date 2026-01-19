@@ -617,6 +617,12 @@ impl<'ctx> Codegen<'ctx> {
                 sn.clone()
             } else if let Some(ref sn) = var_info.ref_struct_name {
                 sn.clone()
+            } else if let Some(ref ast_type) = var_info.ast_type {
+                // Use AST type to get the type name (for primitives with trait impls)
+                self.get_type_name_from_ast(ast_type)
+                    .ok_or_else(|| CodegenError::NotImplemented(
+                        format!("method call on variable '{}' with unsupported type", name)
+                    ))?
             } else {
                 return Err(CodegenError::NotImplemented(
                     format!("method call on variable '{}' without struct type", name)

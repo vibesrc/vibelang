@@ -39,6 +39,8 @@ pub struct SemanticAnalyzer {
     borrows: BorrowChecker,
     /// Current function's generic type parameters
     current_type_params: Vec<String>,
+    /// Current function's trait bounds: [(type_param, trait_name)]
+    current_bounds: Vec<(String, String)>,
     /// Type names imported via `use` statements (treated as valid)
     imported_types: HashSet<String>,
     /// Path to the standard library (for std.* imports)
@@ -73,6 +75,7 @@ impl SemanticAnalyzer {
             ownership: OwnershipTracker::new(),
             borrows: BorrowChecker::new(),
             current_type_params: Vec::new(),
+            current_bounds: Vec::new(),
             imported_types: HashSet::new(),
             stdlib_path,
             source_dir: None,
@@ -89,6 +92,7 @@ impl SemanticAnalyzer {
             ownership: OwnershipTracker::new(),
             borrows: BorrowChecker::new(),
             current_type_params: Vec::new(),
+            current_bounds: Vec::new(),
             imported_types: HashSet::new(),
             stdlib_path,
             source_dir,
@@ -484,6 +488,7 @@ impl SemanticAnalyzer {
         self.ownership.clear();
         self.borrows.release_borrows();
         self.current_type_params = func.generics.clone();
+        self.current_bounds = func.bounds.clone();
 
         // Check parameter types
         for param in &func.params {
@@ -733,6 +738,34 @@ impl SemanticAnalyzer {
                 if let Some(receiver_type) = self.infer_type_from_expr(receiver) {
                     let (base_type, type_args) = self.parse_generic_type(&receiver_type);
 
+                    // Strip reference prefix to get the actual type for method lookup
+                    let stripped_type = base_type
+                        .trim_start_matches('&')
+                        .trim_start_matches('~')
+                        .trim_start_matches('*')
+                        .to_string();
+
+                    // Check if stripped_type is a type parameter (generic receiver)
+                    if self.current_type_params.contains(&stripped_type) {
+                        // Look up method through trait bounds using the stripped type
+                        if let Some(trait_name) = self.find_trait_for_method(&stripped_type, method) {
+                            // Method found in trait - validate it exists
+                            if let Some(trait_info) = self.symbols.traits.get(&trait_name) {
+                                if trait_info.methods.iter().any(|m| &m.name == method) {
+                                    // Valid trait method call - analysis complete
+                                    return;
+                                }
+                            }
+                        }
+                        // No trait provides this method
+                        self.errors.push(SemanticError::UndefinedMethod {
+                            type_name: stripped_type,
+                            method_name: method.clone(),
+                            span: *span,
+                        });
+                        return;
+                    }
+
                     // Look up method info
                     if let Some(methods) = self.symbols.methods.get(&base_type).cloned() {
                         if let Some(method_info) = methods.iter().find(|m| &m.name == method) {
@@ -919,6 +952,21 @@ impl SemanticAnalyzer {
     // ========================================================================
     // Helper Methods
     // ========================================================================
+
+    /// Find which trait provides a method for a type parameter
+    fn find_trait_for_method(&self, type_param: &str, method: &str) -> Option<String> {
+        for (param, trait_name) in &self.current_bounds {
+            if param == type_param {
+                // Check if this trait has the method
+                if let Some(trait_info) = self.symbols.traits.get(trait_name) {
+                    if trait_info.methods.iter().any(|m| &m.name == method) {
+                        return Some(trait_name.clone());
+                    }
+                }
+            }
+        }
+        None
+    }
 
     fn check_type(&mut self, ty: &Type, span: &Span) {
         match ty {
@@ -1782,6 +1830,21 @@ impl SemanticAnalyzer {
                 }
             }
         }
+
+        // Handle reference/pointer types: &K, ~K, *K
+        if let Some(inner) = ty.strip_prefix('&') {
+            let substituted_inner = self.substitute_type_params(inner, params, args);
+            return format!("&{}", substituted_inner);
+        }
+        if let Some(inner) = ty.strip_prefix('~') {
+            let substituted_inner = self.substitute_type_params(inner, params, args);
+            return format!("~{}", substituted_inner);
+        }
+        if let Some(inner) = ty.strip_prefix('*') {
+            let substituted_inner = self.substitute_type_params(inner, params, args);
+            return format!("*{}", substituted_inner);
+        }
+
         // Handle generic types like Vec<K>
         let (base, generics) = self.parse_generic_type(ty);
         if !generics.is_empty() {

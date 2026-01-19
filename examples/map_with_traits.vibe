@@ -4,35 +4,35 @@ fn main() {
     // Map with i64 keys - Hash trait is used automatically
     let scores = Map<i64, i64>.new()
 
-    // Insert some key-value pairs
-    scores.insert(1, 100)
-    scores.insert(2, 200)
-    scores.insert(3, 300)
+    // Insert some key-value pairs - no need to pass hash!
+    scores.insert(100, 10)
+    scores.insert(200, 20)
+    scores.insert(300, 30)
 
     println("Map has ${scores.len()} entries")
 
     // Look up values
-    let key2: i64 = 2
-    match scores.get(&key2) {
+    let key: i64 = 200
+    match scores.get(&key) {
         Option.Some(val) => {
-            println("Score for key 2: ${val}")
+            println("Score for key 200: ${val}")
         }
         Option.None => {
-            println("Key 2 not found")
+            println("Key 200 not found")
         }
     }
 
     // Check if key exists
-    let key3: i64 = 3
+    let key3: i64 = 300
     if scores.contains(&key3) {
-        println("Key 3 exists")
+        println("Key 300 exists")
     }
 
     // Remove a key
-    let key1: i64 = 1
+    let key1: i64 = 100
     match scores.remove(&key1) {
         Option.Some(val) => {
-            println("Removed key 1 with value ${val}")
+            println("Removed key 100 with value ${val}")
         }
         Option.None => {}
     }

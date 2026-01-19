@@ -2,6 +2,8 @@
 
 use std.mem.{alloc, dealloc}
 use std.collections.vec.{Vec}
+// Import hash module to get Hash trait impls for primitives
+use std.hash
 
 // Default number of buckets
 static DEFAULT_CAPACITY: i64 = 16
@@ -15,17 +17,18 @@ struct Entry<K, V> {
 
 /// Map<K, V> - hash map using separate chaining
 ///
-/// Since Vibelang doesn't have traits yet, you must provide the hash
-/// when inserting/looking up. Use functions from std.hash:
-///   map.insert(key, value, hash_i64(key))
-///   map.get(key, hash_i64(key))
+/// Keys must implement the Hash trait. The hash is computed automatically.
+/// Example:
+///   let map = Map<i64, Slice<u8>>.new()
+///   map.insert(42, "hello")
+///   match map.get(&42) { ... }
 pub struct Map<K, V> {
     buckets: *Vec<Entry<K, V> >
     num_buckets: i64
     len: i64
 }
 
-impl Map<K, V> {
+impl<K: Hash> Map<K, V> {
     /// Create a new empty map
     pub fn new() -> Map<K, V> {
         return Map<K, V>.with_capacity(DEFAULT_CAPACITY)
@@ -63,9 +66,10 @@ impl Map<K, V> {
         return self.len == 0
     }
 
-    /// Insert a key-value pair. Provide hash from std.hash functions.
+    /// Insert a key-value pair.
     /// Returns the old value if key already existed.
-    pub fn insert(~self, key: K, value: V, hash: i64) -> Option<V> {
+    pub fn insert(~self, key: K, value: V) -> Option<V> {
+        let hash = key.hash()
         let bucket_idx = self.bucket_index(hash)
 
         unsafe {
@@ -98,8 +102,9 @@ impl Map<K, V> {
         }
     }
 
-    /// Get a value by key. Provide hash from std.hash functions.
-    pub fn get(&self, key: K, hash: i64) -> Option<V> {
+    /// Get a value by key.
+    pub fn get(&self, key: &K) -> Option<V> {
+        let hash = key.hash()
         let bucket_idx = self.bucket_index(hash)
 
         unsafe {
@@ -110,7 +115,7 @@ impl Map<K, V> {
             while i < bucket.len() {
                 match bucket.get(i) {
                     Option.Some(entry) => {
-                        if entry.hash == hash and entry.key == key {
+                        if entry.hash == hash and entry.key == *key {
                             return Option<V>.Some(entry.value)
                         }
                     }
@@ -123,17 +128,18 @@ impl Map<K, V> {
         }
     }
 
-    /// Check if map contains a key. Provide hash from std.hash functions.
-    pub fn contains(&self, key: K, hash: i64) -> bool {
-        match self.get(key, hash) {
+    /// Check if map contains a key.
+    pub fn contains(&self, key: &K) -> bool {
+        match self.get(key) {
             Option.Some(_) => { return true }
             Option.None => { return false }
         }
     }
 
-    /// Remove a key from the map. Provide hash from std.hash functions.
+    /// Remove a key from the map.
     /// Returns the removed value if key existed.
-    pub fn remove(~self, key: K, hash: i64) -> Option<V> {
+    pub fn remove(~self, key: &K) -> Option<V> {
+        let hash = key.hash()
         let bucket_idx = self.bucket_index(hash)
 
         unsafe {
@@ -144,7 +150,7 @@ impl Map<K, V> {
             while i < bucket.len() {
                 match bucket.get(i) {
                     Option.Some(entry) => {
-                        if entry.hash == hash and entry.key == key {
+                        if entry.hash == hash and entry.key == *key {
                             // Found it - remove by swapping with last and popping
                             let removed_value = entry.value
                             let last_idx = bucket.len() - 1
