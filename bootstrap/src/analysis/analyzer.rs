@@ -491,7 +491,12 @@ impl SemanticAnalyzer {
                     || self.symbols.functions.contains_key(name);
 
                 if !var_exists && name != "self" && !is_builtin_function(name) {
-                    if !self.symbols.structs.contains_key(name) && !self.symbols.enums.contains_key(name) {
+                    // Allow struct/enum names for static method calls (e.g., Vec.new())
+                    // Also allow prelude types (Vec, String, Option, etc.)
+                    let is_type_name = self.symbols.structs.contains_key(name)
+                        || self.symbols.enums.contains_key(name)
+                        || is_prelude_type(name);
+                    if !is_type_name {
                         self.errors.push(SemanticError::UndefinedVariable {
                             name: name.clone(),
                             span: *span,
