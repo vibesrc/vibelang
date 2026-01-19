@@ -704,6 +704,46 @@ impl Backend {
                     .unwrap_or_else(|| "?".to_string());
                 Some(format!("({}) => {}", param_types.join(", "), ret_type))
             }
+            Expr::InterpolatedString { .. } => Some("str".to_string()),
+            Expr::Match { arms, .. } => {
+                // Return type is the type of the first arm body
+                if let Some(arm) = arms.first() {
+                    return self.infer_type_from_expr_with_symbols(&arm.body, symbols);
+                }
+                None
+            }
+            Expr::If { then_expr, .. } => {
+                // Return type is the type of the then branch
+                self.infer_type_from_expr_with_symbols(then_expr, symbols)
+            }
+            Expr::Block(block) => {
+                // Return type is the type of the last expression
+                if let Some(crate::ast::Stmt::Expr(last_expr)) = block.stmts.last() {
+                    return self.infer_type_from_expr_with_symbols(last_expr, symbols);
+                }
+                // Also handle Stmt::Match in last position
+                if let Some(crate::ast::Stmt::Match { arms, .. }) = block.stmts.last() {
+                    if let Some(arm) = arms.first() {
+                        return self.infer_type_from_expr_with_symbols(&arm.body, symbols);
+                    }
+                }
+                None
+            }
+            Expr::Try { operand, .. } => {
+                // Try operator unwraps Result<T, E> or Option<T> to T
+                if let Some(ty) = self.infer_type_from_expr_with_symbols(operand, symbols) {
+                    if ty.starts_with("Result<") || ty.starts_with("Option<") {
+                        if let Some(start) = ty.find('<') {
+                            let inner = &ty[start + 1..ty.len() - 1];
+                            if let Some(comma) = inner.find(',') {
+                                return Some(inner[..comma].trim().to_string());
+                            }
+                            return Some(inner.to_string());
+                        }
+                    }
+                }
+                None
+            }
             _ => None,
         }
     }

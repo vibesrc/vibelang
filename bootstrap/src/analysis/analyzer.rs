@@ -1631,6 +1631,24 @@ impl SemanticAnalyzer {
                 }
                 None
             }
+            Expr::InterpolatedString { .. } => Some("str".to_string()),
+            Expr::Try { operand, .. } => {
+                // Try operator unwraps Result<T, E> or Option<T> to T
+                if let Some(ty) = self.infer_type_from_expr(operand) {
+                    // Extract T from Result<T, E> or Option<T>
+                    if ty.starts_with("Result<") || ty.starts_with("Option<") {
+                        if let Some(start) = ty.find('<') {
+                            let inner = &ty[start + 1..ty.len() - 1];
+                            // For Result<T, E>, get just T (before the comma)
+                            if let Some(comma) = inner.find(',') {
+                                return Some(inner[..comma].trim().to_string());
+                            }
+                            return Some(inner.to_string());
+                        }
+                    }
+                }
+                None
+            }
             _ => None,
         }
     }
