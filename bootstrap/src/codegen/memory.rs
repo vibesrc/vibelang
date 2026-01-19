@@ -570,6 +570,17 @@ impl<'ctx> Codegen<'ctx> {
                     ))
                 }
             }
+            Expr::Literal(_, _) => {
+                // &literal - compile the literal and store it in a temporary
+                // This is mainly useful for string literals: &"hello"
+                let val = self.compile_expr(operand)?;
+
+                // Create temporary storage for the value
+                let temp = self.builder.build_alloca(val.get_type(), "lit_ref_temp").unwrap();
+                self.builder.build_store(temp, val).unwrap();
+
+                Ok(temp.into())
+            }
             _ => Err(CodegenError::NotImplemented(
                 "can only take reference (&/~) of variables and struct fields, not expressions".to_string()
             )),
@@ -581,11 +592,27 @@ impl<'ctx> Codegen<'ctx> {
         let ptr_val = self.compile_expr(operand)?;
         let ptr = ptr_val.into_pointer_value();
 
-        // Try to infer the pointed-to type from context
-        // For now, support common cases: pointer to i8/i32/i64 and generic type T
-        // Default to i64 as it's the common case for Array<i64> etc.
-        // TODO: Add proper type inference based on pointer type annotations
-        let val = self.builder.build_load(self.context.i64_type(), ptr, "deref").unwrap();
+        // Try to infer the pointed-to type from the operand expression
+        let load_type: BasicTypeEnum<'ctx> = match self.get_expr_type(operand) {
+            Ok(operand_type) => {
+                // Get the inner type from Ref/RefMut/Pointer
+                let inner_type = match operand_type {
+                    Type::Ref(inner) | Type::RefMut(inner) | Type::Pointer(inner) => *inner,
+                    _ => operand_type,
+                };
+                // Try to convert to LLVM type, fallback to i64 on error
+                match self.llvm_type(&inner_type) {
+                    Ok(ty) => ty,
+                    Err(_) => self.context.i64_type().into(),
+                }
+            }
+            Err(_) => {
+                // Fallback to i64 for unknown types
+                self.context.i64_type().into()
+            }
+        };
+
+        let val = self.builder.build_load(load_type, ptr, "deref").unwrap();
         Ok(val)
     }
 

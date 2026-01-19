@@ -1,0 +1,47 @@
+// Test string hashing and equality
+use std.cmp
+use std.hash.{hash_bytes}
+
+fn main() {
+    let a: str = "hello"
+    let b: str = "hello"
+    let c: str = "world"
+
+    // Test equality
+    println("Testing equality:")
+    if a == b {
+        println("  a == b: PASS")
+    } else {
+        println("  a == b: FAIL")
+    }
+
+    // Test hash consistency
+    println("Testing hashes:")
+    let hash_a = hash_bytes(&a)
+    let hash_b = hash_bytes(&b)
+    let hash_c = hash_bytes(&c)
+
+    println("  hash(a) = ${hash_a}")
+    println("  hash(b) = ${hash_b}")
+    println("  hash(c) = ${hash_c}")
+
+    if hash_a == hash_b {
+        println("  hash(a) == hash(b): PASS")
+    } else {
+        println("  hash(a) == hash(b): FAIL")
+    }
+
+    // Test via Hash trait
+    println("Testing Hash trait:")
+    let trait_hash_a = a.hash()
+    let trait_hash_b = b.hash()
+
+    println("  a.hash() = ${trait_hash_a}")
+    println("  b.hash() = ${trait_hash_b}")
+
+    if trait_hash_a == trait_hash_b {
+        println("  a.hash() == b.hash(): PASS")
+    } else {
+        println("  a.hash() == b.hash(): FAIL")
+    }
+}

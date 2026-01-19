@@ -1,0 +1,124 @@
+// Word Counter - Count words, characters, and lines in text
+// Demonstrates: slice iteration, character comparison, state machines
+
+fn is_whitespace(c: u8) -> bool {
+    // Space, tab, newline, carriage return
+    return c == 32 or c == 9 or c == 10 or c == 13
+}
+
+fn is_newline(c: u8) -> bool {
+    return c == 10
+}
+
+// Count characters in a string slice
+fn count_chars(text: &u8[100]) -> i32 {
+    let count = 0
+    let i = 0
+    while i < 100 {
+        if text[i] != 0 {
+            count = count + 1
+        }
+        i = i + 1
+    }
+    return count
+}
+
+// Count words (sequences of non-whitespace)
+fn count_words(text: &u8[100]) -> i32 {
+    let words = 0
+    let in_word = 0
+    let i = 0
+
+    while i < 100 {
+        let c = text[i]
+        if c == 0 {
+            // End of string
+            break
+        }
+
+        if is_whitespace(c) {
+            if in_word == 1 {
+                words = words + 1
+                in_word = 0
+            }
+        } else {
+            in_word = 1
+        }
+        i = i + 1
+    }
+
+    // Count last word if we ended in one
+    if in_word == 1 {
+        words = words + 1
+    }
+
+    return words
+}
+
+// Count newlines
+fn count_lines(text: &u8[100]) -> i32 {
+    let lines = 0
+    let i = 0
+    let has_content = 0
+
+    while i < 100 {
+        let c = text[i]
+        if c == 0 {
+            break
+        }
+        has_content = 1
+        if is_newline(c) {
+            lines = lines + 1
+        }
+        i = i + 1
+    }
+
+    // If text has content but doesn't end with newline, count as a line
+    if has_content == 1 {
+        lines = lines + 1
+    }
+
+    return lines
+}
+
+fn main() -> i32 {
+    println("=== Word Counter Demo ===")
+
+    // Sample text - ASCII encoded
+    // "Hello World!\nThis is Vibelang.\nCounting words."
+    let text: u8[100] = [
+        72, 101, 108, 108, 111, 32,        // "Hello "
+        87, 111, 114, 108, 100, 33, 10,    // "World!\n"
+        84, 104, 105, 115, 32,             // "This "
+        105, 115, 32,                       // "is "
+        86, 105, 98, 101, 108, 97, 110, 103, 46, 10,  // "Vibelang.\n"
+        67, 111, 117, 110, 116, 105, 110, 103, 32,    // "Counting "
+        119, 111, 114, 100, 115, 46,        // "words."
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+    ]
+
+    println("Text: Hello World!")
+    println("      This is Vibelang.")
+    println("      Counting words.")
+    println("")
+
+    let chars = count_chars(&text)
+    let words = count_words(&text)
+    let lines = count_lines(&text)
+
+    println("Results:")
+    println("  Characters: ${chars}")
+    println("  Words: ${words}")
+    println("  Lines: ${lines}")
+
+    // Verify expected values
+    // Words: Hello, World!, This, is, Vibelang., Counting, words. = 7
+    let tests_passed = 0
+    if words == 7 { tests_passed = tests_passed + 1 }
+    if lines == 3 { tests_passed = tests_passed + 1 }
+
+    println("Tests passed: ${tests_passed}/2")
+    return words
+}

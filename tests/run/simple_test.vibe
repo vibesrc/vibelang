@@ -1,0 +1,7 @@
+// Minimal test with no stdlib imports
+
+fn main() -> i32 {
+    let x = 42
+    println("x = ${x}")
+    return 0
+}

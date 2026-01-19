@@ -3,7 +3,7 @@ struct Point {
     y: i32,
 }
 
-fn mod_point(p: ~Point, amount: i32) {
+fn mutate_point(p: ~Point, amount: i32) {
     p.x = p.x + amount
     p.y = p.y + amount
 }
@@ -15,18 +15,25 @@ fn borrow_point(p: &Point, amount: i32) -> Point {
     }
 }
 
-fn kill_point(p: Point) {
-    // Scope ends, p is dropped
+fn move_point(p: Point, amount: i32) -> Point {
+    p.x = p.x + amount
+    p.y = p.y + amount
+    return p
+}
+
+fn drop_i32(x: i32) {
+    // Scope ends, x is dropped
 }
 
 fn main() -> i32 {
     let p = Point { x: 1, y: 2 }
-    mod_point(~p, 10)
+    mutate_point(~p, 10)
     let p2 = borrow_point(&p, 10)
 
-    kill_point(p)
+    p = move_point(p, 50)
 
     println("Point p2: x=${p2.x}, y=${p2.y}")
-
+    
+    drop_i32(p.x)
     return p.x + p.y
 }

@@ -1,0 +1,20 @@
+// Check what's being hashed
+use std.hash.{hash_i32, hash_i64}
+
+fn main() {
+    println("hash_i32(5) = ${hash_i32(5)}")
+    println("hash_i64(5) = ${hash_i64(5)}")
+
+    let a: str = "hello"
+    println("a.len = ${a.len}")
+    println("a.hash() = ${a.hash()}")
+
+    // What if we hash just the length?
+    let len: i64 = a.len
+    println("hash_i64(a.len) = ${hash_i64(len)}")
+
+    // What about the pointer?
+    let ptr: i64 = a.ptr as i64
+    println("a.ptr = ${ptr}")
+    println("hash_i64(a.ptr) = ${hash_i64(ptr)}")
+}

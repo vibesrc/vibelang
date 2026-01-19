@@ -1,0 +1,16 @@
+// Test which hash impl is being called
+
+// Override Hash for Slice<u8> with a distinctive value
+impl Hash for Slice<u8> {
+    fn hash(&self) -> i64 {
+        println("Custom Slice<u8>.hash called!")
+        return 42424242
+    }
+}
+
+fn main() {
+    let a: str = "hello"
+    println("Calling a.hash():")
+    let h = a.hash()
+    println("Result: ${h}")
+}

@@ -1,0 +1,87 @@
+// Binary Search - Find element in sorted array
+// Demonstrates: Option<T>, pattern matching, recursion, array references
+
+enum Option<T> {
+    Some(T),
+    None
+}
+
+// Binary search helper - returns index if found
+fn binary_search_helper(arr: &i32[10], target: i32, low: i32, high: i32) -> Option<i32> {
+    if low > high {
+        return Option<i32>.None
+    }
+
+    let mid = low + (high - low) / 2
+    let mid_val = arr[mid]
+
+    if mid_val == target {
+        return Option.Some(mid)
+    } else if mid_val > target {
+        return binary_search_helper(arr, target, low, mid - 1)
+    } else {
+        return binary_search_helper(arr, target, mid + 1, high)
+    }
+}
+
+fn binary_search(arr: &i32[10], target: i32) -> Option<i32> {
+    return binary_search_helper(arr, target, 0, 9)
+}
+
+fn main() -> i32 {
+    println("=== Binary Search Demo ===")
+
+    // Sorted array - explicitly typed as i32[10]
+    let nums: i32[10] = [2, 5, 8, 12, 16, 23, 38, 56, 72, 91]
+    println("Array: [2, 5, 8, 12, 16, 23, 38, 56, 72, 91]")
+
+    let tests_passed = 0
+
+    // Test 1: Find 23 (at index 5)
+    match binary_search(&nums, 23) {
+        Option.Some(idx) => {
+            println("Found 23 at index ${idx}")
+            if idx == 5 { tests_passed = tests_passed + 1 }
+        }
+        Option.None => println("23 not found (WRONG)")
+    }
+
+    // Test 2: Find 2 (first element, index 0)
+    match binary_search(&nums, 2) {
+        Option.Some(idx) => {
+            println("Found 2 at index ${idx}")
+            if idx == 0 { tests_passed = tests_passed + 1 }
+        }
+        Option.None => println("2 not found (WRONG)")
+    }
+
+    // Test 3: Find 91 (last element, index 9)
+    match binary_search(&nums, 91) {
+        Option.Some(idx) => {
+            println("Found 91 at index ${idx}")
+            if idx == 9 { tests_passed = tests_passed + 1 }
+        }
+        Option.None => println("91 not found (WRONG)")
+    }
+
+    // Test 4: Search for 100 (not in array)
+    match binary_search(&nums, 100) {
+        Option.Some(idx) => println("Found 100 at index ${idx} (WRONG)")
+        Option.None => {
+            println("100 not found (correct)")
+            tests_passed = tests_passed + 1
+        }
+    }
+
+    // Test 5: Search for 50 (not in array)
+    match binary_search(&nums, 50) {
+        Option.Some(idx) => println("Found 50 at index ${idx} (WRONG)")
+        Option.None => {
+            println("50 not found (correct)")
+            tests_passed = tests_passed + 1
+        }
+    }
+
+    println("Tests passed: ${tests_passed}/5")
+    return tests_passed
+}

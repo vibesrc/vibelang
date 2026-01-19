@@ -1,0 +1,15 @@
+use std.fs.{File, read_file}
+use std.collections.{Vec}
+use std.string.{String}
+
+fn main() -> i32 {
+    let target_file = String.from("numbers.txt")
+    let parts = target_file.split(".")
+    for part in parts {
+        println("Part: ${part}")
+    }
+    let file = read_file(&target_file)
+    println("Read from ${target_file}: ${file}")
+    // println("Contents of ${target_file}: ${file}")
+    return 0
+}

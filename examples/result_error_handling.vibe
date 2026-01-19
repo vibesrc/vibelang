@@ -1,0 +1,118 @@
+// Result<T, E> - Error handling showcase
+// Demonstrates: Result enum, Option, pattern matching, nested enums
+// Note: Uses direct construction due to function return limitation
+
+enum Result<T, E> {
+    Ok(T),
+    Err(E)
+}
+
+enum Option<T> {
+    Some(T),
+    None
+}
+
+// Error types for different operations
+enum ParseError {
+    EmptyInput,
+    InvalidDigit(i32),
+    Overflow
+}
+
+enum MathError {
+    DivisionByZero,
+    NegativeInput
+}
+
+// Demonstrate error handling with pattern matching
+fn main() -> i32 {
+    println("=== Result<T, E> Error Handling Demo ===")
+    let tests_passed = 0
+
+    // Test 1: Result with success value
+    println("Test 1: Result.Ok(42)")
+    let r1 = Result<i32, ParseError>.Ok(42)
+    match r1 {
+        Result.Ok(n) => {
+            println("  Got value: ${n}")
+            if n == 42 { tests_passed = tests_passed + 1 }
+        }
+        Result.Err(e) => println("  Error!")
+    }
+
+    // Test 2: Result with error
+    println("Test 2: Result.Err(InvalidDigit)")
+    let r2 = Result<i32, ParseError>.Err(ParseError.InvalidDigit(88))
+    match r2 {
+        Result.Ok(n) => println("  Got value: ${n}")
+        Result.Err(e) => {
+            match e {
+                ParseError.InvalidDigit(c) => {
+                    println("  Invalid digit error (char code ${c})")
+                    tests_passed = tests_passed + 1
+                }
+                ParseError.EmptyInput => println("  Empty input error")
+                ParseError.Overflow => println("  Overflow error")
+            }
+        }
+    }
+
+    // Test 3: Math error - Division by zero
+    println("Test 3: MathError.DivisionByZero")
+    let r3 = Result<i32, MathError>.Err(MathError.DivisionByZero)
+    match r3 {
+        Result.Ok(v) => println("  Got value: ${v}")
+        Result.Err(e) => {
+            match e {
+                MathError.DivisionByZero => {
+                    println("  Division by zero error")
+                    tests_passed = tests_passed + 1
+                }
+                MathError.NegativeInput => println("  Negative input error")
+            }
+        }
+    }
+
+    // Test 4: Option with Some
+    println("Test 4: Option.Some(100)")
+    let o1 = Option<i32>.Some(100)
+    match o1 {
+        Option.Some(v) => {
+            println("  Got Some(${v})")
+            if v == 100 { tests_passed = tests_passed + 1 }
+        }
+        Option.None => println("  Got None")
+    }
+
+    // Test 5: Option with None
+    println("Test 5: Option.None")
+    let o2 = Option<i32>.None
+    match o2 {
+        Option.Some(v) => println("  Got Some(${v})")
+        Option.None => {
+            println("  Got None (correct)")
+            tests_passed = tests_passed + 1
+        }
+    }
+
+    // Test 6: Multiple errors in sequence
+    println("Test 6: Error cascade")
+    let errs: ParseError[3] = [
+        ParseError.EmptyInput,
+        ParseError.InvalidDigit(65),
+        ParseError.Overflow
+    ]
+    let i = 0
+    while i < 3 {
+        match errs[i] {
+            ParseError.EmptyInput => println("  Error ${i}: EmptyInput")
+            ParseError.InvalidDigit(c) => println("  Error ${i}: InvalidDigit(${c})")
+            ParseError.Overflow => println("  Error ${i}: Overflow")
+        }
+        i = i + 1
+    }
+    tests_passed = tests_passed + 1
+
+    println("Tests passed: ${tests_passed}/6")
+    return tests_passed
+}

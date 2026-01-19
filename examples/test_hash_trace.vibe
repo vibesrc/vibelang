@@ -1,0 +1,40 @@
+// Trace hash computation
+use std.hash.{hash_bytes, hash_i32}
+
+// Copy of hash_bytes with debug output
+fn debug_hash_bytes(data: &Slice<u8>) -> i64 {
+    let h: i64 = -3750763034362895579  // FNV_OFFSET_BASIS
+    let prime: i64 = 1099511628211      // FNV_PRIME
+
+    println("    Initial h = ${h}")
+    println("    data.len = ${data.len}")
+    println("    data.ptr = ${data.ptr as i64}")
+
+    let i: i64 = 0
+    while i < data.len {
+        unsafe {
+            let byte = ptr_read<u8>(ptr_add<u8>(data.ptr, i))
+            let b = byte as i64
+            println("    byte[${i}] = ${b}")
+            h = h ^ b
+            h = h * prime
+            println("    h after byte[${i}] = ${h}")
+        }
+        i = i + 1
+    }
+    println("    Final h = ${h}")
+    return h
+}
+
+fn main() {
+    let a: str = "hello"
+
+    println("Direct debug_hash_bytes(&a):")
+    let direct = debug_hash_bytes(&a)
+    println("Result: ${direct}")
+
+    println("")
+    println("Calling a.hash():")
+    let via_trait = a.hash()
+    println("Result: ${via_trait}")
+}

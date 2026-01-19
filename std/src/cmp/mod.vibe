@@ -1,28 +1,15 @@
 // std.cmp - Comparison functions and Eq trait implementations
 //
-// Provides equality comparisons for primitive types and slices.
+// Provides equality comparisons for types that need custom comparison logic.
+// Primitive types (i32, i64, bool, etc.) use direct LLVM comparison and
+// don't need Eq implementations.
+//
+// Note: To support primitives in generic T: Eq functions, we'd need compiler
+// intrinsics. For now, primitives fall through to raw comparison.
 
 // =============================================================================
-// Eq trait implementations for primitive types
+// Eq trait implementations
 // =============================================================================
-
-impl Eq for i32 {
-    fn eq(&self, other: &i32) -> bool {
-        return *self == *other
-    }
-}
-
-impl Eq for i64 {
-    fn eq(&self, other: &i64) -> bool {
-        return *self == *other
-    }
-}
-
-impl Eq for bool {
-    fn eq(&self, other: &bool) -> bool {
-        return *self == *other
-    }
-}
 
 /// Eq implementation for byte slices (strings)
 /// Compares length first, then each byte

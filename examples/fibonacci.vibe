@@ -1,0 +1,71 @@
+// Fibonacci - Classic recursive and iterative implementations
+// Demonstrates: recursion, loops, function calls, integer arithmetic
+
+// Recursive Fibonacci (inefficient but clean)
+fn fib_recursive(n: i32) -> i32 {
+    if n <= 1 {
+        return n
+    }
+    return fib_recursive(n - 1) + fib_recursive(n - 2)
+}
+
+// Iterative Fibonacci (efficient)
+fn fib_iterative(n: i32) -> i32 {
+    if n <= 1 {
+        return n
+    }
+
+    let prev2 = 0
+    let prev1 = 1
+    let i = 2
+
+    while i <= n {
+        let current = prev1 + prev2
+        prev2 = prev1
+        prev1 = current
+        i = i + 1
+    }
+
+    return prev1
+}
+
+// Print first N Fibonacci numbers
+fn print_fib_sequence(count: i32) {
+    println("Fibonacci sequence (iterative):")
+    let i = 0
+    while i < count {
+        let f = fib_iterative(i)
+        println("  F(${i}) = ${f}")
+        i = i + 1
+    }
+}
+
+fn main() -> i32 {
+    println("=== Fibonacci Demo ===")
+
+    // Print sequence
+    print_fib_sequence(12)
+
+    // Verify recursive matches iterative
+    println("Verifying recursive vs iterative:")
+    let all_match = 1
+    let i = 0
+    while i < 15 {
+        let r = fib_recursive(i)
+        let it = fib_iterative(i)
+        if r != it {
+            println("  Mismatch at ${i}: recursive=${r}, iterative=${it}")
+            all_match = 0
+        }
+        i = i + 1
+    }
+
+    if all_match == 1 {
+        println("  All values match!")
+    }
+
+    // Return F(10) = 55
+    let result = fib_iterative(10)
+    println("F(10) = ${result}")
+    return result
+}

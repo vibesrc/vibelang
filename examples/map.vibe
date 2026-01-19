@@ -11,26 +11,21 @@ fn main() {
 
     println("Map has ${scores.len()} entries")
 
-    // Look up values (need to store key in variable to take reference)
-    let key_bob: str = "bob"
-    match scores.get(&key_bob) {
-        Option.Some(val) => {
-            println("Score for bob: ${val}")
-        }
-        Option.None => {
-            println("bob not found")
-        }
+    // Look up values - can take reference of string literals directly
+    let result = match scores.get(&"bob") {
+        Option.Some(val) => "Score for bob: ${val}"
+        Option.None => "bob not found"
     }
 
+    println(result)
+
     // Check if key exists
-    let key_charlie: str = "charlie"
-    if scores.contains(&key_charlie) {
+    if scores.contains(&"charlie") {
         println("charlie exists")
     }
 
     // Remove a key
-    let key_alice: str = "alice"
-    match scores.remove(&key_alice) {
+    match scores.remove(&"alice") {
         Option.Some(val) => {
             println("Removed alice with value ${val}")
         }

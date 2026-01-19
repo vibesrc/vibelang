@@ -1,0 +1,20 @@
+// Test Slice<u8> equality comparison
+use std.cmp
+
+fn main() {
+    let a: str = "hello"
+    let b: str = "hello"
+    let c: str = "world"
+
+    if a == b {
+        println("a == b: PASS")
+    } else {
+        println("a == b: FAIL")
+    }
+
+    if a == c {
+        println("a == c: FAIL (should be different)")
+    } else {
+        println("a != c: PASS")
+    }
+}

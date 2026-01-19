@@ -145,6 +145,14 @@ impl<'ctx> Codegen<'ctx> {
             .get_function(&func.name)
             .ok_or_else(|| CodegenError::UndefinedFunction(func.name.clone()))?;
 
+        // If the function already has basic blocks (from a previous impl), remove them.
+        // This allows user code to override stdlib impls for traits like Hash.
+        while let Some(bb) = fn_value.get_first_basic_block() {
+            unsafe {
+                bb.delete().unwrap();
+            }
+        }
+
         self.current_function = Some(fn_value);
         // Main function must return i32 for C runtime compatibility, regardless of declared type
         self.current_function_return_type = if func.name == "main" {

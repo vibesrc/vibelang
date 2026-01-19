@@ -1,0 +1,24 @@
+// Test generic equality with trait bounds
+use std.cmp
+
+fn are_equal<T: Eq>(a: &T, b: &T) -> bool {
+    return *a == *b
+}
+
+fn main() {
+    let x: str = "hello"
+    let y: str = "hello"
+    let z: str = "world"
+
+    if are_equal(&x, &y) {
+        println("x == y: PASS")
+    } else {
+        println("x == y: FAIL")
+    }
+
+    if are_equal(&x, &z) {
+        println("x == z: FAIL")
+    } else {
+        println("x != z: PASS")
+    }
+}

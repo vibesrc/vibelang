@@ -1,0 +1,127 @@
+// Struct Methods - Comprehensive impl block showcase
+// Demonstrates: structs, impl blocks, methods, mutable self, static methods
+// Note: Avoiding no-arg static methods due to known bug
+
+struct Vec2 {
+    x: i32,
+    y: i32
+}
+
+impl Vec2 {
+    // Static constructor with args
+    fn new(x: i32, y: i32) -> Vec2 {
+        return Vec2 { x: x, y: y }
+    }
+
+    // Immutable method - compute magnitude squared
+    fn mag_squared(&self) -> i32 {
+        return self.x * self.x + self.y * self.y
+    }
+
+    // Mutable method - scale in place
+    fn scale(~self, factor: i32) {
+        self.x = self.x * factor
+        self.y = self.y * factor
+    }
+
+    // Immutable method - return new added vector
+    fn add(&self, other: &Vec2) -> Vec2 {
+        return Vec2 { x: self.x + other.x, y: self.y + other.y }
+    }
+
+    // Immutable method - return new negated vector
+    fn negate(&self) -> Vec2 {
+        return Vec2 { x: -self.x, y: -self.y }
+    }
+}
+
+// Rectangle with area and perimeter
+struct Rect {
+    width: i32,
+    height: i32
+}
+
+impl Rect {
+    fn new(w: i32, h: i32) -> Rect {
+        return Rect { width: w, height: h }
+    }
+
+    fn area(&self) -> i32 {
+        return self.width * self.height
+    }
+
+    fn perimeter(&self) -> i32 {
+        return 2 * (self.width + self.height)
+    }
+
+    fn is_square(&self) -> bool {
+        return self.width == self.height
+    }
+
+    fn grow(~self, amount: i32) {
+        self.width = self.width + amount
+        self.height = self.height + amount
+    }
+}
+
+fn main() -> i32 {
+    println("=== Struct Methods Demo ===")
+    let passed = 0
+
+    // Vec2 tests
+    println("Vec2 tests:")
+
+    let v1 = Vec2.new(3, 4)
+    println("  v1: (${v1.x}, ${v1.y})")
+
+    // Magnitude squared: 3*3 + 4*4 = 25
+    let mag2 = v1.mag_squared()
+    println("  |v1|^2 = ${mag2}")
+    if mag2 == 25 { passed = passed + 1 }
+
+    // Add returns new vector
+    let v2 = Vec2.new(1, 2)
+    let v3 = v1.add(&v2)
+    println("  v1 + v2 = (${v3.x}, ${v3.y})")
+    if v3.x == 4 and v3.y == 6 { passed = passed + 1 }
+
+    // Negate
+    let v4 = v1.negate()
+    println("  -v1 = (${v4.x}, ${v4.y})")
+    if v4.x == -3 and v4.y == -4 { passed = passed + 1 }
+
+    // Scale in place
+    let v5 = Vec2.new(5, 3)
+    v5.scale(4)
+    println("  v5 *= 4: (${v5.x}, ${v5.y})")
+    if v5.x == 20 and v5.y == 12 { passed = passed + 1 }
+
+    // Rect tests
+    println("Rect tests:")
+
+    let r = Rect.new(10, 5)
+    println("  rect: ${r.width} x ${r.height}")
+
+    let area = r.area()
+    println("  area: ${area}")
+    if area == 50 { passed = passed + 1 }
+
+    let perim = r.perimeter()
+    println("  perimeter: ${perim}")
+    if perim == 30 { passed = passed + 1 }
+
+    if r.is_square() {
+        println("  is_square: true")
+    } else {
+        println("  is_square: false (correct)")
+        passed = passed + 1
+    }
+
+    // Grow the rectangle
+    r.grow(5)
+    println("  after grow(5): ${r.width} x ${r.height}")
+    if r.width == 15 and r.height == 10 { passed = passed + 1 }
+
+    println("Tests passed: ${passed}/8")
+    return passed
+}

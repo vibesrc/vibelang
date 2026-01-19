@@ -1,0 +1,31 @@
+// Debug hash implementation
+use std.cmp
+use std.hash.{hash_bytes}
+
+fn print_slice_info(name: str, s: &Slice<u8>) {
+    println("  ${name}.ptr = ${s.ptr as i64}")
+    println("  ${name}.len = ${s.len}")
+}
+
+fn main() {
+    let a: str = "hello"
+    let b: str = "hello"
+
+    println("Slice info:")
+    print_slice_info("a", &a)
+    print_slice_info("b", &b)
+
+    println("")
+    println("Direct hash_bytes call:")
+    let direct_a = hash_bytes(&a)
+    let direct_b = hash_bytes(&b)
+    println("  hash_bytes(&a) = ${direct_a}")
+    println("  hash_bytes(&b) = ${direct_b}")
+
+    println("")
+    println("Trait hash() call:")
+    let trait_a = a.hash()
+    let trait_b = b.hash()
+    println("  a.hash() = ${trait_a}")
+    println("  b.hash() = ${trait_b}")
+}
