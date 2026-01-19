@@ -83,10 +83,12 @@ impl SemanticAnalyzer {
     // ========================================================================
 
     fn extract_symbols(&mut self, program: &Program) {
+        // Sub-pass 1: Extract all type and function signatures first
+        // This allows variable type inference to look up any function/method
         for item in &program.items {
             match item {
                 Item::Function(func) => {
-                    self.extract_function(func);
+                    self.extract_function_signature(func);
                 }
                 Item::Struct(s) => {
                     self.extract_struct(s);
@@ -103,9 +105,18 @@ impl SemanticAnalyzer {
                 _ => {}
             }
         }
+
+        // Sub-pass 2: Extract variables from function bodies
+        // Now all functions and types are known, so type inference works
+        for item in &program.items {
+            if let Item::Function(func) = item {
+                self.extract_function_variables(func);
+            }
+        }
     }
 
-    fn extract_function(&mut self, func: &Function) {
+    /// Extract function signature only (for first sub-pass)
+    fn extract_function_signature(&mut self, func: &Function) {
         let params: Vec<(String, String)> = func
             .params
             .iter()
@@ -123,7 +134,10 @@ impl SemanticAnalyzer {
                 is_pub: func.is_pub,
             },
         );
+    }
 
+    /// Extract variables from function body (for second sub-pass)
+    fn extract_function_variables(&mut self, func: &Function) {
         // Extract variables from function body
         self.extract_variables_from_block(&func.body, func.span.start, func.span.end);
 
@@ -922,6 +936,60 @@ impl SemanticAnalyzer {
                     None
                 }
             }
+            Expr::MethodCall { receiver, method, .. } => {
+                // Get receiver type
+                if let Expr::Ident(type_name, _) = receiver.as_ref() {
+                    // Check if it's a static method call on a type (e.g., String.from())
+                    if self.symbols.structs.contains_key(type_name) || self.symbols.enums.contains_key(type_name) {
+                        // Look up the method return type
+                        if let Some(methods) = self.symbols.methods.get(type_name) {
+                            if let Some(method_info) = methods.iter().find(|m| &m.name == method) {
+                                // Replace 'Self' with the actual type name
+                                return method_info.return_type.as_ref().map(|ty| {
+                                    if ty == "Self" { type_name.clone() } else { ty.clone() }
+                                });
+                            }
+                        }
+                    }
+                }
+                // Method call on a variable - get the receiver's type first
+                if let Some(receiver_type) = self.infer_type_from_expr(receiver) {
+                    let base_type = receiver_type
+                        .trim_start_matches('&')
+                        .trim_start_matches('~')
+                        .trim_start_matches('*')
+                        .to_string();
+                    // Extract base type name (strip generics)
+                    let base_name = base_type.split('<').next().unwrap_or(&base_type);
+                    if let Some(methods) = self.symbols.methods.get(base_name) {
+                        if let Some(method_info) = methods.iter().find(|m| &m.name == method) {
+                            return method_info.return_type.as_ref().map(|ty| {
+                                if ty == "Self" { base_name.to_string() } else { ty.clone() }
+                            });
+                        }
+                    }
+                }
+                None
+            }
+            Expr::Field { object, field, .. } => {
+                // Get the object's type and look up the field type
+                if let Some(obj_type) = self.infer_type_from_expr(object) {
+                    let base_type = obj_type
+                        .trim_start_matches('&')
+                        .trim_start_matches('~')
+                        .trim_start_matches('*')
+                        .to_string();
+                    let base_name = base_type.split('<').next().unwrap_or(&base_type);
+                    if let Some(struct_info) = self.symbols.structs.get(base_name) {
+                        for (field_name, field_type, _) in &struct_info.fields {
+                            if field_name == field {
+                                return Some(field_type.clone());
+                            }
+                        }
+                    }
+                }
+                None
+            }
             Expr::StructInit { name, generics, .. } => {
                 if generics.is_empty() {
                     Some(name.clone())
@@ -929,6 +997,84 @@ impl SemanticAnalyzer {
                     let generic_strs: Vec<_> = generics.iter().map(|g| self.type_to_string(g)).collect();
                     Some(format!("{}<{}>", name, generic_strs.join(", ")))
                 }
+            }
+            Expr::Ref { operand, .. } => {
+                self.infer_type_from_expr(operand).map(|t| format!("&{}", t))
+            }
+            Expr::RefMut { operand, .. } => {
+                self.infer_type_from_expr(operand).map(|t| format!("~{}", t))
+            }
+            Expr::Deref { operand, .. } => {
+                if let Some(ty) = self.infer_type_from_expr(operand) {
+                    // Strip one level of reference/pointer
+                    if ty.starts_with('&') || ty.starts_with('~') || ty.starts_with('*') {
+                        return Some(ty[1..].to_string());
+                    }
+                }
+                None
+            }
+            Expr::ArrayInit { elements, .. } => {
+                if let Some(first) = elements.first() {
+                    if let Some(elem_ty) = self.infer_type_from_expr(first) {
+                        return Some(format!("{}[{}]", elem_ty, elements.len()));
+                    }
+                }
+                None
+            }
+            Expr::Index { array, .. } => {
+                // Indexing into array/slice returns element type
+                if let Some(obj_type) = self.infer_type_from_expr(array) {
+                    // Handle array types like "i32[5]"
+                    if let Some(bracket_pos) = obj_type.find('[') {
+                        return Some(obj_type[..bracket_pos].to_string());
+                    }
+                    // Handle Slice<T> -> T
+                    if obj_type.starts_with("Slice<") && obj_type.ends_with('>') {
+                        return Some(obj_type[6..obj_type.len()-1].to_string());
+                    }
+                    // Handle Vec<T> -> T
+                    if obj_type.starts_with("Vec<") && obj_type.ends_with('>') {
+                        return Some(obj_type[4..obj_type.len()-1].to_string());
+                    }
+                }
+                None
+            }
+            Expr::Closure { params, return_type, .. } => {
+                let param_types: Vec<String> = params.iter().map(|(_, ty)| {
+                    ty.as_ref().map(|t| self.type_to_string(t)).unwrap_or_else(|| "?".to_string())
+                }).collect();
+                let ret_type = return_type.as_ref()
+                    .map(|t| self.type_to_string(t))
+                    .unwrap_or_else(|| "?".to_string());
+                Some(format!("({}) => {}", param_types.join(", "), ret_type))
+            }
+            Expr::Binary { op, left, right, .. } => {
+                match op {
+                    // Comparison operators return bool
+                    BinOp::Eq | BinOp::Ne | BinOp::Lt | BinOp::Le |
+                    BinOp::Gt | BinOp::Ge | BinOp::And | BinOp::Or => {
+                        Some("bool".to_string())
+                    }
+                    // Arithmetic operators return the type of the operands
+                    _ => self.infer_type_from_expr(left).or_else(|| self.infer_type_from_expr(right)),
+                }
+            }
+            Expr::Unary { op, operand, .. } => {
+                match op {
+                    UnaryOp::Not => Some("bool".to_string()),
+                    UnaryOp::Neg | UnaryOp::BitNot => self.infer_type_from_expr(operand),
+                }
+            }
+            Expr::Block(block) => {
+                // Return type is the type of the last expression
+                if let Some(Stmt::Expr(last_expr)) = block.stmts.last() {
+                    return self.infer_type_from_expr(last_expr);
+                }
+                None
+            }
+            Expr::If { then_expr, .. } => {
+                // Return type is the type of the then branch
+                self.infer_type_from_expr(then_expr)
             }
             _ => None,
         }
