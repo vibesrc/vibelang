@@ -1382,6 +1382,7 @@ impl SemanticAnalyzer {
             Type::F64 => "f64".to_string(),
             Type::Bool => "bool".to_string(),
             Type::Char => "char".to_string(),
+            Type::Str => "str".to_string(),
             Type::Void => "void".to_string(),
             Type::SelfType => "Self".to_string(),
         }
@@ -1405,7 +1406,7 @@ impl SemanticAnalyzer {
                     Literal::Float(_) => "f64",
                     Literal::Bool(_) => "bool",
                     Literal::Char(_) => "char",
-                    Literal::String(_) => "Slice<u8>",
+                    Literal::String(_) => "str",
                 };
                 Some(ty.to_string())
             }

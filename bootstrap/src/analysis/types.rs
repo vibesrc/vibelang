@@ -12,6 +12,8 @@ pub fn is_builtin_type(name: &str) -> bool {
         | "u8" | "u16" | "u32" | "u64"
         | "f32" | "f64"
         | "bool"
+        | "char"
+        | "str"
         | "void"
         | "Slice"
     )

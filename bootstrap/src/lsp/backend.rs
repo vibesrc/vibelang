@@ -241,6 +241,7 @@ impl Backend {
             Type::F64 => "f64".to_string(),
             Type::Bool => "bool".to_string(),
             Type::Char => "char".to_string(),
+            Type::Str => "str".to_string(),
             Type::Void => "void".to_string(),
             Type::Pointer(inner) => format!("*{}", self.type_to_string(inner)),
             Type::Ref(inner) => format!("&{}", self.type_to_string(inner)),

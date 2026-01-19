@@ -158,6 +158,8 @@ impl Backend {
                 "f32" => "32-bit floating point",
                 "f64" => "64-bit floating point",
                 "bool" => "Boolean type (true or false)",
+                "char" => "8-bit character (ASCII)",
+                "str" => "UTF-8 string slice (fat pointer: ptr + len)",
                 "void" => "Unit type (no value)",
                 _ => "Primitive type",
             };
@@ -218,18 +220,19 @@ impl Backend {
 
         if let Some(ref ty) = receiver_type {
             // Extract base type name (strip generics and refs)
-            let base_type = ty
+            let clean_ty = ty
                 .trim_start_matches('&')
                 .trim_start_matches('~')
-                .trim_start_matches('*')
+                .trim_start_matches('*');
+            let base_type = clean_ty
                 .split('<')
                 .next()
-                .unwrap_or(ty);
+                .unwrap_or(clean_ty);
 
             // Look up method in the type's methods
             if let Some(methods) = doc.symbols.methods.get(base_type) {
                 if let Some(method_info) = methods.iter().find(|m| m.name == word) {
-                    return Some(self.format_method_hover(base_type, method_info));
+                    return Some(self.format_method_hover_with_generics(doc, base_type, clean_ty, method_info));
                 }
             }
         }
@@ -267,7 +270,48 @@ impl Backend {
         None
     }
 
-    /// Format a method as hover info
+    /// Format a method as hover info with generic type substitution
+    fn format_method_hover_with_generics(
+        &self,
+        doc: &DocumentInfo,
+        base_type: &str,
+        full_type: &str,
+        method_info: &crate::lsp::types::MethodInfo
+    ) -> Hover {
+        // Build substitution map from generic params to concrete types
+        let substitutions = self.build_generic_substitutions(doc, base_type, full_type);
+
+        let params_str: Vec<_> = method_info
+            .params
+            .iter()
+            .map(|(n, t)| {
+                let resolved_type = self.substitute_generics(t, &substitutions);
+                format!("{}: {}", n, resolved_type)
+            })
+            .collect();
+
+        let return_type = method_info.return_type.as_deref().unwrap_or("void");
+        let resolved_return = self.substitute_generics(return_type, &substitutions);
+
+        let sig = format!(
+            "fn {}({}) -> {}",
+            method_info.name,
+            params_str.join(", "),
+            resolved_return
+        );
+
+        let content = format!("**Method** on `{}`\n\n```vibe\n{}\n```", full_type, sig);
+
+        Hover {
+            contents: HoverContents::Markup(MarkupContent {
+                kind: MarkupKind::Markdown,
+                value: content,
+            }),
+            range: None,
+        }
+    }
+
+    /// Format a method as hover info (without generic resolution)
     fn format_method_hover(&self, type_name: &str, method_info: &crate::lsp::types::MethodInfo) -> Hover {
         let params_str: Vec<_> = method_info
             .params
@@ -293,6 +337,165 @@ impl Backend {
             }),
             range: None,
         }
+    }
+
+    /// Build a map from generic type parameters to concrete types
+    /// e.g., for Map<str, i64> with generics [K, V], returns {K -> str, V -> i64}
+    fn build_generic_substitutions(
+        &self,
+        doc: &DocumentInfo,
+        base_type: &str,
+        full_type: &str,
+    ) -> std::collections::HashMap<String, String> {
+        let mut subs = std::collections::HashMap::new();
+
+        // Get the generic parameter names from the struct/enum definition
+        let generic_params = if let Some(struct_info) = doc.symbols.structs.get(base_type) {
+            &struct_info.generics
+        } else if let Some(enum_info) = doc.symbols.enums.get(base_type) {
+            &enum_info.generics
+        } else {
+            return subs;
+        };
+
+        if generic_params.is_empty() {
+            return subs;
+        }
+
+        // Parse the concrete type arguments from full_type (e.g., "Map<str, i64>")
+        let concrete_args = self.parse_generic_args(full_type);
+
+        // Build the substitution map
+        for (i, param) in generic_params.iter().enumerate() {
+            if let Some(concrete) = concrete_args.get(i) {
+                subs.insert(param.clone(), concrete.clone());
+            }
+        }
+
+        subs
+    }
+
+    /// Parse generic arguments from a type string like "Map<str, i64>" -> ["str", "i64"]
+    fn parse_generic_args(&self, type_str: &str) -> Vec<String> {
+        let mut args = Vec::new();
+
+        // Find the first '<' and matching '>'
+        if let Some(start) = type_str.find('<') {
+            let inner = &type_str[start + 1..];
+            if let Some(end) = inner.rfind('>') {
+                let args_str = &inner[..end];
+
+                // Split by commas, but respect nested generics
+                let mut depth = 0;
+                let mut current = String::new();
+
+                for ch in args_str.chars() {
+                    match ch {
+                        '<' => {
+                            depth += 1;
+                            current.push(ch);
+                        }
+                        '>' => {
+                            depth -= 1;
+                            current.push(ch);
+                        }
+                        ',' if depth == 0 => {
+                            args.push(current.trim().to_string());
+                            current = String::new();
+                        }
+                        _ => current.push(ch),
+                    }
+                }
+
+                if !current.trim().is_empty() {
+                    args.push(current.trim().to_string());
+                }
+            }
+        }
+
+        args
+    }
+
+    /// Substitute generic type parameters in a type string
+    fn substitute_generics(
+        &self,
+        type_str: &str,
+        subs: &std::collections::HashMap<String, String>,
+    ) -> String {
+        if subs.is_empty() {
+            return type_str.to_string();
+        }
+
+        let mut result = type_str.to_string();
+
+        // Sort by length descending to avoid partial replacements (e.g., "K" in "Key")
+        let mut keys: Vec<_> = subs.keys().collect();
+        keys.sort_by(|a, b| b.len().cmp(&a.len()));
+
+        for key in keys {
+            if let Some(value) = subs.get(key) {
+                // Replace only whole words (type parameters are usually single letters)
+                // Use a simple approach: replace "K" but not "Key"
+                result = self.replace_type_param(&result, key, value);
+            }
+        }
+
+        result
+    }
+
+    /// Replace a type parameter with a concrete type, being careful about word boundaries
+    fn replace_type_param(&self, type_str: &str, param: &str, replacement: &str) -> String {
+        let mut result = String::new();
+        let mut chars = type_str.chars().peekable();
+        let param_chars: Vec<char> = param.chars().collect();
+
+        while let Some(ch) = chars.next() {
+            // Check if this could be the start of the parameter
+            if ch == param_chars[0] {
+                // Try to match the full parameter
+                let mut matched = true;
+                let mut temp = String::new();
+                temp.push(ch);
+
+                for &p in param_chars.iter().skip(1) {
+                    if let Some(&next) = chars.peek() {
+                        if next == p {
+                            temp.push(chars.next().unwrap());
+                        } else {
+                            matched = false;
+                            break;
+                        }
+                    } else {
+                        matched = false;
+                        break;
+                    }
+                }
+
+                if matched {
+                    // Check that it's not part of a larger identifier
+                    let is_word_boundary = chars.peek()
+                        .map(|&c| !c.is_alphanumeric() && c != '_')
+                        .unwrap_or(true);
+
+                    // Also check what came before (we need to look at result)
+                    let prev_is_boundary = result.chars().last()
+                        .map(|c| !c.is_alphanumeric() && c != '_')
+                        .unwrap_or(true);
+
+                    if is_word_boundary && prev_is_boundary {
+                        result.push_str(replacement);
+                    } else {
+                        result.push_str(&temp);
+                    }
+                } else {
+                    result.push_str(&temp);
+                }
+            } else {
+                result.push(ch);
+            }
+        }
+
+        result
     }
 
     pub fn get_definition(&self, doc: &DocumentInfo, uri: &Uri, position: Position) -> Option<Location> {
@@ -489,7 +692,7 @@ impl Backend {
                 Literal::Float(_) => Some("f64".to_string()),
                 Literal::Bool(_) => Some("bool".to_string()),
                 Literal::Char(_) => Some("char".to_string()),
-                Literal::String(_) => Some("Slice<u8>".to_string()),
+                Literal::String(_) => Some("str".to_string()),
             },
             Expr::Closure { params, return_type, .. } => {
                 // Build closure type signature: (T1, T2) => R

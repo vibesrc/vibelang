@@ -20,6 +20,12 @@ impl<'ctx> Codegen<'ctx> {
             Type::F64 => Ok(self.context.f64_type().into()),
             Type::Bool => Ok(self.context.bool_type().into()),
             Type::Char => Ok(self.context.i8_type().into()),  // char is u8
+            Type::Str => {
+                // str compiles to same fat pointer as Slice<u8>: {ptr, len}
+                let ptr_type = self.context.ptr_type(AddressSpace::default());
+                let len_type = self.context.i64_type();
+                Ok(self.context.struct_type(&[ptr_type.into(), len_type.into()], false).into())
+            }
             Type::Pointer(_) => Ok(self.context.ptr_type(AddressSpace::default()).into()),
             Type::Ref(_) => Ok(self.context.ptr_type(AddressSpace::default()).into()),
             Type::RefMut(_) => Ok(self.context.ptr_type(AddressSpace::default()).into()),
@@ -158,6 +164,7 @@ impl<'ctx> Codegen<'ctx> {
                 "f32" => Type::F32,
                 "f64" => Type::F64,
                 "bool" => Type::Bool,
+                "str" => Type::Str,
                 _ => {
                     // Check if this is a known struct type
                     // For named types like "String", create Type::Named
@@ -191,6 +198,7 @@ impl<'ctx> Codegen<'ctx> {
             Type::F64 => "f64".to_string(),
             Type::Bool => "bool".to_string(),
             Type::Char => "char".to_string(),
+            Type::Str => "str".to_string(),
             Type::Pointer(inner) => format!("ptr_{}", self.type_name(inner)),
             Type::Ref(inner) => format!("ref_{}", self.type_name(inner)),
             Type::RefMut(inner) => format!("mut_{}", self.type_name(inner)),
@@ -315,6 +323,7 @@ impl<'ctx> Codegen<'ctx> {
             Type::F64 => Some("f64".to_string()),
             Type::Bool => Some("bool".to_string()),
             Type::Char => Some("char".to_string()),
+            Type::Str => Some("str".to_string()),
             // Named types (structs, enums)
             Type::Named { name, generics } => {
                 if !generics.is_empty() {
@@ -394,6 +403,7 @@ impl<'ctx> Codegen<'ctx> {
             Type::F64 => Some("f64".to_string()),
             Type::Bool => Some("bool".to_string()),
             Type::Char => Some("char".to_string()),
+            Type::Str => Some("str".to_string()),
             _ => None,
         }
     }
@@ -533,10 +543,7 @@ impl<'ctx> Codegen<'ctx> {
                 Literal::Float(_) => Ok(Type::F64),
                 Literal::Bool(_) => Ok(Type::Bool),
                 Literal::Char(_) => Ok(Type::Char),
-                Literal::String(_) => Ok(Type::Named {
-                    name: "Slice".to_string(),
-                    generics: vec![Type::U8]
-                }),
+                Literal::String(_) => Ok(Type::Str),
             },
             Expr::Ident(name, _) => {
                 // Look up variable type
@@ -647,10 +654,7 @@ impl<'ctx> Codegen<'ctx> {
                 Literal::Float(_) => Ok(Type::F64),
                 Literal::Bool(_) => Ok(Type::Bool),
                 Literal::Char(_) => Ok(Type::Char),
-                Literal::String(_) => Ok(Type::Named {
-                    name: "Slice".to_string(),
-                    generics: vec![Type::U8]
-                }),
+                Literal::String(_) => Ok(Type::Str),
             },
             Expr::Ident(name, _) => {
                 if let Some(var_info) = self.variables.get(name) {
@@ -699,6 +703,54 @@ impl<'ctx> Codegen<'ctx> {
                 // Mutable reference expression: ~expr
                 let inner_type = self.get_expr_type(operand)?;
                 Ok(Type::RefMut(Box::new(inner_type)))
+            }
+            Expr::Field { object, field, .. } => {
+                // Field access: object.field
+                let object_type = self.get_expr_type(object)?;
+                // Get the struct name from the object type
+                if let Some(struct_name) = self.get_type_name_from_ast(&object_type) {
+                    // Look up the field type in the struct
+                    if let Some(struct_info) = self.struct_types.get(&struct_name) {
+                        // field_names and ast_field_types are parallel arrays
+                        for (i, field_name) in struct_info.field_names.iter().enumerate() {
+                            if field_name == field {
+                                if let Some(field_type) = struct_info.ast_field_types.get(i) {
+                                    return Ok(field_type.clone());
+                                }
+                            }
+                        }
+                    }
+                }
+                // Fallback
+                Ok(Type::I32)
+            }
+            Expr::Deref { operand, .. } => {
+                // Dereference: *expr
+                let inner_type = self.get_expr_type(operand)?;
+                match inner_type {
+                    Type::Ref(inner) | Type::RefMut(inner) | Type::Pointer(inner) => {
+                        Ok(*inner)
+                    }
+                    _ => Ok(inner_type),
+                }
+            }
+            Expr::MethodCall { receiver, method, .. } => {
+                // Method call: receiver.method(args)
+                // Get the receiver type to find the mangled method name
+                let receiver_type = self.get_expr_type(receiver)?;
+                if let Some(type_name) = self.get_type_name_from_ast(&receiver_type) {
+                    // Look up the mangled method name
+                    if let Some(methods) = self.type_methods.get(&type_name) {
+                        if let Some(mangled_name) = methods.get(method) {
+                            // Get the return type from the mangled method
+                            if let Some(Some(ret_type)) = self.function_return_types.get(mangled_name) {
+                                return Ok(ret_type.clone());
+                            }
+                        }
+                    }
+                }
+                // Fallback
+                Ok(Type::I32)
             }
             _ => {
                 // For other expressions, try to infer
@@ -754,6 +806,7 @@ impl<'ctx> Codegen<'ctx> {
             "f32" => Type::F32,
             "f64" => Type::F64,
             "bool" => Type::Bool,
+            "str" => Type::Str,
             _ => Type::Named { name: name.to_string(), generics: vec![] }
         }
     }

@@ -98,8 +98,8 @@ impl Parser {
             "bool" => Type::Bool,
             "char" => Type::Char,
             "void" => Type::Void,
-            // str is an alias for Slice<u8>
-            "str" => Type::Slice(Box::new(Type::U8)),
+            // str is a primitive type (UTF-8 string slice)
+            "str" => Type::Str,
             _ => {
                 // Generic type?
                 let generics = if self.match_token(TokenKind::Lt) {

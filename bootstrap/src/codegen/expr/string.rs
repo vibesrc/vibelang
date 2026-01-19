@@ -147,9 +147,10 @@ impl<'ctx> Codegen<'ctx> {
         // Try to get AST type for proper formatting first
         // This handles char, specific int types, and importantly Slice<u8> (str) correctly
         if let Ok(ast_type) = self.get_expr_type(expr) {
-            // Helper to check if type is a string (Slice<u8>) or reference to string
+            // Helper to check if type is a string (str or Slice<u8>) or reference to string
             fn is_string_type(ty: &Type) -> bool {
                 match ty {
+                    Type::Str => true,
                     Type::Slice(inner) => matches!(inner.as_ref(), Type::U8),
                     Type::Ref(inner) => is_string_type(inner),
                     Type::RefMut(inner) => is_string_type(inner),
@@ -159,12 +160,11 @@ impl<'ctx> Codegen<'ctx> {
 
             // For string types (str, &str, ~str), handle appropriately
             if is_string_type(&ast_type) {
-                // The value should already be a struct value (Slice is a struct {ptr, len})
+                // The value should already be a struct value (str is a struct {ptr, len})
                 // If it's a pointer, that means we have a reference - skip the deref, let the
                 // existing slice detection handle it
                 if val.is_struct_value() {
-                    let slice_type = Type::Slice(Box::new(Type::U8));
-                    return self.value_to_string(val, &slice_type);
+                    return self.value_to_string(val, &Type::Str);
                 }
             }
             // For other types that are not structs/enums, use value_to_string
@@ -541,8 +541,21 @@ impl<'ctx> Codegen<'ctx> {
                 let unknown = self.builder.build_global_string_ptr("<unknown>", "unknown_str").unwrap();
                 Ok((unknown.as_pointer_value(), i64_type.const_int(9, false)))
             }
+            Type::Str => {
+                // str is a UTF-8 string slice (same representation as Slice<u8>)
+                let struct_val = val.into_struct_value();
+                let ptr = self.builder
+                    .build_extract_value(struct_val, 0, "str_ptr")
+                    .unwrap()
+                    .into_pointer_value();
+                let len = self.builder
+                    .build_extract_value(struct_val, 1, "str_len")
+                    .unwrap()
+                    .into_int_value();
+                Ok((ptr, len))
+            }
             Type::Slice(inner) => {
-                // Slice<u8> is a string
+                // Slice<u8> is also a string (for compatibility)
                 if matches!(inner.as_ref(), Type::U8) {
                     let struct_val = val.into_struct_value();
                     let ptr = self.builder

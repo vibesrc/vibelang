@@ -183,6 +183,7 @@ pub enum Type {
     F64,
     Bool,
     Char,  // u8 under the hood
+    Str,   // UTF-8 string slice (fat pointer: ptr + len)
     Void,
 
     // Compound
