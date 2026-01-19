@@ -36,3 +36,29 @@ impl Eq for Slice<u8> {
         return true
     }
 }
+
+/// Eq implementation for str (UTF-8 string slices)
+/// Compares length first, then each byte
+impl Eq for str {
+    fn eq(&self, other: &str) -> bool {
+        // Different lengths means not equal
+        if self.len != other.len {
+            return false
+        }
+
+        // Compare each byte
+        let i: i64 = 0
+        while i < self.len {
+            unsafe {
+                let a = ptr_read<u8>(ptr_add<u8>(self.ptr, i))
+                let b = ptr_read<u8>(ptr_add<u8>(other.ptr, i))
+                if a != b {
+                    return false
+                }
+            }
+            i = i + 1
+        }
+
+        return true
+    }
+}

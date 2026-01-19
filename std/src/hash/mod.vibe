@@ -107,6 +107,22 @@ pub fn hash_bytes(data: &Slice<u8>) -> i64 {
     return h
 }
 
+/// Hash a str (UTF-8 string slice)
+pub fn hash_str(data: &str) -> i64 {
+    let h = FNV_OFFSET_BASIS
+    let i: i64 = 0
+    while i < data.len {
+        unsafe {
+            let byte = ptr_read<u8>(ptr_add<u8>(data.ptr, i))
+            let b = byte as i64
+            h = h ^ b
+            h = h * FNV_PRIME
+        }
+        i = i + 1
+    }
+    return h
+}
+
 /// Combine two hashes (for hashing structs with multiple fields)
 pub fn hash_combine(h1: i64, h2: i64) -> i64 {
     let h = h1 ^ h2
@@ -133,5 +149,12 @@ impl Hash for i64 {
 impl Hash for Slice<u8> {
     fn hash(&self) -> i64 {
         return hash_bytes(self)
+    }
+}
+
+/// Hash implementation for str (UTF-8 string slices)
+impl Hash for str {
+    fn hash(&self) -> i64 {
+        return hash_str(self)
     }
 }

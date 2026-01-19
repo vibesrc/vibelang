@@ -321,10 +321,28 @@ impl<'ctx> Codegen<'ctx> {
     /// Substitute Type::SelfType with the actual named type
     fn substitute_self_type(&self, ty: &Type, type_name: &str) -> Type {
         match ty {
-            Type::SelfType => Type::Named {
-                name: type_name.to_string(),
-                generics: vec![],
-            },
+            Type::SelfType => {
+                // For primitive types, return the primitive Type variant
+                match type_name {
+                    "i8" => Type::I8,
+                    "i16" => Type::I16,
+                    "i32" => Type::I32,
+                    "i64" => Type::I64,
+                    "u8" => Type::U8,
+                    "u16" => Type::U16,
+                    "u32" => Type::U32,
+                    "u64" => Type::U64,
+                    "f32" => Type::F32,
+                    "f64" => Type::F64,
+                    "bool" => Type::Bool,
+                    "char" => Type::Char,
+                    "str" => Type::Str,
+                    _ => Type::Named {
+                        name: type_name.to_string(),
+                        generics: vec![],
+                    },
+                }
+            }
             Type::Ref(inner) => Type::Ref(Box::new(self.substitute_self_type(inner, type_name))),
             Type::RefMut(inner) => Type::RefMut(Box::new(self.substitute_self_type(inner, type_name))),
             Type::Pointer(inner) => Type::Pointer(Box::new(self.substitute_self_type(inner, type_name))),

@@ -211,6 +211,70 @@ impl<'ctx> Codegen<'ctx> {
                 }
             }
 
+            // Special handling for str type field access (str has {ptr, len} like Slice<u8>)
+            if let Some(Type::Str) = &var_info.ast_type {
+                let str_type = self.llvm_type(&Type::Str)?;
+                let struct_ty = str_type.into_struct_type();
+
+                match field {
+                    "ptr" => {
+                        let field_ptr = self.builder
+                            .build_struct_gep(struct_ty, var_info.ptr, 0, &format!("{}.ptr", name))
+                            .unwrap();
+                        let ptr_val = self.builder
+                            .build_load(self.context.ptr_type(AddressSpace::default()), field_ptr, "ptr")
+                            .unwrap();
+                        return Ok(ptr_val);
+                    }
+                    "len" => {
+                        let field_ptr = self.builder
+                            .build_struct_gep(struct_ty, var_info.ptr, 1, &format!("{}.len", name))
+                            .unwrap();
+                        let len_val = self.builder
+                            .build_load(self.context.i64_type(), field_ptr, "len")
+                            .unwrap();
+                        return Ok(len_val);
+                    }
+                    _ => return Err(CodegenError::UndefinedField(format!("str has no field '{}'", field))),
+                }
+            }
+
+            // Special handling for &str type field access
+            if let Some(Type::Ref(inner)) = &var_info.ast_type {
+                if matches!(inner.as_ref(), Type::Str) {
+                    let str_type = self.llvm_type(&Type::Str)?;
+                    let struct_ty = str_type.into_struct_type();
+
+                    // Load the pointer to the str first (dereference the reference)
+                    let str_ptr = self.builder
+                        .build_load(self.context.ptr_type(AddressSpace::default()), var_info.ptr, "deref_str")
+                        .unwrap()
+                        .into_pointer_value();
+
+                    match field {
+                        "ptr" => {
+                            let field_ptr = self.builder
+                                .build_struct_gep(struct_ty, str_ptr, 0, &format!("{}.ptr", name))
+                                .unwrap();
+                            let ptr_val = self.builder
+                                .build_load(self.context.ptr_type(AddressSpace::default()), field_ptr, "ptr")
+                                .unwrap();
+                            return Ok(ptr_val);
+                        }
+                        "len" => {
+                            let field_ptr = self.builder
+                                .build_struct_gep(struct_ty, str_ptr, 1, &format!("{}.len", name))
+                                .unwrap();
+                            let len_val = self.builder
+                                .build_load(self.context.i64_type(), field_ptr, "len")
+                                .unwrap();
+                            return Ok(len_val);
+                        }
+                        _ => return Err(CodegenError::UndefinedField(format!("str has no field '{}'", field))),
+                    }
+                }
+            }
+
             // Determine struct name - either direct or through reference
             let struct_name = if var_info.is_ref {
                 var_info.ref_struct_name.as_ref()
