@@ -30,6 +30,7 @@ impl<'ctx> Codegen<'ctx> {
         let mono_struct = Struct {
             name: mono_name.clone(),
             generics: Vec::new(), // No longer generic
+            bounds: Vec::new(),   // Bounds resolved at monomorphization
             fields: generic_struct.fields.iter().map(|f| {
                 Field {
                     name: f.name.clone(),
@@ -73,6 +74,7 @@ impl<'ctx> Codegen<'ctx> {
         let mono_func = Function {
             name: mono_name.clone(),
             generics: Vec::new(), // No longer generic
+            bounds: Vec::new(),   // Bounds resolved at monomorphization
             params: generic_func.params.iter().map(|p| {
                 Param {
                     name: p.name.clone(),
@@ -211,6 +213,7 @@ impl<'ctx> Codegen<'ctx> {
             let mono_method = Function {
                 name: mangled_method_name.clone(),
                 generics: Vec::new(),
+                bounds: Vec::new(),  // Bounds resolved at monomorphization
                 params: method.params.iter().map(|p| {
                     let mut ty = self.substitute_type(&p.ty, &type_map);
                     // Also substitute Self with the monomorphized type

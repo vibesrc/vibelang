@@ -13,6 +13,7 @@ pub enum Item {
     Struct(Struct),
     Enum(Enum),
     Impl(Impl),
+    Trait(Trait),
     Static(Static),
     Use(Use),
 }
@@ -21,6 +22,7 @@ pub enum Item {
 pub struct Function {
     pub name: String,
     pub generics: Vec<String>,  // Type parameters like <T, U>
+    pub bounds: Vec<(String, String)>,  // Type bounds: [(T, Hash), (T, Eq)]
     pub params: Vec<Param>,
     pub return_type: Option<Type>,
     pub body: Block,
@@ -39,6 +41,7 @@ pub struct Param {
 pub struct Struct {
     pub name: String,
     pub generics: Vec<String>,
+    pub bounds: Vec<(String, String)>,  // Type bounds: [(T, Hash), (T, Eq)]
     pub fields: Vec<Field>,
     pub is_pub: bool,
     pub span: Span,
@@ -77,8 +80,32 @@ pub enum VariantFields {
 
 #[derive(Debug, Clone)]
 pub struct Impl {
+    pub trait_name: Option<String>,     // None = inherent impl, Some = trait impl
+    pub generics: Vec<String>,          // impl<T> generics
+    pub bounds: Vec<(String, String)>,  // Type bounds: [(T, Hash), (T, Eq)]
     pub target: Type,
     pub methods: Vec<Function>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone)]
+pub struct Trait {
+    pub name: String,
+    pub generics: Vec<String>,
+    pub supertraits: Vec<String>,       // trait Ord: Eq
+    pub methods: Vec<TraitMethod>,
+    pub is_pub: bool,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone)]
+pub struct TraitMethod {
+    pub name: String,
+    pub generics: Vec<String>,
+    pub bounds: Vec<(String, String)>,
+    pub params: Vec<Param>,
+    pub return_type: Option<Type>,
+    pub body: Option<Block>,            // None = abstract, Some = default impl
     pub span: Span,
 }
 

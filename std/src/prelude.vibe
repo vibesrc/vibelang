@@ -12,3 +12,7 @@ pub use std.collections.{Vec}
 
 // String handling
 pub use std.string.{String}
+
+// Built-in traits (defined in std/src/traits.vibe)
+// TODO: Enable once module visibility is fixed for trait re-exports
+// pub use std.traits.{Copy, Clone, Eq, Hash, Debug, Default}

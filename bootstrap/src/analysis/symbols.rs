@@ -16,6 +16,10 @@ pub struct SymbolTable {
     pub structs: HashMap<String, StructInfo>,
     /// Enums: name -> info
     pub enums: HashMap<String, EnumInfo>,
+    /// Traits: name -> info
+    pub traits: HashMap<String, TraitInfo>,
+    /// Trait implementations: (type_name, trait_name) -> list of implemented methods
+    pub trait_impls: HashMap<(String, String), Vec<String>>,
     /// Variables in scope at different positions
     pub variables: Vec<VariableInfo>,
     /// Methods: type_name -> [method_info]
@@ -122,6 +126,38 @@ pub struct MethodInfo {
     pub params: Vec<(String, String)>,
     /// Return type (None for void)
     pub return_type: Option<String>,
+    /// Location in source
+    pub span: Span,
+}
+
+/// Information about a trait
+#[derive(Debug, Clone)]
+pub struct TraitInfo {
+    /// Trait name
+    pub name: String,
+    /// Generic type parameters
+    pub generics: Vec<String>,
+    /// Supertraits (traits this trait extends)
+    pub supertraits: Vec<String>,
+    /// Methods defined in the trait
+    pub methods: Vec<TraitMethodInfo>,
+    /// Location in source
+    pub span: Span,
+    /// Whether the trait is public
+    pub is_pub: bool,
+}
+
+/// Information about a trait method
+#[derive(Debug, Clone)]
+pub struct TraitMethodInfo {
+    /// Method name
+    pub name: String,
+    /// Parameters: (name, type_string)
+    pub params: Vec<(String, String)>,
+    /// Return type (None for void)
+    pub return_type: Option<String>,
+    /// Whether this method has a default implementation
+    pub has_default: bool,
     /// Location in source
     pub span: Span,
 }

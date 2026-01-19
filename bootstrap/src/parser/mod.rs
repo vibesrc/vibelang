@@ -53,13 +53,16 @@ impl Parser {
             Some(TokenKind::Keyword(Keyword::Impl)) => {
                 Ok(Item::Impl(self.parse_impl()?))
             }
+            Some(TokenKind::Keyword(Keyword::Trait)) => {
+                Ok(Item::Trait(self.parse_trait(is_pub)?))
+            }
             Some(TokenKind::Keyword(Keyword::Static)) => {
                 Ok(Item::Static(self.parse_static(is_pub)?))
             }
             Some(TokenKind::Keyword(Keyword::Use)) => {
                 Ok(Item::Use(self.parse_use(is_pub)?))
             }
-            _ => Err(self.error("expected item (fn, struct, enum, impl, static, use)")),
+            _ => Err(self.error("expected item (fn, struct, enum, impl, trait, static, use)")),
         }
     }
 }

@@ -238,6 +238,7 @@ impl<'ctx> Codegen<'ctx> {
             let mangled_func = Function {
                 name: mangled_name.clone(),
                 generics: method.generics.clone(),
+                bounds: method.bounds.clone(),
                 params: resolved_params,
                 return_type: resolved_return_type,
                 body: method.body.clone(),
@@ -292,6 +293,7 @@ impl<'ctx> Codegen<'ctx> {
                 let mangled_func = Function {
                     name: mangled_name,
                     generics: method.generics.clone(),
+                    bounds: method.bounds.clone(),
                     params: resolved_params,
                     return_type: resolved_return_type,
                     body: method.body.clone(),

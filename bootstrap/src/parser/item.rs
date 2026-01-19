@@ -9,7 +9,7 @@ impl Parser {
         let start = self.current_span();
         self.expect_keyword(Keyword::Fn)?;
         let name = self.expect_ident()?;
-        let generics = self.parse_generics()?;
+        let (generics, bounds) = self.parse_generics_with_bounds()?;
 
         self.expect(TokenKind::LParen)?;
         let params = self.parse_params()?;
@@ -26,6 +26,7 @@ impl Parser {
         Ok(Function {
             name,
             generics,
+            bounds,
             params,
             return_type,
             body,
@@ -112,7 +113,7 @@ impl Parser {
         let start = self.current_span();
         self.expect_keyword(Keyword::Struct)?;
         let name = self.expect_ident()?;
-        let generics = self.parse_generics()?;
+        let (generics, bounds) = self.parse_generics_with_bounds()?;
 
         self.expect(TokenKind::LBrace)?;
         let fields = self.parse_fields()?;
@@ -121,6 +122,7 @@ impl Parser {
         Ok(Struct {
             name,
             generics,
+            bounds,
             fields,
             is_pub,
             span: self.span_from(start),
@@ -187,7 +189,23 @@ impl Parser {
     pub(crate) fn parse_impl(&mut self) -> Result<Impl, ParseError> {
         let start = self.current_span();
         self.expect_keyword(Keyword::Impl)?;
-        let target = self.parse_type()?;
+
+        // Parse optional generics with bounds: impl<T: Hash>
+        let (generics, bounds) = self.parse_generics_with_bounds()?;
+
+        // Parse first type (could be trait name or impl target)
+        let first = self.parse_type()?;
+
+        // Check for `for` keyword to distinguish trait impl from inherent impl
+        let (trait_name, target) = if self.match_keyword(Keyword::For) {
+            // Trait impl: impl Trait for Type
+            let trait_name = self.type_to_name(&first)?;
+            let target = self.parse_type()?;
+            (Some(trait_name), target)
+        } else {
+            // Inherent impl: impl Type
+            (None, first)
+        };
 
         self.expect(TokenKind::LBrace)?;
         let mut methods = Vec::new();
@@ -200,10 +218,25 @@ impl Parser {
         self.expect(TokenKind::RBrace)?;
 
         Ok(Impl {
+            trait_name,
+            generics,
+            bounds,
             target,
             methods,
             span: self.span_from(start),
         })
+    }
+
+    /// Convert a Type to a trait name string (for impl Trait for Type)
+    fn type_to_name(&self, ty: &Type) -> Result<String, ParseError> {
+        match ty {
+            Type::Named { name, generics: _ } => Ok(name.clone()),
+            _ => Err(ParseError::Unexpected {
+                message: "expected trait name".to_string(),
+                line: 0,
+                column: 0,
+            }),
+        }
     }
 
     pub(crate) fn parse_static(&mut self, is_pub: bool) -> Result<Static, ParseError> {
@@ -385,20 +418,129 @@ impl Parser {
     }
 
     pub(crate) fn parse_generics(&mut self) -> Result<Vec<String>, ParseError> {
+        let (generics, _bounds) = self.parse_generics_with_bounds()?;
+        Ok(generics)
+    }
+
+    /// Parse generics with optional trait bounds: <T: Hash, U: Eq + Clone>
+    pub(crate) fn parse_generics_with_bounds(&mut self) -> Result<(Vec<String>, Vec<(String, String)>), ParseError> {
         if !self.match_token(TokenKind::Lt) {
-            return Ok(Vec::new());
+            return Ok((Vec::new(), Vec::new()));
         }
 
         let mut generics = Vec::new();
+        let mut bounds = Vec::new();
+
         loop {
-            generics.push(self.expect_ident()?);
+            let name = self.expect_ident()?;
+            generics.push(name.clone());
+
+            // Check for bounds: T: Hash + Eq
+            if self.match_token(TokenKind::Colon) {
+                // Parse bounds: Hash + Eq + Clone
+                loop {
+                    let trait_name = self.expect_ident()?;
+                    bounds.push((name.clone(), trait_name));
+                    if !self.match_token(TokenKind::Plus) {
+                        break;
+                    }
+                }
+            }
+
             if !self.match_token(TokenKind::Comma) {
                 break;
             }
         }
         self.expect(TokenKind::Gt)?;
 
-        Ok(generics)
+        Ok((generics, bounds))
+    }
+
+    /// Parse a trait definition
+    pub(crate) fn parse_trait(&mut self, is_pub: bool) -> Result<Trait, ParseError> {
+        let start = self.current_span();
+        self.expect_keyword(Keyword::Trait)?;
+        let name = self.expect_ident()?;
+        let generics = self.parse_generics()?;
+
+        // Parse supertraits: trait Ord: Eq + Hash
+        let supertraits = if self.match_token(TokenKind::Colon) {
+            self.parse_trait_bound_list()?
+        } else {
+            Vec::new()
+        };
+
+        self.expect(TokenKind::LBrace)?;
+        let methods = self.parse_trait_methods()?;
+        self.expect(TokenKind::RBrace)?;
+
+        Ok(Trait {
+            name,
+            generics,
+            supertraits,
+            methods,
+            is_pub,
+            span: self.span_from(start),
+        })
+    }
+
+    /// Parse a list of trait bounds separated by +: Hash + Eq + Clone
+    fn parse_trait_bound_list(&mut self) -> Result<Vec<String>, ParseError> {
+        let mut traits = Vec::new();
+        loop {
+            traits.push(self.expect_ident()?);
+            if !self.match_token(TokenKind::Plus) {
+                break;
+            }
+        }
+        Ok(traits)
+    }
+
+    /// Parse methods within a trait definition
+    fn parse_trait_methods(&mut self) -> Result<Vec<TraitMethod>, ParseError> {
+        let mut methods = Vec::new();
+
+        while !self.check(TokenKind::RBrace) {
+            methods.push(self.parse_trait_method()?);
+        }
+
+        Ok(methods)
+    }
+
+    /// Parse a single trait method (may have default impl or be abstract)
+    fn parse_trait_method(&mut self) -> Result<TraitMethod, ParseError> {
+        let start = self.current_span();
+        self.expect_keyword(Keyword::Fn)?;
+        let name = self.expect_ident()?;
+        let (generics, bounds) = self.parse_generics_with_bounds()?;
+
+        self.expect(TokenKind::LParen)?;
+        let params = self.parse_params()?;
+        self.expect(TokenKind::RParen)?;
+
+        let return_type = if self.match_token(TokenKind::Arrow) {
+            Some(self.parse_type()?)
+        } else {
+            None
+        };
+
+        // Check for default implementation (block) or abstract (no body)
+        let body = if self.check(TokenKind::LBrace) {
+            Some(self.parse_block()?)
+        } else {
+            // Abstract method - no body, just consumes any trailing newlines/semicolons
+            None
+        };
+
+        Ok(TraitMethod {
+            name,
+            generics,
+            bounds,
+            params,
+            return_type,
+            body,
+            span: self.span_from(start),
+        })
     }
 
     pub(crate) fn parse_fields(&mut self) -> Result<Vec<Field>, ParseError> {

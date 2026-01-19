@@ -155,6 +155,9 @@ impl SemanticAnalyzer {
                 Item::Enum(e) => {
                     self.extract_enum(e);
                 }
+                Item::Trait(t) => {
+                    self.extract_trait(t);
+                }
                 Item::Impl(impl_block) => {
                     self.extract_impl(impl_block);
                 }
@@ -271,6 +274,39 @@ impl SemanticAnalyzer {
         );
     }
 
+    fn extract_trait(&mut self, t: &Trait) {
+        let methods: Vec<TraitMethodInfo> = t
+            .methods
+            .iter()
+            .map(|m| {
+                let params: Vec<(String, String)> = m
+                    .params
+                    .iter()
+                    .map(|p| (p.name.clone(), self.type_to_string(&p.ty)))
+                    .collect();
+                TraitMethodInfo {
+                    name: m.name.clone(),
+                    params,
+                    return_type: m.return_type.as_ref().map(|ty| self.type_to_string(ty)),
+                    has_default: m.body.is_some(),
+                    span: m.span,
+                }
+            })
+            .collect();
+
+        self.symbols.traits.insert(
+            t.name.clone(),
+            TraitInfo {
+                name: t.name.clone(),
+                generics: t.generics.clone(),
+                supertraits: t.supertraits.clone(),
+                methods,
+                span: t.span,
+                is_pub: t.is_pub,
+            },
+        );
+    }
+
     fn extract_impl(&mut self, impl_block: &Impl) {
         // Get the full type string, then extract just the base type name
         // e.g., "Map<K, V>" -> "Map" so methods are registered under "Map"
@@ -290,6 +326,12 @@ impl SemanticAnalyzer {
                 span: m.span,
             })
             .collect();
+
+        // If this is a trait impl, record it in trait_impls
+        if let Some(ref trait_name) = impl_block.trait_name {
+            let method_names: Vec<String> = impl_block.methods.iter().map(|m| m.name.clone()).collect();
+            self.symbols.trait_impls.insert((type_name.clone(), trait_name.clone()), method_names);
+        }
 
         self.symbols.methods.entry(type_name).or_default().extend(methods);
     }

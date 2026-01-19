@@ -1,0 +1,48 @@
+// Test basic trait definition and implementation
+
+trait Debug {
+    fn debug(&self) -> String
+}
+
+trait Stringify {
+    fn stringify(&self) -> String
+}
+
+struct Point {
+    x: i32,
+    y: i32,
+}
+
+impl Debug for Point {
+    fn debug(&self) -> String {
+        "Point(${self.x}, ${self.y})"
+    }
+}
+
+impl Stringify for Point {
+    fn stringify(&self) -> String {
+        "${self.x},${self.y}"
+    }
+}
+
+struct Rectangle {
+    width: i32,
+    height: i32,
+}
+
+impl Debug for Rectangle {
+    fn debug(&self) -> String {
+        "Rectangle(${self.width} x ${self.height})"
+    }
+}
+
+fn main() {
+    // Test trait impl on Point
+    let p = Point { x: 10, y: 20 }
+    println(p.debug())
+    println(p.stringify())
+
+    // Test trait impl on Rectangle
+    let r = Rectangle { width: 100, height: 50 }
+    println(r.debug())
+}

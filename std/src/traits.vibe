@@ -1,0 +1,39 @@
+// std.traits - Built-in traits for common behavior
+//
+// These traits define common interfaces that types can implement
+// to enable generic programming and future @derive macro support.
+
+/// Copy trait - Types that can be safely copied by simple bitwise copy.
+/// Small types like integers, bools, and references implement Copy.
+/// Unlike Clone, Copy is implicit and doesn't require method calls.
+pub trait Copy {}
+
+/// Clone trait - Types that can create an independent copy of themselves.
+/// Types that implement Copy should also implement Clone.
+pub trait Clone {
+    fn clone(&self) -> Self
+}
+
+/// Eq trait - Types that can be compared for equality.
+/// Must implement eq() which returns true if values are equal.
+pub trait Eq {
+    fn eq(&self, other: &Self) -> bool
+}
+
+/// Hash trait - Types that can be hashed to a u64 value.
+/// Used for HashMap keys and HashSet elements.
+pub trait Hash {
+    fn hash(&self) -> u64
+}
+
+/// Debug trait - Types that can produce a debug representation.
+/// Used for debugging and error messages.
+pub trait Debug {
+    fn debug(&self) -> String
+}
+
+/// Default trait - Types that have a meaningful default value.
+/// Allows creating instances without explicit initialization.
+pub trait Default {
+    fn default() -> Self
+}
