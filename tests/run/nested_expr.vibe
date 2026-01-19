@@ -1,0 +1,53 @@
+// Test nested expressions - if inside match, match inside if
+
+enum Option<T> {
+    Some(T)
+    None
+}
+
+fn main() -> i64 {
+    // If expression inside match arm
+    let opt = Option.Some(15)
+    let result = match opt {
+        Option.Some(v) => if v > 10 { v + 15 } else { v }
+        Option.None => 0
+    }
+    if result != 30 {
+        return 1
+    }
+
+    // Match expression inside if branch
+    let flag = true
+    let opt2 = Option.Some(5)
+    let x = if flag {
+        match opt2 {
+            Option.Some(v) => v + 1
+            Option.None => 0
+        }
+    } else {
+        -1
+    }
+    if x != 6 {
+        return 2
+    }
+
+    // Deeply nested
+    let a = 1
+    let nested = if a > 0 {
+        if a < 10 {
+            match Option.Some(a) {
+                Option.Some(v) => v + 99
+                Option.None => 0
+            }
+        } else {
+            50
+        }
+    } else {
+        -1
+    }
+    if nested != 100 {
+        return 3
+    }
+
+    return 0
+}

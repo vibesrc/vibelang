@@ -91,13 +91,34 @@ impl<'ctx> Codegen<'ctx> {
                     if let Some(info) = self.enum_types.get(base_name).cloned() {
                         Some(info)
                     } else {
-                        // Try to find a monomorphized version by checking the LLVM type name
-                        // The match value's struct type name will be the monomorphized enum name
-                        let _llvm_type_name = match_val.get_type().print_to_string().to_string();
-                        // Look for any enum type whose name starts with the pattern name
-                        self.enum_types.iter()
-                            .find(|(name, _)| name.starts_with(base_name))
-                            .map(|(_, info)| info.clone())
+                        // Try to find a monomorphized version by checking the LLVM type
+                        // The match value's type should be the correct monomorphized enum type
+                        let llvm_type = match_val.get_type();
+                        if llvm_type.is_struct_type() {
+                            let struct_type = llvm_type.into_struct_type();
+                            if let Some(name) = struct_type.get_name() {
+                                let type_name = name.to_str().unwrap_or("");
+                                // Look for enum with this exact type name
+                                if let Some(info) = self.enum_types.get(type_name).cloned() {
+                                    Some(info)
+                                } else {
+                                    // Fallback: find any enum starting with base_name
+                                    self.enum_types.iter()
+                                        .find(|(name, _)| name.starts_with(base_name))
+                                        .map(|(_, info)| info.clone())
+                                }
+                            } else {
+                                // No name, try fallback
+                                self.enum_types.iter()
+                                    .find(|(name, _)| name.starts_with(base_name))
+                                    .map(|(_, info)| info.clone())
+                            }
+                        } else {
+                            // Not a struct type, try fallback
+                            self.enum_types.iter()
+                                .find(|(name, _)| name.starts_with(base_name))
+                                .map(|(_, info)| info.clone())
+                        }
                     }
                 } else {
                     None

@@ -199,10 +199,63 @@ impl<'ctx> Codegen<'ctx> {
                 self.compile_try_operator(operand)
             }
             Expr::Block(block) => {
-                // Compile all statements in the block
-                self.compile_block(block)?;
-                // Return a dummy value for blocks (the last statement's value)
+                // Compile all statements except the last
+                let stmt_count = block.stmts.len();
+                if stmt_count == 0 {
+                    // Empty block returns void (represented as i64 0)
+                    return Ok(self.context.i64_type().const_zero().into());
+                }
+
+                // Compile all statements except the last
+                for stmt in &block.stmts[..stmt_count.saturating_sub(1)] {
+                    self.compile_stmt(stmt)?;
+                }
+
+                // Last statement's value is the block's value
+                if let Some(last) = block.stmts.last() {
+                    match last {
+                        // Expression statement - return its value
+                        Stmt::Expr(expr) => {
+                            return self.compile_expr(expr);
+                        }
+                        // Match statement in expression position - return its value
+                        Stmt::Match { value, arms, .. } => {
+                            return match self.compile_match(value, arms)? {
+                                Some(val) => Ok(val),
+                                None => Ok(self.context.i64_type().const_zero().into()),
+                            };
+                        }
+                        // If statement in expression position - compile with value semantics
+                        // This handles nested ifs like: if cond { if inner { a } else { b } } else { c }
+                        Stmt::If { condition, then_block, else_block, .. } => {
+                            // We need else block for expression-style if
+                            if else_block.is_some() {
+                                // Wrap in Expr::Block for each branch and compile as if expression
+                                let then_expr = Expr::Block(then_block.clone());
+                                let else_expr = Expr::Block(else_block.clone().unwrap());
+                                return self.compile_if_expr(condition, &then_expr, &else_expr);
+                            } else {
+                                // No else - compile as statement
+                                self.compile_stmt(last)?;
+                            }
+                        }
+                        _ => {
+                            // Non-expression statement - compile it and return void
+                            self.compile_stmt(last)?;
+                        }
+                    }
+                }
                 Ok(self.context.i64_type().const_zero().into())
+            }
+            Expr::Match { value, arms, .. } => {
+                // Reuse existing compile_match which already handles PHI nodes
+                match self.compile_match(value, arms)? {
+                    Some(val) => Ok(val),
+                    None => Ok(self.context.i64_type().const_zero().into()),
+                }
+            }
+            Expr::If { condition, then_expr, else_expr, .. } => {
+                self.compile_if_expr(condition, then_expr, else_expr)
             }
             Expr::InterpolatedString { parts, .. } => {
                 self.compile_interpolated_string(parts)

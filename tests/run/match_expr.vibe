@@ -1,0 +1,40 @@
+// Test match expression - produces a value
+
+enum Option<T> {
+    Some(T)
+    None
+}
+
+fn main() -> i64 {
+    // Match expression assigned directly to variable
+    let opt = Option.Some(42)
+    let result = match opt {
+        Option.Some(val) => val
+        Option.None => 0
+    }
+    if result != 42 {
+        return 1
+    }
+
+    // Match expression with None case
+    let none_opt = Option<i64>.None
+    let none_result = match none_opt {
+        Option.Some(val) => val
+        Option.None => -1
+    }
+    if none_result != -1 {
+        return 2
+    }
+
+    // Match expression with computation in arms
+    let opt2 = Option.Some(10)
+    let doubled = match opt2 {
+        Option.Some(v) => v * 2
+        Option.None => 0
+    }
+    if doubled != 20 {
+        return 3
+    }
+
+    return 0
+}

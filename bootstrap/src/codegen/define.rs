@@ -87,7 +87,9 @@ impl<'ctx> Codegen<'ctx> {
             struct_fields.push(*ty);
         }
 
-        let llvm_type = self.context.struct_type(&struct_fields, false);
+        // Use named struct type so we can look it up by name in pattern matching
+        let llvm_type = self.context.opaque_struct_type(&e.name);
+        llvm_type.set_body(&struct_fields, false);
 
         self.enum_types.insert(
             e.name.clone(),

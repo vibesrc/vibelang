@@ -626,6 +626,16 @@ impl Parser {
                     span: self.span_from(span),
                 })
             }
+            Some(TokenKind::Keyword(Keyword::If)) => {
+                // if expression: if cond { expr } else { expr }
+                self.advance();
+                self.parse_if_expr(span)
+            }
+            Some(TokenKind::Keyword(Keyword::Match)) => {
+                // match expression: match value { arms }
+                self.advance();
+                self.parse_match_expr(span)
+            }
             _ => Err(self.error("expected expression")),
         }
     }
@@ -830,6 +840,68 @@ impl Parser {
             Ok(ClosureBody::Expr(Box::new(expr)))
         }
     }
+
+    /// Parse an if expression: if cond { expr } else { expr }
+    /// Unlike if statement, the else branch is REQUIRED for expressions
+    fn parse_if_expr(&mut self, start: Span) -> Result<Expr, ParseError> {
+        let condition = Box::new(self.parse_expr()?);
+
+        // Parse the then block and extract its value
+        self.expect(TokenKind::LBrace)?;
+        let then_block = self.parse_block_inner()?;
+        let then_expr = Box::new(self.block_to_expr(then_block));
+
+        // Else is REQUIRED for if expressions
+        if !self.match_keyword(Keyword::Else) {
+            return Err(self.error("if expression requires else branch"));
+        }
+
+        // Handle else if (recursively parse as if expression)
+        let else_expr = if self.check(TokenKind::Keyword(Keyword::If)) {
+            self.advance();
+            let else_span = self.current_span();
+            Box::new(self.parse_if_expr(else_span)?)
+        } else {
+            // Regular else block
+            self.expect(TokenKind::LBrace)?;
+            let else_block = self.parse_block_inner()?;
+            Box::new(self.block_to_expr(else_block))
+        };
+
+        Ok(Expr::If {
+            condition,
+            then_expr,
+            else_expr,
+            span: self.span_from(start),
+        })
+    }
+
+    /// Parse a match expression: match value { arms }
+    fn parse_match_expr(&mut self, start: Span) -> Result<Expr, ParseError> {
+        let value = Box::new(self.parse_expr()?);
+
+        self.expect(TokenKind::LBrace)?;
+        let mut arms = Vec::new();
+
+        while !self.check(TokenKind::RBrace) {
+            arms.push(self.parse_match_arm()?);
+        }
+
+        self.expect(TokenKind::RBrace)?;
+
+        Ok(Expr::Match {
+            value,
+            arms,
+            span: self.span_from(start),
+        })
+    }
+
+    /// Convert a block to an expression (uses last statement's value or void)
+    fn block_to_expr(&self, block: Block) -> Expr {
+        // If the block has statements and the last one is an expression,
+        // use that as the value; otherwise wrap in Expr::Block
+        Expr::Block(block)
+    }
 }
 
 // Helper trait for Expr
@@ -852,6 +924,7 @@ impl Expr {
             Expr::ArrayRepeat { span, .. } => *span,
             Expr::Tuple { span, .. } => *span,
             Expr::If { span, .. } => *span,
+            Expr::Match { span, .. } => *span,
             Expr::Block(block) => block.span,
             Expr::Try { span, .. } => *span,
             Expr::Cast { span, .. } => *span,

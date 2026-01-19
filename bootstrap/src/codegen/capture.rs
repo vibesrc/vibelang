@@ -164,6 +164,15 @@ fn collect_free_in_expr(
             collect_free_in_expr(start, bound, captures, capture_names);
             collect_free_in_expr(end, bound, captures, capture_names);
         }
+        Expr::Match { value, arms, .. } => {
+            collect_free_in_expr(value, bound, captures, capture_names);
+            for arm in arms {
+                // Pattern bindings shadow outer scope within the arm body
+                let mut inner_bound = bound.clone();
+                collect_pattern_bindings(&arm.pattern, &mut inner_bound);
+                collect_free_in_expr(&arm.body, &inner_bound, captures, capture_names);
+            }
+        }
     }
 }
 

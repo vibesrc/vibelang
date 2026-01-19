@@ -376,6 +376,8 @@ impl SemanticAnalyzer {
                         scope_end,
                         borrow_state: BorrowState::Owned,
                     });
+                    // Extract variables from the value expression (e.g., match patterns)
+                    self.extract_variables_from_expr(value, scope_start, scope_end);
                 }
                 Stmt::If { then_block, else_block, span, .. } => {
                     self.extract_variables_from_block(then_block, span.start, span.end);
@@ -465,6 +467,12 @@ impl SemanticAnalyzer {
                     ClosureBody::Block(block) => {
                         self.extract_variables_from_block(block, span.start, span.end);
                     }
+                }
+            }
+            Expr::Match { arms, span, .. } => {
+                for arm in arms {
+                    self.extract_variables_from_pattern(&arm.pattern, arm.span.start, arm.span.end);
+                    self.extract_variables_from_expr(&arm.body, arm.span.start, arm.span.end);
                 }
             }
             _ => {}
@@ -943,6 +951,13 @@ impl SemanticAnalyzer {
                 self.analyze_expr(condition);
                 self.analyze_expr(then_expr);
                 self.analyze_expr(else_expr);
+            }
+
+            Expr::Match { value, arms, .. } => {
+                self.analyze_expr(value);
+                for arm in arms {
+                    self.analyze_expr(&arm.body);
+                }
             }
 
             _ => {}
@@ -1608,6 +1623,13 @@ impl SemanticAnalyzer {
             Expr::If { then_expr, .. } => {
                 // Return type is the type of the then branch
                 self.infer_type_from_expr(then_expr)
+            }
+            Expr::Match { arms, .. } => {
+                // Return type is the type of the first arm body
+                if let Some(arm) = arms.first() {
+                    return self.infer_type_from_expr(&arm.body);
+                }
+                None
             }
             _ => None,
         }

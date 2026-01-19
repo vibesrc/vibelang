@@ -362,6 +362,12 @@ pub enum Expr {
         else_expr: Box<Expr>,
         span: Span,
     },
+    /// Match expression - all arms must return same type
+    Match {
+        value: Box<Expr>,
+        arms: Vec<MatchArm>,
+        span: Span,
+    },
     Block(Block),
     Try {
         operand: Box<Expr>,
