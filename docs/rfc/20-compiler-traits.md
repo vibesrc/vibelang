@@ -11,18 +11,32 @@ Following Rust's approach, Vibelang couples the compiler to specific well-known 
 - **Zero runtime overhead**: Monomorphization eliminates indirection
 - **Consistent semantics**: Same syntax always means same trait method
 
-### Current State vs. Target State
+### Implementation Status
 
-| Feature | Current | Target |
-|---------|---------|--------|
-| `==`, `!=` | Uses `Eq` trait | Keep (correct) |
-| `<`, `>`, `<=`, `>=` | Built-in primitives only | Use `Ord`/`PartialOrd` traits |
-| `+`, `-`, `*`, `/`, `%` | Built-in primitives only | Use `Add`, `Sub`, `Mul`, `Div`, `Rem` traits |
-| `a[i]` | Built-in for arrays/slices | Use `Index`/`IndexMut` traits |
-| `for x in iter` | Shape-based struct check | Use `IntoIterator`/`Iterator` traits |
-| `?` operator | Same-type return only | Use `Try`/`FromResidual` traits |
-| `as` | Built-in primitive casts | Keep (Rust does the same) |
-| `From`/`Into` | Not implemented | Add for custom conversions |
+| Feature | Status | Notes |
+|---------|--------|-------|
+| `==`, `!=` | ✅ Implemented | Dispatches to `Eq::eq()` for structs |
+| `<`, `>`, `<=`, `>=` | ✅ Implemented | Dispatches to `Ord::cmp()` for structs |
+| `+`, `-`, `*`, `/`, `%` | ✅ Implemented | Dispatches to `Add`/`Sub`/`Mul`/`Div`/`Rem` for structs |
+| `a[i]` | ⏳ Planned | Currently built-in for arrays/slices |
+| `for x in iter` | ⏳ Planned | Currently shape-based struct check |
+| `?` operator | ⏳ Planned | Currently same-type return only |
+| `as` | ✅ Primitives only | Matches Rust's design |
+| `From`/`Into` | ⏳ Traits defined | Dispatch not yet implemented |
+
+### How It Works
+
+For struct types, operators dispatch to trait methods:
+```vibelang
+let p1 = Point { x: 1, y: 2 }
+let p2 = Point { x: 3, y: 4 }
+
+p1 == p2    // calls Point::eq(&p1, &p2)
+p1 < p2     // calls Point::cmp(&p1, &p2), compares to Ordering.Less
+p1 + p2     // calls Point::add(p1, p2)
+```
+
+For primitive types, operators use raw LLVM instructions (no trait dispatch) to avoid infinite recursion.
 
 ## 20.2 Comparison Traits
 
@@ -453,22 +467,82 @@ let t = s  // move, s no longer usable
 
 ## 20.10 Implementation Priority
 
-### Phase 1: Core Operations
-1. `Ord`/`PartialOrd` for comparison operators
-2. `Add`, `Sub`, `Mul`, `Div`, `Rem`, `Neg` for arithmetic
-3. `Index`/`IndexMut` for subscript syntax
+### Phase 1: Core Operations ✅ Complete
+1. ✅ `Eq` for equality operators (`==`, `!=`)
+2. ✅ `Ord` for comparison operators (`<`, `>`, `<=`, `>=`)
+3. ✅ `Add`, `Sub`, `Mul`, `Div`, `Rem` for arithmetic (`+`, `-`, `*`, `/`, `%`)
 
-### Phase 2: Iteration
-4. `Iterator`/`IntoIterator` for for-loops
+### Phase 2: Indexing and Iteration (Planned)
+4. `Index`/`IndexMut` for subscript syntax (`a[i]`)
+5. `Iterator`/`IntoIterator` for for-loops
 
-### Phase 3: Error Handling
-5. `Try`/`FromResidual` for `?` operator with error conversion
-6. `From`/`Into`, `TryFrom`/`TryInto` for conversions
+### Phase 3: Error Handling (Planned)
+6. `Try`/`FromResidual` for `?` operator with error conversion
+7. `From`/`Into`, `TryFrom`/`TryInto` for conversions
 
-### Phase 4: Utilities
-7. `Default`, `Clone`, `Copy`
+### Phase 4: Utilities (Planned)
+8. `Neg` for unary negation
+9. `Default`, `Clone`, `Copy`
 
-## 20.11 Compiler Recognition
+## 20.11 Working Example
+
+Here's a complete example showing custom trait implementations:
+
+```vibelang
+struct Point {
+    x: i64
+    y: i64
+}
+
+// Custom equality - compare fields
+impl Eq for Point {
+    fn eq(&self, other: &Point) -> bool {
+        return self.x == other.x and self.y == other.y
+    }
+}
+
+// Custom ordering - compare by distance from origin
+impl Ord for Point {
+    fn cmp(&self, other: &Point) -> Ordering {
+        let self_dist = self.x * self.x + self.y * self.y
+        let other_dist = other.x * other.x + other.y * other.y
+        if self_dist < other_dist {
+            return Ordering.Less
+        }
+        if self_dist > other_dist {
+            return Ordering.Greater
+        }
+        return Ordering.Equal
+    }
+}
+
+// Custom addition - vector addition
+impl Add for Point {
+    fn add(self, other: Point) -> Point {
+        return Point {
+            x: self.x + other.x,
+            y: self.y + other.y,
+        }
+    }
+}
+
+fn main() {
+    let p1 = Point { x: 1, y: 2 }
+    let p2 = Point { x: 1, y: 2 }
+    let p3 = Point { x: 3, y: 4 }
+
+    // Uses Eq trait
+    if p1 == p2 { println("equal") }      // prints "equal"
+
+    // Uses Ord trait
+    if p1 < p3 { println("p1 closer") }   // prints "p1 closer"
+
+    // Uses Add trait
+    let p4 = p1 + p3                       // Point { x: 4, y: 6 }
+}
+```
+
+## 20.12 Compiler Recognition
 
 The compiler recognizes these traits by their fully-qualified names in the standard library:
 
