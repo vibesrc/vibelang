@@ -339,6 +339,32 @@ impl<'ctx> Codegen<'ctx> {
                             ty.as_ref().and_then(|t| self.get_struct_name_for_type(t))
                         }
                     }
+                    // Handle binary expressions that might return structs (via trait dispatch)
+                    // Infer struct type from the left operand (arithmetic ops return same type)
+                    Expr::Binary { left, .. } => {
+                        // First check if left operand is a struct variable
+                        if let Expr::Ident(left_name, _) = left.as_ref() {
+                            if let Some(var_info) = self.variables.get(left_name) {
+                                if var_info.struct_name.is_some() {
+                                    var_info.struct_name.clone()
+                                } else {
+                                    ty.as_ref().and_then(|t| self.get_struct_name_for_type(t))
+                                }
+                            } else {
+                                ty.as_ref().and_then(|t| self.get_struct_name_for_type(t))
+                            }
+                        } else if let Expr::StructInit { name: sname, generics, .. } = left.as_ref() {
+                            // Left operand is a struct literal
+                            let mono_name = if generics.is_empty() {
+                                sname.clone()
+                            } else {
+                                self.mangle_name(sname, generics)
+                            };
+                            Some(mono_name)
+                        } else {
+                            ty.as_ref().and_then(|t| self.get_struct_name_for_type(t))
+                        }
+                    }
                     _ => ty.as_ref().and_then(|t| self.get_struct_name_for_type(t)),
                 };
 

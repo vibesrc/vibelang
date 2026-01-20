@@ -228,7 +228,147 @@ impl<'ctx> Codegen<'ctx> {
             // Fall through to raw LLVM comparison for primitives without Eq impl
         }
 
-        // Handle other binary ops on structs (not == or !=)
+        // For <, <=, >, >=, try Ord trait dispatch (for ALL types, not just structs)
+        // This makes generic functions like fn max<T: Ord>(a: &T, b: &T) work with primitives
+        if matches!(op, BinOp::Lt | BinOp::Le | BinOp::Gt | BinOp::Ge) {
+            if let Some(type_name) = self.get_type_name_for_eq(left)? {
+                // Check if this type has a `cmp` method (Ord trait)
+                if let Some(cmp_method) = self.type_methods
+                    .get(&type_name)
+                    .and_then(|methods| methods.get("cmp"))
+                    .cloned()
+                {
+                    // Call Type__cmp(&lhs, &rhs) which returns Ordering enum
+                    let fn_value = self.module
+                        .get_function(&cmp_method)
+                        .ok_or_else(|| CodegenError::UndefinedFunction(cmp_method.clone()))?;
+
+                    // Create temporary storage for both operands and pass pointers
+                    let lhs_ptr = {
+                        let temp = self.builder.build_alloca(lhs.get_type(), "cmp_lhs").unwrap();
+                        self.builder.build_store(temp, lhs).unwrap();
+                        temp
+                    };
+
+                    let rhs_ptr = {
+                        let temp = self.builder.build_alloca(rhs.get_type(), "cmp_rhs").unwrap();
+                        self.builder.build_store(temp, rhs).unwrap();
+                        temp
+                    };
+
+                    let call_site = self.builder
+                        .build_call(fn_value, &[lhs_ptr.into(), rhs_ptr.into()], "cmp_result")
+                        .unwrap();
+
+                    let cmp_result = match call_site.try_as_basic_value() {
+                        inkwell::values::ValueKind::Basic(val) => val,
+                        inkwell::values::ValueKind::Instruction(_) => {
+                            return Err(CodegenError::NotImplemented(
+                                "Ord::cmp must return a value".to_string()
+                            ));
+                        }
+                    };
+
+                    // Ordering is an enum: Less=0, Equal=1, Greater=2
+                    // Extract the tag (first field of the struct)
+                    let ordering_struct = cmp_result.into_struct_value();
+                    let tag = self.builder
+                        .build_extract_value(ordering_struct, 0, "ordering_tag")
+                        .unwrap()
+                        .into_int_value();
+
+                    // Define tag constants
+                    let less_tag = self.context.i32_type().const_int(0, false);
+                    let equal_tag = self.context.i32_type().const_int(1, false);
+                    let greater_tag = self.context.i32_type().const_int(2, false);
+
+                    // Compare based on operator:
+                    // a < b   =>  cmp(a, b) == Less
+                    // a <= b  =>  cmp(a, b) != Greater
+                    // a > b   =>  cmp(a, b) == Greater
+                    // a >= b  =>  cmp(a, b) != Less
+                    let result = match op {
+                        BinOp::Lt => self.builder.build_int_compare(
+                            inkwell::IntPredicate::EQ, tag, less_tag, "lt_result"
+                        ).unwrap(),
+                        BinOp::Le => self.builder.build_int_compare(
+                            inkwell::IntPredicate::NE, tag, greater_tag, "le_result"
+                        ).unwrap(),
+                        BinOp::Gt => self.builder.build_int_compare(
+                            inkwell::IntPredicate::EQ, tag, greater_tag, "gt_result"
+                        ).unwrap(),
+                        BinOp::Ge => self.builder.build_int_compare(
+                            inkwell::IntPredicate::NE, tag, less_tag, "ge_result"
+                        ).unwrap(),
+                        _ => unreachable!(),
+                    };
+
+                    return Ok(result.into());
+                }
+            }
+
+            // No Ord impl found - fall through to raw comparison for primitives,
+            // or error for structs
+            if lhs.is_struct_value() || rhs.is_struct_value() {
+                return Err(CodegenError::NotImplemented(
+                    format!("cannot compare struct values with '<'/'>'/'<='/'>='' without Ord trait implementation")
+                ));
+            }
+            // Fall through to raw LLVM comparison for primitives without Ord impl
+        }
+
+        // For arithmetic operators (+, -, *, /, %), try trait dispatch for struct types
+        // Primitives use raw LLVM operations below
+        if matches!(op, BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Mod) {
+            if lhs.is_struct_value() || rhs.is_struct_value() {
+                if let Some(type_name) = self.get_type_name_for_eq(left)? {
+                    // Map operator to trait method name
+                    let method_name = match op {
+                        BinOp::Add => "add",
+                        BinOp::Sub => "sub",
+                        BinOp::Mul => "mul",
+                        BinOp::Div => "div",
+                        BinOp::Mod => "rem",
+                        _ => unreachable!(),
+                    };
+
+                    // Check if this type has the trait method
+                    if let Some(trait_method) = self.type_methods
+                        .get(&type_name)
+                        .and_then(|methods| methods.get(method_name))
+                        .cloned()
+                    {
+                        // Call Type__method(lhs, rhs) - arithmetic traits take by value
+                        let fn_value = self.module
+                            .get_function(&trait_method)
+                            .ok_or_else(|| CodegenError::UndefinedFunction(trait_method.clone()))?;
+
+                        let call_site = self.builder
+                            .build_call(fn_value, &[lhs.into(), rhs.into()], "arith_result")
+                            .unwrap();
+
+                        let result = match call_site.try_as_basic_value() {
+                            inkwell::values::ValueKind::Basic(val) => val,
+                            inkwell::values::ValueKind::Instruction(_) => {
+                                return Err(CodegenError::NotImplemented(
+                                    format!("{}::{} must return a value", type_name, method_name)
+                                ));
+                            }
+                        };
+
+                        return Ok(result);
+                    }
+                }
+
+                // No trait impl found for struct type - error
+                return Err(CodegenError::NotImplemented(
+                    format!("binary operator '{:?}' not supported for struct types without trait implementation", op)
+                ));
+            }
+            // Fall through to raw LLVM operations for primitives
+        }
+
+        // Handle other binary ops on structs (not arithmetic or comparison)
         if lhs.is_struct_value() || rhs.is_struct_value() {
             return Err(CodegenError::NotImplemented(
                 format!("binary operator '{:?}' not supported for struct types", op)

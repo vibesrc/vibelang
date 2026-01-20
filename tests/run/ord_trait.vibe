@@ -1,0 +1,64 @@
+// Test Ord trait dispatch for comparison operators
+
+fn main() {
+    // Test basic comparisons with primitives (uses raw LLVM)
+    let a = 10
+    let b = 20
+
+    if a < b {
+        println("10 < 20: true")
+    } else {
+        println("10 < 20: false")
+    }
+
+    if a > b {
+        println("10 > 20: true")
+    } else {
+        println("10 > 20: false")
+    }
+
+    if a <= b {
+        println("10 <= 20: true")
+    } else {
+        println("10 <= 20: false")
+    }
+
+    if a >= b {
+        println("10 >= 20: true")
+    } else {
+        println("10 >= 20: false")
+    }
+
+    // Test string comparison (uses Ord trait)
+    let s1 = "apple"
+    let s2 = "banana"
+
+    if s1 < s2 {
+        println("apple < banana: true")
+    } else {
+        println("apple < banana: false")
+    }
+
+    let s3 = "apple"
+    let s4 = "apple"
+
+    if s3 <= s4 {
+        println("apple <= apple: true")
+    } else {
+        println("apple <= apple: false")
+    }
+
+    if s3 >= s4 {
+        println("apple >= apple: true")
+    } else {
+        println("apple >= apple: false")
+    }
+
+    if s1 > s2 {
+        println("apple > banana: true")
+    } else {
+        println("apple > banana: false")
+    }
+
+    println("Ord trait test complete!")
+}

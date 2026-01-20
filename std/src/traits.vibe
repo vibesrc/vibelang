@@ -16,8 +16,20 @@ pub trait Clone {
 
 /// Eq trait - Types that can be compared for equality.
 /// Must implement eq() which returns true if values are equal.
+/// Compiler desugars: a == b  to  a.eq(&b)
+///                    a != b  to  not a.eq(&b)
 pub trait Eq {
     fn eq(&self, other: &Self) -> bool
+}
+
+/// Ord trait - Types that have a total ordering.
+/// Must implement cmp() which returns Ordering (Less, Equal, Greater).
+/// Compiler desugars: a < b   to  a.cmp(&b) == Ordering.Less
+///                    a <= b  to  a.cmp(&b) != Ordering.Greater
+///                    a > b   to  a.cmp(&b) == Ordering.Greater
+///                    a >= b  to  a.cmp(&b) != Ordering.Less
+pub trait Ord {
+    fn cmp(&self, other: &Self) -> Ordering
 }
 
 /// Hash trait - Types that can be hashed to an i64 value.
@@ -25,6 +37,105 @@ pub trait Eq {
 pub trait Hash {
     fn hash(&self) -> i64
 }
+
+// =============================================================================
+// Arithmetic Operator Traits
+// =============================================================================
+// These traits enable operator overloading for user-defined types.
+// Primitive types use direct LLVM operations and don't need these impls.
+
+/// Add trait - Types that support the + operator.
+/// Compiler desugars: a + b  to  a.add(b)
+pub trait Add {
+    fn add(self, other: Self) -> Self
+}
+
+/// Sub trait - Types that support the - operator.
+/// Compiler desugars: a - b  to  a.sub(b)
+pub trait Sub {
+    fn sub(self, other: Self) -> Self
+}
+
+/// Mul trait - Types that support the * operator.
+/// Compiler desugars: a * b  to  a.mul(b)
+pub trait Mul {
+    fn mul(self, other: Self) -> Self
+}
+
+/// Div trait - Types that support the / operator.
+/// Compiler desugars: a / b  to  a.div(b)
+pub trait Div {
+    fn div(self, other: Self) -> Self
+}
+
+/// Rem trait - Types that support the % operator (remainder/modulo).
+/// Compiler desugars: a % b  to  a.rem(b)
+pub trait Rem {
+    fn rem(self, other: Self) -> Self
+}
+
+/// Neg trait - Types that support unary negation (-x).
+/// Compiler desugars: -a  to  a.neg()
+pub trait Neg {
+    fn neg(self) -> Self
+}
+
+// =============================================================================
+// Indexing Traits (Future Implementation)
+// =============================================================================
+// These traits will enable custom indexing for user-defined types.
+// Currently indexing is hardcoded for arrays/slices; trait dispatch is planned.
+
+// NOTE: Index/IndexMut trait dispatch is not yet implemented.
+// Arrays and slices use direct LLVM GEP instructions.
+// These definitions are here for documentation and future @derive support.
+
+/// Index trait - Types that support read-only indexing (a[i]).
+/// When implemented, compiler will desugar: a[i]  to  *a.index(i)
+pub trait Index<Idx> {
+    // Note: Associated types not yet supported, Output hardcoded to element type
+    fn index(&self, idx: Idx) -> &Self
+}
+
+/// IndexMut trait - Types that support mutable indexing (a[i] = v).
+/// When implemented, compiler will desugar: a[i] = v  to  *a.index_mut(i) = v
+pub trait IndexMut<Idx> {
+    fn index_mut(&mut self, idx: Idx) -> &mut Self
+}
+
+// =============================================================================
+// Conversion Traits
+// =============================================================================
+// These traits enable type conversions. Used by the ? operator for error
+// conversion (when fully implemented) and for explicit conversions.
+
+/// From trait - Types that can be created from another type.
+/// Use this to enable type conversions: T::from(value)
+pub trait From<T> {
+    fn from(value: T) -> Self
+}
+
+/// Into trait - Types that can be converted into another type.
+/// In Rust, From implies Into via blanket impl.
+/// Use From when possible; Into is for trait bounds.
+pub trait Into<T> {
+    fn into(self) -> T
+}
+
+/// TryFrom trait - Fallible type conversion.
+/// Returns Result<Self, Error> for conversions that may fail.
+pub trait TryFrom<T> {
+    fn try_from(value: T) -> Result<Self, Error>
+}
+
+/// TryInto trait - Fallible conversion into another type.
+pub trait TryInto<T> {
+    fn try_into(self) -> Result<T, Error>
+}
+
+// =============================================================================
+// Utility Traits
+// =============================================================================
 
 /// Debug trait - Types that can produce a debug representation.
 /// Used for debugging and error messages.

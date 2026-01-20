@@ -1,11 +1,93 @@
-// std.cmp - Comparison functions and Eq trait implementations
+// std.cmp - Comparison functions and trait implementations
 //
-// Provides equality comparisons for types that need custom comparison logic.
+// Provides comparison traits (Eq, Ord) for types that need custom comparison logic.
 // Primitive types (i32, i64, bool, etc.) use direct LLVM comparison and
-// don't need Eq implementations.
+// don't need trait implementations unless used in generic contexts.
+
+// =============================================================================
+// Ordering enum - Result of comparison
+// =============================================================================
+
+/// The result of a comparison between two values.
+/// Used by the Ord trait's cmp() method.
+pub enum Ordering {
+    /// The left value is less than the right value
+    Less
+    /// The left value is equal to the right value
+    Equal
+    /// The left value is greater than the right value
+    Greater
+}
+
+// =============================================================================
+// Ord trait implementations
+// =============================================================================
+
+// Note: Primitive integer types (i8, i16, i32, i64, u8, u16, u32, u64)
+// do NOT have Ord implementations here because they use direct LLVM comparison.
+// Adding trait implementations for primitives would cause infinite recursion
+// since the impl body would use `<`/`>` which dispatches to the trait.
 //
-// Note: To support primitives in generic T: Eq functions, we'd need compiler
-// intrinsics. For now, primitives fall through to raw comparison.
+// In the future, these could be implemented using compiler intrinsics like Rust does.
+// For now, primitives fall through to raw LLVM comparison in codegen.
+
+/// Ord implementation for str (lexicographic comparison)
+impl Ord for str {
+    fn cmp(&self, other: &str) -> Ordering {
+        let min_len = if self.len < other.len { self.len } else { other.len }
+        let i: i64 = 0
+        while i < min_len {
+            unsafe {
+                let a = ptr_read<u8>(ptr_add<u8>(self.ptr, i))
+                let b = ptr_read<u8>(ptr_add<u8>(other.ptr, i))
+                if a < b {
+                    return Ordering.Less
+                }
+                if a > b {
+                    return Ordering.Greater
+                }
+            }
+            i = i + 1
+        }
+        // If all compared bytes are equal, shorter string is less
+        if self.len < other.len {
+            return Ordering.Less
+        }
+        if self.len > other.len {
+            return Ordering.Greater
+        }
+        return Ordering.Equal
+    }
+}
+
+/// Ord implementation for Slice<u8> (lexicographic comparison)
+impl Ord for Slice<u8> {
+    fn cmp(&self, other: &Slice<u8>) -> Ordering {
+        let min_len = if self.len < other.len { self.len } else { other.len }
+        let i: i64 = 0
+        while i < min_len {
+            unsafe {
+                let a = ptr_read<u8>(ptr_add<u8>(self.ptr, i))
+                let b = ptr_read<u8>(ptr_add<u8>(other.ptr, i))
+                if a < b {
+                    return Ordering.Less
+                }
+                if a > b {
+                    return Ordering.Greater
+                }
+            }
+            i = i + 1
+        }
+        // If all compared bytes are equal, shorter slice is less
+        if self.len < other.len {
+            return Ordering.Less
+        }
+        if self.len > other.len {
+            return Ordering.Greater
+        }
+        return Ordering.Equal
+    }
+}
 
 // =============================================================================
 // Eq trait implementations

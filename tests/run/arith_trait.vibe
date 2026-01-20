@@ -1,0 +1,55 @@
+// Test arithmetic trait dispatch
+
+// A simple 2D vector struct
+struct Vec2 {
+    x: i64
+    y: i64
+}
+
+impl Add for Vec2 {
+    fn add(self, other: Vec2) -> Vec2 {
+        return Vec2 {
+            x: self.x + other.x,
+            y: self.y + other.y,
+        }
+    }
+}
+
+impl Sub for Vec2 {
+    fn sub(self, other: Vec2) -> Vec2 {
+        return Vec2 {
+            x: self.x - other.x,
+            y: self.y - other.y,
+        }
+    }
+}
+
+fn main() {
+    // Test primitive arithmetic (uses raw LLVM)
+    let a = 10
+    let b = 3
+    println("Primitive arithmetic:")
+    println("10 + 3 = ${a + b}")
+    println("10 - 3 = ${a - b}")
+    println("10 * 3 = ${a * b}")
+    println("10 / 3 = ${a / b}")
+    println("10 % 3 = ${a % b}")
+
+    // Test struct arithmetic with Add/Sub traits
+    // Type inference now works without explicit annotation!
+    println("")
+    println("Struct arithmetic (Add/Sub traits):")
+    let v1 = Vec2 { x: 1, y: 2 }
+    let v2 = Vec2 { x: 3, y: 4 }
+
+    let v3 = v1 + v2  // No type annotation needed!
+    println("(1,2) + (3,4) = (${v3.x}, ${v3.y})")
+
+    let v4 = Vec2 { x: 10, y: 20 }
+    let v5 = Vec2 { x: 3, y: 5 }
+    let v6 = v4 - v5
+    println("(10,20) - (3,5) = (${v6.x}, ${v6.y})")
+
+    println("")
+    println("Arithmetic traits test complete!")
+}
