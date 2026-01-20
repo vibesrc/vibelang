@@ -38,6 +38,8 @@ Vibelang is a systems programming language designed for safety, simplicity, and 
 17. [LLVM Code Generation](./16-codegen.md)
 18. [Security Considerations](./17-security.md)
 19. [References](./18-references.md)
+20. [Closures](./19-closures.md)
+21. [Compiler-Coupled Traits](./20-compiler-traits.md)
 
 ## Document Index
 
@@ -65,6 +67,8 @@ Vibelang is a systems programming language designed for safety, simplicity, and 
 | Code Generation | [16-codegen.md](./16-codegen.md) | LLVM IR output | ~300 |
 | Security | [17-security.md](./17-security.md) | Safety guarantees | ~150 |
 | References | [18-references.md](./18-references.md) | Citations | ~50 |
+| Closures | [19-closures.md](./19-closures.md) | Anonymous functions | ~250 |
+| Compiler Traits | [20-compiler-traits.md](./20-compiler-traits.md) | Lang items, operator traits | ~400 |
 
 ## Quick Navigation
 
