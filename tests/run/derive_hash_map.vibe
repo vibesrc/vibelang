@@ -1,0 +1,32 @@
+// Test @derive(Hash, Eq) struct as Map key
+use std.collections.map.{Map}
+
+@derive(Hash, Eq)
+struct Point {
+    x: i64
+    y: i64
+}
+
+fn main() {
+    let map = Map<Point, str>.new()
+
+    let p1 = Point { x: 0, y: 0 }
+    let p2 = Point { x: 1, y: 1 }
+
+    map.insert(p1, "origin")
+    map.insert(p2, "diagonal")
+
+    // Look up by equal value (not same variable)
+    let lookup = Point { x: 0, y: 0 }
+    match map.get(&lookup) {
+        Option.Some(val) => {
+            println("Found at origin: ${val}")
+        }
+        Option.None => {
+            println("ERROR: Not found")
+        }
+    }
+
+    println("Map works with derived Hash+Eq!")
+    map.free()
+}

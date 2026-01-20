@@ -80,6 +80,7 @@ pub enum TokenKind {
     Semicolon,
 
     // Special
+    At,          // @
     Eof,
 }
 
@@ -309,6 +310,7 @@ impl<'a> Lexer<'a> {
                 ',' => TokenKind::Comma,
                 ':' => TokenKind::Colon,
                 ';' => TokenKind::Semicolon,
+                '@' => TokenKind::At,
 
                 // String literal
                 '"' => self.lex_string()?,

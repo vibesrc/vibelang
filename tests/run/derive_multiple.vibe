@@ -1,0 +1,22 @@
+// Test @derive with multiple traits
+@derive(Copy, Clone, Eq)
+struct Point {
+    x: i64
+    y: i64
+}
+
+fn main() {
+    let p1 = Point { x: 1, y: 2 }
+    let p2 = p1           // Copy (not move)
+    let p3 = p1.clone()   // Clone works too
+
+    if p1 == p2 {
+        println("p1 == p2: equal (both use Copy)")
+    }
+
+    if p1 == p3 {
+        println("p1 == p3: equal (clone is identical)")
+    }
+
+    println("p1.x: ${p1.x}, p2.x: ${p2.x}, p3.x: ${p3.x}")
+}

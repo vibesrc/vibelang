@@ -36,10 +36,12 @@ impl<'ctx> Codegen<'ctx> {
                     name: f.name.clone(),
                     ty: self.substitute_type(&f.ty, &type_map),
                     is_pub: f.is_pub,
+                    attrs: f.attrs.clone(),
                     span: f.span,
                 }
             }).collect(),
             is_pub: generic_struct.is_pub,
+            attrs: generic_struct.attrs.clone(),
             span: generic_struct.span,
         };
 
@@ -85,6 +87,7 @@ impl<'ctx> Codegen<'ctx> {
             return_type: generic_func.return_type.as_ref().map(|t| self.substitute_type(t, &type_map)),
             body: self.substitute_block(&generic_func.body, &type_map),
             is_pub: generic_func.is_pub,
+            attrs: generic_func.attrs.clone(),
             span: generic_func.span,
         };
 
@@ -145,14 +148,17 @@ impl<'ctx> Codegen<'ctx> {
                                 name: f.name.clone(),
                                 ty: self.substitute_type(&f.ty, &type_map),
                                 is_pub: f.is_pub,
+                                attrs: f.attrs.clone(),
                                 span: f.span,
                             }).collect())
                         }
                     },
+                    attrs: v.attrs.clone(),
                     span: v.span,
                 }
             }).collect(),
             is_pub: generic_enum.is_pub,
+            attrs: generic_enum.attrs.clone(),
             span: generic_enum.span,
         };
 
@@ -246,6 +252,7 @@ impl<'ctx> Codegen<'ctx> {
                 }),
                 body: self.substitute_block(&method.body, &type_map),
                 is_pub: method.is_pub,
+                attrs: method.attrs.clone(),
                 span: method.span,
             };
 

@@ -1,0 +1,13 @@
+// Test @derive(Copy) - values should be copied, not moved
+@derive(Copy)
+struct Point {
+    x: i64
+    y: i64
+}
+
+fn main() {
+    let p = Point { x: 1, y: 2 }
+    let q = p   // Copy, not move
+    let r = p   // Still valid because p was copied, not moved
+    println("p.x: ${p.x}, q.x: ${q.x}, r.x: ${r.x}")
+}

@@ -71,24 +71,27 @@ fn main() {
     }
 
     // Run semantic analysis (unless skipped)
-    if !skip_analysis {
+    let analysis_result = if !skip_analysis {
         // Set up paths for the analyzer
         let source_path = Path::new(filename).canonicalize().unwrap_or_else(|_| PathBuf::from(filename));
         let source_dir = source_path.parent().map(|p| p.to_path_buf());
         let stdlib_path = find_stdlib_path();
 
         let analyzer = SemanticAnalyzer::with_paths(stdlib_path, source_dir, None);
-        let analysis_result = analyzer.analyze(&program);
+        let result = analyzer.analyze(&program);
 
-        if !analysis_result.errors.is_empty() {
-            for error in &analysis_result.errors {
+        if !result.errors.is_empty() {
+            for error in &result.errors {
                 let span = error.span();
                 eprintln!("error[{}:{}]: {}", span.line, span.column, error.message());
             }
-            eprintln!("\nFound {} error(s)", analysis_result.errors.len());
+            eprintln!("\nFound {} error(s)", result.errors.len());
             std::process::exit(1);
         }
-    }
+        Some(result)
+    } else {
+        None
+    };
 
     // Generate code
     let context = inkwell::context::Context::create();
@@ -100,6 +103,12 @@ fn main() {
     // Create codegen with source file path for project detection
     let source_path = Path::new(filename).canonicalize().unwrap_or_else(|_| PathBuf::from(filename));
     let mut codegen = Codegen::new_with_source(&context, module_name, &source_path);
+
+    // Import analysis results (for Copy types and derived impls from @derive)
+    // This must be done before compile() so derived impls are compiled at the right time
+    if let Some(ref analysis) = analysis_result {
+        codegen.import_analysis(analysis);
+    }
 
     if let Err(e) = codegen.compile(&program) {
         eprintln!("Codegen error: {}", e);

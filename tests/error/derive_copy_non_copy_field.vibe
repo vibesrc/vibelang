@@ -1,0 +1,11 @@
+// Test error case: cannot derive Copy for type with non-Copy field
+// String is not Copy, so this should error
+@derive(Copy)
+struct Buffer {
+    data: str
+}
+
+fn main() {
+    let b = Buffer { data: "hello" }
+    println("should not compile")
+}

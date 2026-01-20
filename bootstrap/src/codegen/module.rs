@@ -308,8 +308,8 @@ impl<'ctx> Codegen<'ctx> {
         }
         self.module_public_items.insert(path_str.clone(), public_items);
 
-        // Compile the module items
-        self.compile(&module_program)?;
+        // Compile the module items (without derived impls - those are only for the main program)
+        self.compile_internal(&module_program, false)?;
 
         // Restore state
         self.current_module_path = old_module_path;

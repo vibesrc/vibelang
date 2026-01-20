@@ -1,0 +1,24 @@
+// Test @derive(Eq) - auto-generated fieldwise equality
+@derive(Eq)
+struct Point {
+    x: i64
+    y: i64
+}
+
+fn main() {
+    let p1 = Point { x: 1, y: 2 }
+    let p2 = Point { x: 1, y: 2 }
+    let p3 = Point { x: 3, y: 4 }
+
+    if p1 == p2 {
+        println("p1 == p2: equal!")
+    } else {
+        println("p1 == p2: not equal")
+    }
+
+    if p1 == p3 {
+        println("p1 == p3: equal")
+    } else {
+        println("p1 == p3: not equal!")
+    }
+}

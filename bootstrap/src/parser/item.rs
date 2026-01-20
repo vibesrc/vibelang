@@ -5,7 +5,91 @@ use crate::ast::*;
 use crate::lexer::{Keyword, TokenKind};
 
 impl Parser {
-    pub(crate) fn parse_function(&mut self, is_pub: bool) -> Result<Function, ParseError> {
+    /// Parse @attr @attr2(args) before an item
+    pub(crate) fn parse_attributes(&mut self) -> Result<Vec<Attribute>, ParseError> {
+        let mut attrs = Vec::new();
+        while self.check(TokenKind::At) {
+            attrs.push(self.parse_attribute()?);
+        }
+        Ok(attrs)
+    }
+
+    fn parse_attribute(&mut self) -> Result<Attribute, ParseError> {
+        let start = self.current_span();
+        self.expect(TokenKind::At)?;
+        let name = self.expect_ident()?;
+
+        let args = if self.match_token(TokenKind::LParen) {
+            let args = self.parse_attribute_args()?;
+            self.expect(TokenKind::RParen)?;
+            args
+        } else {
+            Vec::new()
+        };
+
+        Ok(Attribute { name, args, span: self.span_from(start) })
+    }
+
+    fn parse_attribute_args(&mut self) -> Result<Vec<AttributeArg>, ParseError> {
+        let mut args = Vec::new();
+
+        while !self.check(TokenKind::RParen) {
+            args.push(self.parse_attribute_arg()?);
+            if !self.match_token(TokenKind::Comma) {
+                break;
+            }
+        }
+
+        Ok(args)
+    }
+
+    fn parse_attribute_arg(&mut self) -> Result<AttributeArg, ParseError> {
+        let name = self.expect_ident()?;
+
+        // Check for key=value
+        if self.match_token(TokenKind::Eq) {
+            let value = self.parse_attribute_value()?;
+            return Ok(AttributeArg::KeyValue { key: name, value });
+        }
+
+        // Check for nested: name(args)
+        if self.match_token(TokenKind::LParen) {
+            let nested_args = self.parse_attribute_args()?;
+            self.expect(TokenKind::RParen)?;
+            return Ok(AttributeArg::Nested { name, args: nested_args });
+        }
+
+        // Simple identifier
+        Ok(AttributeArg::Ident(name))
+    }
+
+    fn parse_attribute_value(&mut self) -> Result<AttributeValue, ParseError> {
+        match self.peek_kind() {
+            Some(TokenKind::Bool(b)) => {
+                let b = *b;
+                self.advance();
+                Ok(AttributeValue::Bool(b))
+            }
+            Some(TokenKind::Int(n, _)) => {
+                let n = *n;
+                self.advance();
+                Ok(AttributeValue::Int(n))
+            }
+            Some(TokenKind::String(s)) => {
+                let s = s.clone();
+                self.advance();
+                Ok(AttributeValue::String(s))
+            }
+            Some(TokenKind::Ident(s)) => {
+                let s = s.clone();
+                self.advance();
+                Ok(AttributeValue::Ident(s))
+            }
+            _ => Err(self.error("expected attribute value (bool, int, string, or identifier)")),
+        }
+    }
+
+    pub(crate) fn parse_function_with_attrs(&mut self, is_pub: bool, attrs: Vec<Attribute>) -> Result<Function, ParseError> {
         let start = self.current_span();
         self.expect_keyword(Keyword::Fn)?;
         let name = self.expect_ident()?;
@@ -31,8 +115,13 @@ impl Parser {
             return_type,
             body,
             is_pub,
+            attrs,
             span: self.span_from(start),
         })
+    }
+
+    pub(crate) fn parse_function(&mut self, is_pub: bool) -> Result<Function, ParseError> {
+        self.parse_function_with_attrs(is_pub, Vec::new())
     }
 
     pub(crate) fn parse_params(&mut self) -> Result<Vec<Param>, ParseError> {
@@ -109,7 +198,7 @@ impl Parser {
         Ok(params)
     }
 
-    pub(crate) fn parse_struct(&mut self, is_pub: bool) -> Result<Struct, ParseError> {
+    pub(crate) fn parse_struct_with_attrs(&mut self, is_pub: bool, attrs: Vec<Attribute>) -> Result<Struct, ParseError> {
         let start = self.current_span();
         self.expect_keyword(Keyword::Struct)?;
         let name = self.expect_ident()?;
@@ -125,11 +214,16 @@ impl Parser {
             bounds,
             fields,
             is_pub,
+            attrs,
             span: self.span_from(start),
         })
     }
 
-    pub(crate) fn parse_enum(&mut self, is_pub: bool) -> Result<Enum, ParseError> {
+    pub(crate) fn parse_struct(&mut self, is_pub: bool) -> Result<Struct, ParseError> {
+        self.parse_struct_with_attrs(is_pub, Vec::new())
+    }
+
+    pub(crate) fn parse_enum_with_attrs(&mut self, is_pub: bool, attrs: Vec<Attribute>) -> Result<Enum, ParseError> {
         let start = self.current_span();
         self.expect_keyword(Keyword::Enum)?;
         let name = self.expect_ident()?;
@@ -151,12 +245,19 @@ impl Parser {
             generics,
             variants,
             is_pub,
+            attrs,
             span: self.span_from(start),
         })
     }
 
+    pub(crate) fn parse_enum(&mut self, is_pub: bool) -> Result<Enum, ParseError> {
+        self.parse_enum_with_attrs(is_pub, Vec::new())
+    }
+
     fn parse_variant(&mut self) -> Result<Variant, ParseError> {
         let start = self.current_span();
+        // Variants can have attributes too
+        let attrs = self.parse_attributes()?;
         let name = self.expect_ident()?;
 
         let fields = if self.match_token(TokenKind::LParen) {
@@ -182,11 +283,12 @@ impl Parser {
         Ok(Variant {
             name,
             fields,
+            attrs,
             span: self.span_from(start),
         })
     }
 
-    pub(crate) fn parse_impl(&mut self) -> Result<Impl, ParseError> {
+    pub(crate) fn parse_impl_with_attrs(&mut self, attrs: Vec<Attribute>) -> Result<Impl, ParseError> {
         let start = self.current_span();
         self.expect_keyword(Keyword::Impl)?;
 
@@ -211,8 +313,10 @@ impl Parser {
         let mut methods = Vec::new();
 
         while !self.check(TokenKind::RBrace) {
+            // Methods can have their own attributes
+            let method_attrs = self.parse_attributes()?;
             let is_pub = self.match_keyword(Keyword::Pub);
-            methods.push(self.parse_function(is_pub)?);
+            methods.push(self.parse_function_with_attrs(is_pub, method_attrs)?);
         }
 
         self.expect(TokenKind::RBrace)?;
@@ -223,8 +327,13 @@ impl Parser {
             bounds,
             target,
             methods,
+            attrs,
             span: self.span_from(start),
         })
+    }
+
+    pub(crate) fn parse_impl(&mut self) -> Result<Impl, ParseError> {
+        self.parse_impl_with_attrs(Vec::new())
     }
 
     /// Convert a Type to a trait name string (for impl Trait for Type)
@@ -239,7 +348,7 @@ impl Parser {
         }
     }
 
-    pub(crate) fn parse_static(&mut self, is_pub: bool) -> Result<Static, ParseError> {
+    pub(crate) fn parse_static_with_attrs(&mut self, is_pub: bool, attrs: Vec<Attribute>) -> Result<Static, ParseError> {
         let start = self.current_span();
         self.expect_keyword(Keyword::Static)?;
         let name = self.expect_ident()?;
@@ -258,8 +367,13 @@ impl Parser {
             ty,
             value,
             is_pub,
+            attrs,
             span: self.span_from(start),
         })
+    }
+
+    pub(crate) fn parse_static(&mut self, is_pub: bool) -> Result<Static, ParseError> {
+        self.parse_static_with_attrs(is_pub, Vec::new())
     }
 
     pub(crate) fn parse_use(&mut self, is_pub: bool) -> Result<Use, ParseError> {
@@ -457,7 +571,7 @@ impl Parser {
     }
 
     /// Parse a trait definition
-    pub(crate) fn parse_trait(&mut self, is_pub: bool) -> Result<Trait, ParseError> {
+    pub(crate) fn parse_trait_with_attrs(&mut self, is_pub: bool, attrs: Vec<Attribute>) -> Result<Trait, ParseError> {
         let start = self.current_span();
         self.expect_keyword(Keyword::Trait)?;
         let name = self.expect_ident()?;
@@ -480,8 +594,13 @@ impl Parser {
             supertraits,
             methods,
             is_pub,
+            attrs,
             span: self.span_from(start),
         })
+    }
+
+    pub(crate) fn parse_trait(&mut self, is_pub: bool) -> Result<Trait, ParseError> {
+        self.parse_trait_with_attrs(is_pub, Vec::new())
     }
 
     /// Parse a list of trait bounds separated by +: Hash + Eq + Clone
@@ -548,6 +667,8 @@ impl Parser {
 
         while !self.check(TokenKind::RBrace) {
             let start = self.current_span();
+            // Fields can have attributes
+            let attrs = self.parse_attributes()?;
             let is_pub = self.match_keyword(Keyword::Pub);
             let name = self.expect_ident()?;
             self.expect(TokenKind::Colon)?;
@@ -557,6 +678,7 @@ impl Parser {
                 name,
                 ty,
                 is_pub,
+                attrs,
                 span: self.span_from(start),
             });
 

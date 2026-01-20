@@ -4,7 +4,7 @@
 //! (functions, structs, enums, variables, etc.) and are shared between
 //! the LSP and codegen.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use crate::lexer::Span;
 
 /// Symbol table containing all semantic information about a program
@@ -29,6 +29,10 @@ pub struct SymbolTable {
     /// Module namespace aliases: alias_name -> module symbol table
     /// e.g., `use std.fs` makes "fs" -> SymbolTable of fs module
     pub module_aliases: HashMap<String, Box<SymbolTable>>,
+    /// Types marked as Copy (implicitly copyable instead of moved)
+    pub copy_types: HashSet<String>,
+    /// Derived implementations generated from @derive attributes
+    pub derived_impls: Vec<DerivedImpl>,
 }
 
 /// Information about a function
@@ -186,6 +190,19 @@ pub enum ImportedItemKind {
     Enum(EnumInfo),
     /// Imported function
     Function(FunctionInfo),
+}
+
+/// Information about a derived implementation (from @derive attribute)
+#[derive(Debug, Clone)]
+pub struct DerivedImpl {
+    /// The trait being derived (e.g., "Eq", "Clone", "Copy")
+    pub trait_name: String,
+    /// The type the trait is derived for
+    pub type_name: String,
+    /// Generic type parameters of the type
+    pub generics: Vec<String>,
+    /// Fields of the struct/enum: (field_name, field_type_string)
+    pub fields: Vec<(String, String)>,
 }
 
 impl SymbolTable {

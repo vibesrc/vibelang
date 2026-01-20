@@ -66,6 +66,10 @@ pub struct Codegen<'ctx> {
     pub(crate) static_vars: HashMap<String, PointerValue<'ctx>>,
     // Closure counter for unique naming
     pub(crate) closure_counter: u64,
+    // Copy types from @derive(Copy) - these types are copied instead of moved
+    pub(crate) copy_types: HashSet<String>,
+    // Derived impls from @derive(Eq, Clone, etc.) - these are compiled between pass 2 and 3
+    pub(crate) derived_impls: Vec<crate::analysis::symbols::DerivedImpl>,
 }
 
 #[derive(Clone)]
@@ -136,6 +140,8 @@ impl<'ctx> Codegen<'ctx> {
             in_unsafe: false,
             static_vars: HashMap::new(),
             closure_counter: 0,
+            copy_types: HashSet::new(),
+            derived_impls: Vec::new(),
         };
 
         // Declare intrinsics
@@ -183,6 +189,8 @@ impl<'ctx> Codegen<'ctx> {
             in_unsafe: false,
             static_vars: HashMap::new(),
             closure_counter: 0,
+            copy_types: HashSet::new(),
+            derived_impls: Vec::new(),
         };
 
         // Declare intrinsics
@@ -437,6 +445,12 @@ impl<'ctx> Codegen<'ctx> {
     }
 
     pub fn compile(&mut self, program: &Program) -> Result<(), CodegenError> {
+        // This is the top-level compile, so compile derived impls after pass 1
+        self.compile_internal(program, true)
+    }
+
+    /// Internal compilation that can skip derived impls (used for module loading)
+    pub(crate) fn compile_internal(&mut self, program: &Program, compile_derives: bool) -> Result<(), CodegenError> {
         // Load prelude first (Option, Result, etc.)
         self.load_prelude()?;
 
@@ -495,6 +509,23 @@ impl<'ctx> Codegen<'ctx> {
             }
         }
 
+        // Pass 2.5: Compile derived implementations (@derive(Eq, Clone, etc.))
+        // Only do this for top-level compile, not module loading
+        // This must happen after types are defined (pass 1) and before functions are compiled (pass 3)
+        // so that derived methods are available when compiling function bodies that use them.
+        if compile_derives {
+            let derived_impls = std::mem::take(&mut self.derived_impls);
+            for derived in &derived_impls {
+                match derived.trait_name.as_str() {
+                    "Eq" => self.compile_derived_eq(derived)?,
+                    "Clone" => self.compile_derived_clone(derived)?,
+                    "Hash" => self.compile_derived_hash(derived)?,
+                    "Copy" => {} // Copy is handled by ownership tracking, no codegen needed
+                    _ => {} // Unknown derives are handled at analysis time
+                }
+            }
+        }
+
         // Third pass: define all concrete functions and impl methods
         for item in &program.items {
             match item {
@@ -509,6 +540,315 @@ impl<'ctx> Codegen<'ctx> {
                 _ => {}
             }
         }
+
+        Ok(())
+    }
+
+    /// Import analysis results into codegen
+    /// This must be called after analysis and before compile()
+    pub fn import_analysis(&mut self, analysis: &crate::analysis::analyzer::AnalysisResult) {
+        // Import copy_types from analysis
+        self.copy_types = analysis.symbols.copy_types.clone();
+        // Import derived_impls for compilation during compile()
+        self.derived_impls = analysis.symbols.derived_impls.clone();
+    }
+
+    /// Check if a type should be copied instead of moved
+    /// Copy types include primitives and types with @derive(Copy)
+    pub(crate) fn is_copy_type(&self, type_name: &str) -> bool {
+        // Check primitives
+        match type_name {
+            "i8" | "i16" | "i32" | "i64" |
+            "u8" | "u16" | "u32" | "u64" |
+            "f32" | "f64" |
+            "bool" | "char" => return true,
+            _ => {}
+        }
+
+        // Check raw pointers
+        if type_name.starts_with('*') {
+            return true;
+        }
+
+        // Check if it's been marked as Copy via @derive
+        if self.copy_types.contains(type_name) {
+            return true;
+        }
+
+        // Check fixed-size arrays of Copy types (e.g., "i32[10]")
+        if let Some(bracket_pos) = type_name.find('[') {
+            if type_name.ends_with(']') {
+                let elem_type = &type_name[..bracket_pos];
+                return self.is_copy_type(elem_type);
+            }
+        }
+
+        false
+    }
+
+    /// Compile derived implementations (from @derive attributes)
+    /// Should be called during compilation after types are defined
+    pub fn compile_derived_impls(&mut self, derived_impls: &[crate::analysis::symbols::DerivedImpl]) -> Result<(), CodegenError> {
+        for derived in derived_impls {
+            match derived.trait_name.as_str() {
+                "Eq" => self.compile_derived_eq(derived)?,
+                "Clone" => self.compile_derived_clone(derived)?,
+                // Copy has no methods to generate - it just affects ownership semantics
+                "Copy" => {}
+                _ => {} // Unknown derives are ignored in codegen (analyzer already reports errors)
+            }
+        }
+        Ok(())
+    }
+
+    /// Compile a derived Eq implementation
+    fn compile_derived_eq(&mut self, derived: &crate::analysis::symbols::DerivedImpl) -> Result<(), CodegenError> {
+        // Function name: TypeName_eq
+        let fn_name = format!("{}_eq", derived.type_name);
+
+        // Check if already defined
+        if self.module.get_function(&fn_name).is_some() {
+            return Ok(());
+        }
+
+        // Get struct type
+        let struct_info = self.struct_types.get(&derived.type_name)
+            .ok_or_else(|| CodegenError::UndefinedType(derived.type_name.clone()))?
+            .clone();
+
+        // fn eq(&self, &other) -> bool
+        let ptr_type = self.context.ptr_type(AddressSpace::default());
+        let bool_type = self.context.bool_type();
+        let fn_type = bool_type.fn_type(&[ptr_type.into(), ptr_type.into()], false);
+        let fn_value = self.module.add_function(&fn_name, fn_type, None);
+
+        // Create basic blocks
+        let entry_bb = self.context.append_basic_block(fn_value, "entry");
+        let compare_bb = self.context.append_basic_block(fn_value, "compare");
+        let not_equal_bb = self.context.append_basic_block(fn_value, "not_equal");
+        let equal_bb = self.context.append_basic_block(fn_value, "equal");
+
+        self.builder.position_at_end(entry_bb);
+        self.builder.build_unconditional_branch(compare_bb).unwrap();
+
+        // Compare each field
+        self.builder.position_at_end(compare_bb);
+        let self_ptr = fn_value.get_nth_param(0).unwrap().into_pointer_value();
+        let other_ptr = fn_value.get_nth_param(1).unwrap().into_pointer_value();
+
+        let mut all_equal = self.context.bool_type().const_int(1, false);
+
+        for (i, (field_name, _field_type)) in derived.fields.iter().enumerate() {
+            let field_index = struct_info.field_indices.get(field_name)
+                .copied()
+                .unwrap_or(i as u32);
+
+            let self_field_ptr = self.builder.build_struct_gep(
+                struct_info.llvm_type,
+                self_ptr,
+                field_index,
+                &format!("self_{}", field_name),
+            ).unwrap();
+
+            let other_field_ptr = self.builder.build_struct_gep(
+                struct_info.llvm_type,
+                other_ptr,
+                field_index,
+                &format!("other_{}", field_name),
+            ).unwrap();
+
+            // Load values
+            let field_ty = struct_info.llvm_type.get_field_type_at_index(field_index).unwrap();
+            let self_val = self.builder.build_load(field_ty, self_field_ptr, "self_val").unwrap();
+            let other_val = self.builder.build_load(field_ty, other_field_ptr, "other_val").unwrap();
+
+            // Compare (assuming primitive types or nested Eq)
+            let field_eq = if field_ty.is_int_type() {
+                self.builder.build_int_compare(
+                    inkwell::IntPredicate::EQ,
+                    self_val.into_int_value(),
+                    other_val.into_int_value(),
+                    "field_eq",
+                ).unwrap()
+            } else if field_ty.is_float_type() {
+                self.builder.build_float_compare(
+                    inkwell::FloatPredicate::OEQ,
+                    self_val.into_float_value(),
+                    other_val.into_float_value(),
+                    "field_eq",
+                ).unwrap()
+            } else {
+                // For non-primitive types, assume true for now
+                // (real implementation would call nested eq)
+                self.context.bool_type().const_int(1, false)
+            };
+
+            all_equal = self.builder.build_and(all_equal, field_eq, "all_eq").unwrap();
+        }
+
+        self.builder.build_conditional_branch(all_equal, equal_bb, not_equal_bb).unwrap();
+
+        // Not equal: return false
+        self.builder.position_at_end(not_equal_bb);
+        self.builder.build_return(Some(&bool_type.const_int(0, false))).unwrap();
+
+        // Equal: return true
+        self.builder.position_at_end(equal_bb);
+        self.builder.build_return(Some(&bool_type.const_int(1, false))).unwrap();
+
+        // Register the method
+        self.type_methods
+            .entry(derived.type_name.clone())
+            .or_default()
+            .insert("eq".to_string(), fn_name);
+
+        Ok(())
+    }
+
+    /// Compile a derived Clone implementation
+    fn compile_derived_clone(&mut self, derived: &crate::analysis::symbols::DerivedImpl) -> Result<(), CodegenError> {
+        // Function name: TypeName_clone
+        let fn_name = format!("{}_clone", derived.type_name);
+
+        // Check if already defined
+        if self.module.get_function(&fn_name).is_some() {
+            return Ok(());
+        }
+
+        // Get struct type
+        let struct_info = self.struct_types.get(&derived.type_name)
+            .ok_or_else(|| CodegenError::UndefinedType(derived.type_name.clone()))?
+            .clone();
+
+        // fn clone(&self) -> Self
+        let ptr_type = self.context.ptr_type(AddressSpace::default());
+        let fn_type = struct_info.llvm_type.fn_type(&[ptr_type.into()], false);
+        let fn_value = self.module.add_function(&fn_name, fn_type, None);
+
+        // Create basic block
+        let entry_bb = self.context.append_basic_block(fn_value, "entry");
+        self.builder.position_at_end(entry_bb);
+
+        let self_ptr = fn_value.get_nth_param(0).unwrap().into_pointer_value();
+
+        // Build cloned struct by copying each field
+        let mut result = struct_info.llvm_type.get_undef();
+
+        for (i, (field_name, _field_type)) in derived.fields.iter().enumerate() {
+            let field_index = struct_info.field_indices.get(field_name)
+                .copied()
+                .unwrap_or(i as u32);
+
+            let field_ptr = self.builder.build_struct_gep(
+                struct_info.llvm_type,
+                self_ptr,
+                field_index,
+                &format!("field_{}", field_name),
+            ).unwrap();
+
+            let field_ty = struct_info.llvm_type.get_field_type_at_index(field_index).unwrap();
+            let field_val = self.builder.build_load(field_ty, field_ptr, "field_val").unwrap();
+
+            result = self.builder.build_insert_value(result, field_val, field_index, "clone").unwrap()
+                .into_struct_value();
+        }
+
+        self.builder.build_aggregate_return(&[result.into()]).unwrap();
+
+        // Register the method
+        self.type_methods
+            .entry(derived.type_name.clone())
+            .or_default()
+            .insert("clone".to_string(), fn_name.clone());
+
+        // Register return type so Let statement knows the result is a struct
+        self.function_return_types.insert(
+            fn_name,
+            Some(Type::Named { name: derived.type_name.clone(), generics: Vec::new() }),
+        );
+
+        Ok(())
+    }
+
+    /// Compile a derived Hash implementation
+    fn compile_derived_hash(&mut self, derived: &crate::analysis::symbols::DerivedImpl) -> Result<(), CodegenError> {
+        // Function name: TypeName_hash
+        let fn_name = format!("{}_hash", derived.type_name);
+
+        // Check if already defined
+        if self.module.get_function(&fn_name).is_some() {
+            return Ok(());
+        }
+
+        // Get struct type
+        let struct_info = self.struct_types.get(&derived.type_name)
+            .ok_or_else(|| CodegenError::UndefinedType(derived.type_name.clone()))?
+            .clone();
+
+        // fn hash(&self) -> i64
+        let ptr_type = self.context.ptr_type(AddressSpace::default());
+        let i64_type = self.context.i64_type();
+        let fn_type = i64_type.fn_type(&[ptr_type.into()], false);
+        let fn_value = self.module.add_function(&fn_name, fn_type, None);
+
+        // Create basic block
+        let entry_bb = self.context.append_basic_block(fn_value, "entry");
+        self.builder.position_at_end(entry_bb);
+
+        let self_ptr = fn_value.get_nth_param(0).unwrap().into_pointer_value();
+
+        // FNV-1a constants
+        let fnv_offset_basis = i64_type.const_int(0xcbf29ce484222325u64, true);
+        let fnv_prime = i64_type.const_int(0x00000100000001b3u64, false);
+
+        // Start with offset basis
+        let mut hash_val = fnv_offset_basis;
+
+        // Hash each field
+        for (i, (field_name, _field_type)) in derived.fields.iter().enumerate() {
+            let field_index = struct_info.field_indices.get(field_name)
+                .copied()
+                .unwrap_or(i as u32);
+
+            let field_ptr = self.builder.build_struct_gep(
+                struct_info.llvm_type,
+                self_ptr,
+                field_index,
+                &format!("field_{}", field_name),
+            ).unwrap();
+
+            let field_ty = struct_info.llvm_type.get_field_type_at_index(field_index).unwrap();
+            let field_val = self.builder.build_load(field_ty, field_ptr, "field_val").unwrap();
+
+            // Hash the field value (for now, just XOR and multiply for integers)
+            let field_hash = if field_ty.is_int_type() {
+                let int_val = field_val.into_int_value();
+                // Extend or truncate to i64
+                let as_i64 = if int_val.get_type().get_bit_width() < 64 {
+                    self.builder.build_int_s_extend(int_val, i64_type, "extend").unwrap()
+                } else if int_val.get_type().get_bit_width() > 64 {
+                    self.builder.build_int_truncate(int_val, i64_type, "trunc").unwrap()
+                } else {
+                    int_val
+                };
+                as_i64
+            } else {
+                // For non-integers, use 0 (TODO: call field.hash() for nested structs)
+                i64_type.const_zero()
+            };
+
+            // Combine: hash = (hash ^ field_hash) * prime
+            let xored = self.builder.build_xor(hash_val, field_hash, "xor").unwrap();
+            hash_val = self.builder.build_int_mul(xored, fnv_prime, "mul").unwrap();
+        }
+
+        self.builder.build_return(Some(&hash_val)).unwrap();
+
+        // Register the method
+        self.type_methods
+            .entry(derived.type_name.clone())
+            .or_default()
+            .insert("hash".to_string(), fn_name);
 
         Ok(())
     }

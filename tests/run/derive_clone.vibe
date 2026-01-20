@@ -1,0 +1,12 @@
+// Test @derive(Clone) - auto-generated clone method
+@derive(Clone)
+struct Counter {
+    value: i64
+}
+
+fn main() {
+    let c1 = Counter { value: 42 }
+    let c2 = c1.clone()
+    println("c1.value: ${c1.value}")
+    println("c2.value: ${c2.value}")
+}

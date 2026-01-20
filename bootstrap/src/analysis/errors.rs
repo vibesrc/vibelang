@@ -124,6 +124,20 @@ pub enum SemanticError {
         method_name: String,
         span: Span,
     },
+
+    /// Cannot derive Copy for a type with non-Copy fields
+    CannotDeriveCopy {
+        type_name: String,
+        field_name: String,
+        field_type: String,
+        span: Span,
+    },
+
+    /// Unknown derive macro
+    UnknownDerive {
+        name: String,
+        span: Span,
+    },
 }
 
 /// The kind of borrow (for error messages)
@@ -163,6 +177,8 @@ impl SemanticError {
             SemanticError::TraitBoundNotSatisfied { span, .. } => *span,
             SemanticError::MissingTraitMethod { span, .. } => *span,
             SemanticError::UndefinedMethod { span, .. } => *span,
+            SemanticError::CannotDeriveCopy { span, .. } => *span,
+            SemanticError::UnknownDerive { span, .. } => *span,
         }
     }
 
@@ -252,6 +268,15 @@ impl SemanticError {
                     "method '{}' not found on type '{}'",
                     method_name, type_name
                 )
+            }
+            SemanticError::CannotDeriveCopy { type_name, field_name, field_type, .. } => {
+                format!(
+                    "cannot derive Copy for '{}': field '{}' of type '{}' is not Copy",
+                    type_name, field_name, field_type
+                )
+            }
+            SemanticError::UnknownDerive { name, .. } => {
+                format!("unknown derive macro '{}'", name)
             }
         }
     }

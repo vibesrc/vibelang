@@ -38,28 +38,34 @@ impl Parser {
     }
 
     fn parse_item(&mut self) -> Result<Item, ParseError> {
+        // Parse attributes before the item
+        let attrs = self.parse_attributes()?;
         let is_pub = self.match_keyword(Keyword::Pub);
 
         match self.peek_kind() {
             Some(TokenKind::Keyword(Keyword::Fn)) => {
-                Ok(Item::Function(self.parse_function(is_pub)?))
+                Ok(Item::Function(self.parse_function_with_attrs(is_pub, attrs)?))
             }
             Some(TokenKind::Keyword(Keyword::Struct)) => {
-                Ok(Item::Struct(self.parse_struct(is_pub)?))
+                Ok(Item::Struct(self.parse_struct_with_attrs(is_pub, attrs)?))
             }
             Some(TokenKind::Keyword(Keyword::Enum)) => {
-                Ok(Item::Enum(self.parse_enum(is_pub)?))
+                Ok(Item::Enum(self.parse_enum_with_attrs(is_pub, attrs)?))
             }
             Some(TokenKind::Keyword(Keyword::Impl)) => {
-                Ok(Item::Impl(self.parse_impl()?))
+                Ok(Item::Impl(self.parse_impl_with_attrs(attrs)?))
             }
             Some(TokenKind::Keyword(Keyword::Trait)) => {
-                Ok(Item::Trait(self.parse_trait(is_pub)?))
+                Ok(Item::Trait(self.parse_trait_with_attrs(is_pub, attrs)?))
             }
             Some(TokenKind::Keyword(Keyword::Static)) => {
-                Ok(Item::Static(self.parse_static(is_pub)?))
+                Ok(Item::Static(self.parse_static_with_attrs(is_pub, attrs)?))
             }
             Some(TokenKind::Keyword(Keyword::Use)) => {
+                // Use statements don't have attributes (yet)
+                if !attrs.is_empty() {
+                    return Err(self.error("attributes are not supported on use statements"));
+                }
                 Ok(Item::Use(self.parse_use(is_pub)?))
             }
             _ => Err(self.error("expected item (fn, struct, enum, impl, trait, static, use)")),

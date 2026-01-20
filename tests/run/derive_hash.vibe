@@ -1,0 +1,33 @@
+// Test @derive(Hash) - auto-generate hash() method
+@derive(Hash, Eq)
+struct Point {
+    x: i64
+    y: i64
+}
+
+fn main() {
+    let p1 = Point { x: 1, y: 2 }
+    let p2 = Point { x: 1, y: 2 }
+    let p3 = Point { x: 3, y: 4 }
+
+    let h1 = p1.hash()
+    let h2 = p2.hash()
+    let h3 = p3.hash()
+
+    // Same values should have same hash
+    if h1 == h2 {
+        println("p1.hash() == p2.hash(): same values, same hash!")
+    } else {
+        println("ERROR: same values should have same hash")
+    }
+
+    // Different values should (likely) have different hash
+    if h1 != h3 {
+        println("p1.hash() != p3.hash(): different values, different hash!")
+    } else {
+        println("WARNING: hash collision (unlikely but possible)")
+    }
+
+    println("h1 = ${h1}")
+    println("h3 = ${h3}")
+}
