@@ -253,6 +253,7 @@ impl<'ctx> Codegen<'ctx> {
                 return_type: resolved_return_type,
                 body: method.body.clone(),
                 is_pub: method.is_pub,
+                attrs: method.attrs.clone(),
                 span: method.span,
             };
 
@@ -308,6 +309,7 @@ impl<'ctx> Codegen<'ctx> {
                     return_type: resolved_return_type,
                     body: method.body.clone(),
                     is_pub: method.is_pub,
+                    attrs: method.attrs.clone(),
                     span: method.span,
                 };
 

@@ -243,6 +243,9 @@ impl SemanticAnalyzer {
                 is_pub: s.is_pub,
             },
         );
+
+        // Process @derive attributes
+        self.process_struct_derives(s);
     }
 
     fn extract_enum(&mut self, e: &Enum) {
@@ -277,6 +280,9 @@ impl SemanticAnalyzer {
                 is_pub: e.is_pub,
             },
         );
+
+        // Process @derive attributes
+        self.process_enum_derives(e);
     }
 
     fn extract_trait(&mut self, t: &Trait) {
@@ -544,7 +550,7 @@ impl SemanticAnalyzer {
                 // Track move if assigning from another variable
                 if let Expr::Ident(src_name, src_span) = value {
                     if let Some(var_ty) = self.get_variable_type(src_name) {
-                        if !is_copy_type(&var_ty) {
+                        if !self.is_type_copy(&var_ty) {
                             self.ownership.mark_moved(src_name, *src_span);
                         }
                     }
@@ -728,7 +734,7 @@ impl SemanticAnalyzer {
                     // Track moves for non-copy arguments
                     if let Expr::Ident(name, arg_span) = arg {
                         if let Some(var_ty) = self.get_variable_type(name) {
-                            if !is_copy_type(&var_ty) && !self.is_reference_arg(arg) {
+                            if !self.is_type_copy(&var_ty) && !self.is_reference_arg(arg) {
                                 self.ownership.mark_moved(name, *arg_span);
                             }
                         }
@@ -1896,6 +1902,249 @@ impl SemanticAnalyzer {
             return format!("{}<{}>", base, substituted_generics.join(", "));
         }
         ty.to_string()
+    }
+
+    // ========================================================================
+    // Derive Processing
+    // ========================================================================
+
+    /// Process @derive attributes on a struct
+    fn process_struct_derives(&mut self, s: &Struct) {
+        for attr in &s.attrs {
+            if attr.name == "derive" {
+                for arg in &attr.args {
+                    if let AttributeArg::Ident(name) = arg {
+                        match name.as_str() {
+                            "Copy" => self.derive_copy_for_struct(s, attr.span),
+                            "Clone" => self.derive_clone_for_struct(s),
+                            "Eq" => self.derive_eq_for_struct(s),
+                            "Hash" => self.derive_hash_for_struct(s),
+                            _ => {
+                                self.errors.push(SemanticError::UnknownDerive {
+                                    name: name.clone(),
+                                    span: attr.span,
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// Process @derive attributes on an enum
+    fn process_enum_derives(&mut self, e: &Enum) {
+        for attr in &e.attrs {
+            if attr.name == "derive" {
+                for arg in &attr.args {
+                    if let AttributeArg::Ident(name) = arg {
+                        match name.as_str() {
+                            "Copy" => self.derive_copy_for_enum(e, attr.span),
+                            "Clone" => self.derive_clone_for_enum(e),
+                            "Eq" => self.derive_eq_for_enum(e),
+                            _ => {
+                                self.errors.push(SemanticError::UnknownDerive {
+                                    name: name.clone(),
+                                    span: attr.span,
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// Derive Copy for a struct - validates all fields are Copy
+    fn derive_copy_for_struct(&mut self, s: &Struct, span: Span) {
+        // Check that all fields are Copy types
+        for field in &s.fields {
+            let field_type = self.type_to_string(&field.ty);
+            if !self.is_type_copy(&field_type) {
+                self.errors.push(SemanticError::CannotDeriveCopy {
+                    type_name: s.name.clone(),
+                    field_name: field.name.clone(),
+                    field_type,
+                    span,
+                });
+                return;
+            }
+        }
+        // Mark this type as Copy
+        self.symbols.copy_types.insert(s.name.clone());
+    }
+
+    /// Derive Copy for an enum - validates all variants have Copy payloads
+    fn derive_copy_for_enum(&mut self, e: &Enum, span: Span) {
+        for variant in &e.variants {
+            match &variant.fields {
+                VariantFields::Unit => {}
+                VariantFields::Tuple(types) => {
+                    for ty in types {
+                        let type_str = self.type_to_string(ty);
+                        if !self.is_type_copy(&type_str) {
+                            self.errors.push(SemanticError::CannotDeriveCopy {
+                                type_name: e.name.clone(),
+                                field_name: format!("{}::(...)", variant.name),
+                                field_type: type_str,
+                                span,
+                            });
+                            return;
+                        }
+                    }
+                }
+                VariantFields::Struct(fields) => {
+                    for field in fields {
+                        let type_str = self.type_to_string(&field.ty);
+                        if !self.is_type_copy(&type_str) {
+                            self.errors.push(SemanticError::CannotDeriveCopy {
+                                type_name: e.name.clone(),
+                                field_name: format!("{}::{}", variant.name, field.name),
+                                field_type: type_str,
+                                span,
+                            });
+                            return;
+                        }
+                    }
+                }
+            }
+        }
+        // Mark this type as Copy
+        self.symbols.copy_types.insert(e.name.clone());
+    }
+
+    /// Derive Clone for a struct
+    fn derive_clone_for_struct(&mut self, s: &Struct) {
+        let fields: Vec<(String, String)> = s.fields
+            .iter()
+            .map(|f| (f.name.clone(), self.type_to_string(&f.ty)))
+            .collect();
+
+        self.symbols.derived_impls.push(DerivedImpl {
+            trait_name: "Clone".to_string(),
+            type_name: s.name.clone(),
+            generics: s.generics.clone(),
+            fields,
+        });
+
+        // Register in trait_impls for method dispatch
+        self.symbols.trait_impls.insert(
+            (s.name.clone(), "Clone".to_string()),
+            vec!["clone".to_string()],
+        );
+    }
+
+    /// Derive Clone for an enum
+    fn derive_clone_for_enum(&mut self, e: &Enum) {
+        // For enums, we store variant info as fields (simplified)
+        let fields: Vec<(String, String)> = Vec::new();
+
+        self.symbols.derived_impls.push(DerivedImpl {
+            trait_name: "Clone".to_string(),
+            type_name: e.name.clone(),
+            generics: e.generics.clone(),
+            fields,
+        });
+
+        self.symbols.trait_impls.insert(
+            (e.name.clone(), "Clone".to_string()),
+            vec!["clone".to_string()],
+        );
+    }
+
+    /// Derive Eq for a struct
+    fn derive_eq_for_struct(&mut self, s: &Struct) {
+        let fields: Vec<(String, String)> = s.fields
+            .iter()
+            .map(|f| (f.name.clone(), self.type_to_string(&f.ty)))
+            .collect();
+
+        self.symbols.derived_impls.push(DerivedImpl {
+            trait_name: "Eq".to_string(),
+            type_name: s.name.clone(),
+            generics: s.generics.clone(),
+            fields,
+        });
+
+        // Register in trait_impls for method dispatch
+        self.symbols.trait_impls.insert(
+            (s.name.clone(), "Eq".to_string()),
+            vec!["eq".to_string()],
+        );
+    }
+
+    /// Derive Eq for an enum
+    fn derive_eq_for_enum(&mut self, e: &Enum) {
+        let fields: Vec<(String, String)> = Vec::new();
+
+        self.symbols.derived_impls.push(DerivedImpl {
+            trait_name: "Eq".to_string(),
+            type_name: e.name.clone(),
+            generics: e.generics.clone(),
+            fields,
+        });
+
+        self.symbols.trait_impls.insert(
+            (e.name.clone(), "Eq".to_string()),
+            vec!["eq".to_string()],
+        );
+    }
+
+    /// Derive Hash for a struct
+    fn derive_hash_for_struct(&mut self, s: &Struct) {
+        let fields: Vec<(String, String)> = s.fields
+            .iter()
+            .map(|f| (f.name.clone(), self.type_to_string(&f.ty)))
+            .collect();
+
+        self.symbols.derived_impls.push(DerivedImpl {
+            trait_name: "Hash".to_string(),
+            type_name: s.name.clone(),
+            generics: s.generics.clone(),
+            fields,
+        });
+
+        // Register in trait_impls for method dispatch
+        self.symbols.trait_impls.insert(
+            (s.name.clone(), "Hash".to_string()),
+            vec!["hash".to_string()],
+        );
+    }
+
+    /// Derive Hash for an enum
+    fn derive_hash_for_enum(&mut self, e: &Enum) {
+        let fields: Vec<(String, String)> = Vec::new();
+
+        self.symbols.derived_impls.push(DerivedImpl {
+            trait_name: "Hash".to_string(),
+            type_name: e.name.clone(),
+            generics: e.generics.clone(),
+            fields,
+        });
+
+        self.symbols.trait_impls.insert(
+            (e.name.clone(), "Hash".to_string()),
+            vec!["hash".to_string()],
+        );
+    }
+
+    /// Check if a type is Copy (either primitive or @derive(Copy))
+    fn is_type_copy(&self, ty: &str) -> bool {
+        // Check primitive Copy types
+        if is_copy_type(ty) {
+            return true;
+        }
+        // Check if it's been marked as Copy via @derive
+        if self.symbols.copy_types.contains(ty) {
+            return true;
+        }
+        // Check for user-defined types that might be Copy (generic type args)
+        if self.current_type_params.contains(&ty.to_string()) {
+            // Type parameters are conservatively treated as potentially Copy
+            // The actual check happens at monomorphization
+            return true;
+        }
+        false
     }
 }
 

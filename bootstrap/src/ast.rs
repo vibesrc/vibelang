@@ -2,6 +2,29 @@
 
 use crate::lexer::Span;
 
+/// An attribute attached to an item: @derive(Copy, Clone)
+#[derive(Debug, Clone)]
+pub struct Attribute {
+    pub name: String,              // "derive", "test", "cfg"
+    pub args: Vec<AttributeArg>,   // [Copy, Clone] or [name="value"]
+    pub span: Span,
+}
+
+#[derive(Debug, Clone)]
+pub enum AttributeArg {
+    Ident(String),                                    // Copy
+    KeyValue { key: String, value: AttributeValue },  // name="foo"
+    Nested { name: String, args: Vec<AttributeArg> }, // not(debug)
+}
+
+#[derive(Debug, Clone)]
+pub enum AttributeValue {
+    Bool(bool),
+    Int(i64),
+    String(String),
+    Ident(String),
+}
+
 #[derive(Debug, Clone)]
 pub struct Program {
     pub items: Vec<Item>,
@@ -27,6 +50,7 @@ pub struct Function {
     pub return_type: Option<Type>,
     pub body: Block,
     pub is_pub: bool,
+    pub attrs: Vec<Attribute>,
     pub span: Span,
 }
 
@@ -44,6 +68,7 @@ pub struct Struct {
     pub bounds: Vec<(String, String)>,  // Type bounds: [(T, Hash), (T, Eq)]
     pub fields: Vec<Field>,
     pub is_pub: bool,
+    pub attrs: Vec<Attribute>,
     pub span: Span,
 }
 
@@ -52,6 +77,7 @@ pub struct Field {
     pub name: String,
     pub ty: Type,
     pub is_pub: bool,
+    pub attrs: Vec<Attribute>,
     pub span: Span,
 }
 
@@ -61,6 +87,7 @@ pub struct Enum {
     pub generics: Vec<String>,
     pub variants: Vec<Variant>,
     pub is_pub: bool,
+    pub attrs: Vec<Attribute>,
     pub span: Span,
 }
 
@@ -68,6 +95,7 @@ pub struct Enum {
 pub struct Variant {
     pub name: String,
     pub fields: VariantFields,
+    pub attrs: Vec<Attribute>,
     pub span: Span,
 }
 
@@ -85,6 +113,7 @@ pub struct Impl {
     pub bounds: Vec<(String, String)>,  // Type bounds: [(T, Hash), (T, Eq)]
     pub target: Type,
     pub methods: Vec<Function>,
+    pub attrs: Vec<Attribute>,
     pub span: Span,
 }
 
@@ -95,6 +124,7 @@ pub struct Trait {
     pub supertraits: Vec<String>,       // trait Ord: Eq
     pub methods: Vec<TraitMethod>,
     pub is_pub: bool,
+    pub attrs: Vec<Attribute>,
     pub span: Span,
 }
 
@@ -115,6 +145,7 @@ pub struct Static {
     pub ty: Option<Type>,
     pub value: Expr,
     pub is_pub: bool,
+    pub attrs: Vec<Attribute>,
     pub span: Span,
 }
 
